@@ -1,0 +1,14 @@
+{
+  "name": "drydock",
+  "owner": { "name": "Daniel Paez", "url": "https://github.com/danizeap" },
+  "plugins": [
+    {
+      "name": "drydock",
+      "source": "./",
+      "description": "Where vibe code becomes seaworthy. SDD+ methodology with a security layer: 12 governed skills, lifecycle commands, git/secrets safety hooks, an independent verifier, and LaunchGuardian security gates.",
+      "version": "0.1.0",
+      "category": "development",
+      "keywords": ["sdd", "security", "vibe-coding", "governance"]
+    }
+  ]
+}
