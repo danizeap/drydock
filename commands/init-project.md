@@ -9,6 +9,7 @@ Initialize Drydock in this project. Scaffold source: `${CLAUDE_PLUGIN_ROOT}/asse
 4. Run `python scripts/sdd.py init` to ensure the directory structure.
 5. **Brownfield repos:** offer to run the `codebase-cartographer` skill to produce initial repo maps, and `/drydock:init-standards` to generate stack-specific standards.
 6. **Greenfield repos:** start the first-run context interview and create `PROJECT_CONTEXT.md` from the template.
-7. Report exactly what was created, what was kept, and the recommended next step (`/drydock:onboard` for first-time users).
+7. **Scanner check.** Detect whether the LaunchGuardian scanner is installed (`launchguardian --version`). If missing, tell the Owner: "Drydock's security gates use an optional local scanner. Install it with `pip install launchguardian` — everything else works without it, but release reviews will report INCOMPLETE until it's present." Offer to run the install now if the Owner wants.
+8. Report exactly what was created, what was kept, whether the scanner is available, and the recommended next step (`/drydock:onboard` for first-time users).
 
 Portability note: if the Owner also uses non-Claude agents (e.g. Codex) in this repo, offer to additionally copy the plugin's `skills/` into the project's `.claude/skills/` so the full skill definitions live in project files all agents can read. Mention the tradeoff: project copies do not auto-update with the plugin.

@@ -11,6 +11,10 @@ This skill graduated into the `launchguardian-cli` tool. It remains registered s
 
 Local-only. Owned repos only. No unauthorized scanning, no third-party targets, no offensive exploitation, no credential abuse, no active web scanning. Never claim a repo is safe without evidence. Never replace human review for high-risk launches.
 
+## Availability check
+
+Before running commands, check the scanner is installed (`launchguardian --version`). If missing, tell the Owner: install with `pip install launchguardian` (PyPI). Scans without it report INCOMPLETE with scanner_unavailable findings — never present such a run as a completed security review.
+
 ## Commands
 
 ```bash

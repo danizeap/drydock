@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Surface the optional LaunchGuardian scanner (`pip install launchguardian`) at first touch: scanner detection in `/drydock:init-project`, a pointer in `/drydock:onboard`'s closing recap, and an availability check in the launchguardian skill before any scan commands.
+
+
 ## 0.1.0 — first public release
 
 - Drydock plugin: 12 governed skills, 9 lifecycle commands, independent `verifier` subagent.
