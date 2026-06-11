@@ -13,6 +13,8 @@ Vibe coding has a known problem: the code works until it doesn't, and nobody can
 /plugin install drydock@drydock
 ```
 
+Using another AI to learn Drydock? Point it at `docs/AI_OPERATOR_GUIDE.md`.
+
 Then, inside any project:
 
 ```
