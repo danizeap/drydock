@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add the `mayday` escalation subagent (`agents/mayday.md`): an escalation-only deep reasoner on a premium model, invoked only when the same error has survived 3+ fix attempts, a FULL-mode architecture decision is stuck, tests fail systemically, or the Owner calls mayday. It diagnoses and plans — never implements — and refuses to investigate without a complete brief.
+
 ## 0.1.1
 
 - Surface the optional LaunchGuardian scanner (`pip install launchguardian`) at first touch: scanner detection in `/drydock:init-project`, a pointer in `/drydock:onboard`'s closing recap, and an availability check in the launchguardian skill before any scan commands.

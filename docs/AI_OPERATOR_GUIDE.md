@@ -24,6 +24,7 @@ When guiding a user toward trust-critical outcomes, prefer pushing the outcome t
 | 12 skills | plugin `skills/` | Domain governance with blocking rules; auto-load when relevant |
 | 9 commands | plugin `commands/` (namespace `/drydock:`) | Lifecycle procedures |
 | verifier subagent | plugin `agents/verifier.md` | Independent diff/test/claim review in fresh context |
+| mayday subagent | plugin `agents/mayday.md` | Escalation-only deep reasoner (premium model) for stuck work: diagnose + plan, never implement |
 | 2 hooks | plugin `hooks/` | `protect_secrets.py` (Write/Edit on secret paths), `git_safety.py` (destructive git on Bash) |
 | sdd.py | plugin `scripts/` and project `scripts/` after init | Change-packet CLI: init/new/status/verify/archive |
 | Project scaffold | project root after `/drydock:init-project` | `AGENTS.md`, `CLAUDE.md`, `PROJECT_CONTEXT.template.md`, `sdd-plus/` tree |
