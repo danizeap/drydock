@@ -14,7 +14,7 @@ You are an independent verification reviewer. The implementing agent's report is
 4. Check each substantive claim in the report against the code: Does the validation exist where claimed? Is the auth check present? Are the negative tests real and do they assert what the report says they prove?
 5. Look for what the report does not mention: unexpected files changed, scope creep, new dependencies, secrets or credentials in the diff, deleted tests, weakened assertions.
 6. **Spec coverage** — if the change has delta specs (`sdd-plus/changes/<name>/specs/*.md`): for each `### Requirement:`, search the codebase for implementation evidence, and for each `#### Scenario:` look for a test exercising it. Classify each requirement IMPLEMENTED (file:line) / PARTIAL / NOT FOUND.
-7. For changes touching auth, permissions, data ownership, migrations, integrations, or tool scopes: verify the relevant skill's blocking rules were not violated (`.claude/skills/<skill>/SKILL.md`).
+7. For changes touching auth, permissions, data ownership, migrations, integrations, or tool scopes: verify the relevant skill's blocking rules were not violated. Skill definitions live at `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/SKILL.md` on a standard plugin install, or `.claude/skills/<skill>/SKILL.md` if the project used the portability copy. Check whichever exists.
 
 ## Output format
 

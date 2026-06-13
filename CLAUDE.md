@@ -6,7 +6,7 @@ Read `AGENTS.md` for the full SDD+ operating rules. This file covers only what i
 
 - **Skills are the operating procedures.** The SDD+ skills ship with the Drydock plugin and load automatically when relevant. Do not preload skills; let the task trigger them.
 - **The verifier subagent replaces external verification.** After meaningful implementation work, invoke the `verifier` subagent to independently check the diff, tests, and evidence claims. Your own report is evidence, not verification.
-- **Hooks enforce hard guardrails.** Secrets-path protection runs as a PreToolUse hook. Do not attempt to edit files the hook blocks; tell the Owner instead.
+- **Hooks enforce hard guardrails.** Two PreToolUse hooks run automatically: secrets-path protection (blocks writes to .env, credentials, key files) and git-safety (blocks destructive git commands like force-push and hard reset). Do not attempt actions the hooks block; tell the Owner instead.
 
 ## First-run rule
 

@@ -18,7 +18,8 @@ from pathlib import Path
 
 REQUIRED_FILES = ["brief.md", "plan.md", "tasks.md", "decision-log.md", "verification.md"]
 SDD_DIRS = ["sdd-plus", "sdd-plus/standards", "sdd-plus/specs",
-            "sdd-plus/changes", "sdd-plus/archive", "sdd-plus/templates"]
+            "sdd-plus/specs/capabilities", "sdd-plus/changes",
+            "sdd-plus/archive", "sdd-plus/templates"]
 KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 PLACEHOLDER = re.compile(r"^\s*-?\s*TBD\s*$", re.MULTILINE)
 
@@ -166,7 +167,7 @@ def cmd_archive(name: str, force: bool) -> None:
         sys.exit(
             "error: delta specs reference capabilities with no living spec yet: "
             + ", ".join(unsynced)
-            + ". Run the spec-sync skill (/sdd:sync) first, or rerun with --force."
+            + ". Run the spec-sync skill (/drydock:sync) first, or rerun with --force."
         )
     _, pending = task_counts(change_dir / "tasks.md")
     if (pending > 0 or rc != 0) and not force:
