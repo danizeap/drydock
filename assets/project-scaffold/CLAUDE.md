@@ -6,7 +6,7 @@ Read `AGENTS.md` for the full SDD+ operating rules. This file covers only what i
 
 - **Skills are the operating procedures.** The SDD+ skills ship with the Drydock plugin and load automatically when relevant. Do not preload skills; let the task trigger them.
 - **The verifier subagent replaces external verification.** After meaningful implementation work, invoke the `verifier` subagent to independently check the diff, tests, and evidence claims. Your own report is evidence, not verification.
-- **Hooks enforce hard guardrails.** Secrets-path protection runs as a PreToolUse hook. Do not attempt to edit files the hook blocks; tell the Owner instead.
+- **Hooks enforce hard guardrails.** Two PreToolUse hooks run automatically: secrets-path protection (blocks writes to .env, credentials, key files) and git-safety (blocks destructive git commands like force-push and hard reset). Do not attempt actions the hooks block; tell the Owner instead.
 
 ## First-run rule
 
@@ -37,12 +37,15 @@ FULL means maximum relevant rigor, not maximum volume. An artifact is required o
 
 ## SDD+ commands
 
+Run `sdd.py` with an available Python 3.9+ interpreter: `python3` on macOS/Linux, `python` on Windows (the `py` launcher also works on Windows).
+
 ```bash
-python scripts/sdd.py init
-python scripts/sdd.py new <kebab-change-name>
-python scripts/sdd.py status
-python scripts/sdd.py verify <kebab-change-name>
-python scripts/sdd.py archive <kebab-change-name>
+# python3 on macOS/Linux; python on Windows
+python3 scripts/sdd.py init
+python3 scripts/sdd.py new <kebab-change-name>
+python3 scripts/sdd.py status
+python3 scripts/sdd.py verify <kebab-change-name>
+python3 scripts/sdd.py archive <kebab-change-name>
 ```
 
 Run `verify` before calling any meaningful change complete. For deployable work, run LaunchGuardian (`launchguardian-cli`) before declaring launch-ready.

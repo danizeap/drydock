@@ -37,12 +37,15 @@ FULL means maximum relevant rigor, not maximum volume. An artifact is required o
 
 ## SDD+ commands
 
+Run `sdd.py` with an available Python 3.9+ interpreter: `python3` on macOS/Linux, `python` on Windows (the `py` launcher also works on Windows).
+
 ```bash
-python scripts/sdd.py init
-python scripts/sdd.py new <kebab-change-name>
-python scripts/sdd.py status
-python scripts/sdd.py verify <kebab-change-name>
-python scripts/sdd.py archive <kebab-change-name>
+# python3 on macOS/Linux; python on Windows
+python3 scripts/sdd.py init
+python3 scripts/sdd.py new <kebab-change-name>
+python3 scripts/sdd.py status
+python3 scripts/sdd.py verify <kebab-change-name>
+python3 scripts/sdd.py archive <kebab-change-name>
 ```
 
 Run `verify` before calling any meaningful change complete. For deployable work, run LaunchGuardian (`launchguardian-cli`) before declaring launch-ready.

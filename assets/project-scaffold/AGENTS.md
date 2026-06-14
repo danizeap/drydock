@@ -51,14 +51,16 @@ Core principles: plan before code; map before change; one primary skill by defau
 
 Specs are the source of truth; code is an implementation artifact. Living capability specs live in `sdd-plus/specs/capabilities/<capability>.md`; change packets carry *delta specs* (`changes/<name>/specs/<capability>.md`, format in `sdd-plus/templates/spec-delta.md`) written as testable SHALL requirements with WHEN/THEN scenarios.
 
+Run `sdd.py` with an available Python 3.9+ interpreter: `python3` on macOS/Linux, `python` on Windows (the `py` launcher also works).
+
 For meaningful changes:
 
 1. Read `PROJECT_CONTEXT.md` and relevant files in `sdd-plus/standards/`.
-2. Create or select an active change (`python scripts/sdd.py new <name>` or `/drydock:new`).
+2. Create or select an active change (`python3 scripts/sdd.py new <name>` or `/drydock:new`).
 3. If the change modifies system behavior, write delta specs before implementing.
 4. Keep edits aligned with the active change packet; update `tasks.md`, `decision-log.md`, and `verification.md` as work progresses.
 5. Verify before calling work complete (`/drydock:verify`): artifacts, tasks, requirement→implementation coverage, independent verifier review.
-6. Archive through the gates (`/drydock:archive`): verification → spec sync (`spec-sync` skill) → API blocking rule (no undocumented API changes) → documentation updates → `python scripts/sdd.py archive <name>`.
+6. Archive through the gates (`/drydock:archive`): verification → spec sync (`spec-sync` skill) → API blocking rule (no undocumented API changes) → documentation updates → `python3 scripts/sdd.py archive <name>`.
 
 Claude Code users have these as slash commands: `/drydock:new`, `/drydock:status`, `/drydock:verify`, `/drydock:sync`, `/drydock:archive`, `/drydock:explore`, `/drydock:init-standards`. Agents without plugin support follow the same procedures: each command above corresponds to a documented procedure (ask the Owner to copy them into the project via /drydock:init-project's portability option if needed), and the lifecycle is fully described in this file and `sdd-plus/protocols/framework-usage.md`.
 

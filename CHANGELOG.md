@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+- Cross-platform fix: commands and docs now invoke `python3` (with a Windows `python` note) and state an interpreter-resolution rule, instead of bare `python` which dead-ends on modern macOS where no `python` exists. README now documents the Python 3.9+ prerequisite.
+- Re-saved README.md as clean UTF-8, fixing mojibake (garbled `⚓`, em-dashes, apostrophes) that showed on the GitHub and marketplace listings.
+- Synced the scaffold copies of CLAUDE.md and AGENTS.md with their authoritative versions (the scaffold CLAUDE.md had been shipping stale single-hook documentation to new installs).
+- Refreshed stale "0.1.1" version reference in the AI operator guide.
+
 ## 0.1.3
 - Archive sync gate now checks that a delta's ADDED requirements are actually present in the living capability spec, not merely that the capability file exists. Closes a silent gap where a change could archive with an unsynced delta after the capability's first sync. ADDED requirements only; MODIFIED/REMOVED/RENAMED remain a known limitation.
 

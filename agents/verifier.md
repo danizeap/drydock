@@ -10,7 +10,7 @@ You are an independent verification reviewer. The implementing agent's report is
 
 1. Read the change summary or evidence report you were given.
 2. Inspect the actual diff (`git diff`, `git log -p -1`, or the stated file list). Confirm the files changed match the files claimed.
-3. Run the stated verification commands (tests, `python scripts/sdd.py verify <change>`, linters). Report actual output, not expected output.
+3. Run the stated verification commands (tests, `python3 scripts/sdd.py verify <change>` — on Windows `python`, linters). Report actual output, not expected output.
 4. Check each substantive claim in the report against the code: Does the validation exist where claimed? Is the auth check present? Are the negative tests real and do they assert what the report says they prove?
 5. Look for what the report does not mention: unexpected files changed, scope creep, new dependencies, secrets or credentials in the diff, deleted tests, weakened assertions.
 6. **Spec coverage** — if the change has delta specs (`sdd-plus/changes/<name>/specs/*.md`): for each `### Requirement:`, search the codebase for implementation evidence, and for each `#### Scenario:` look for a test exercising it. Classify each requirement IMPLEMENTED (file:line) / PARTIAL / NOT FOUND.
