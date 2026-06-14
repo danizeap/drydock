@@ -110,6 +110,64 @@ def delta_capabilities(change_dir: Path) -> list[str]:
     return caps
 
 
+def delta_capabilities_in_file(delta_file: Path) -> list[str]:
+    """The capability(ies) declared in a single delta file."""
+    caps = []
+    for line in delta_file.read_text(encoding="utf-8-sig").splitlines():
+        if line.lower().startswith("capability:"):
+            cap = line.split(":", 1)[1].strip().strip("`<>")
+            if cap and not cap.startswith("kebab-capability"):
+                caps.append(cap)
+            break
+    return caps
+
+
+def delta_added_requirements(delta_file: Path) -> list[str]:
+    """Requirement names the delta ADDS, per the spec-delta template grammar:
+    `### Requirement: <name>` headings appearing under a `## ADDED Requirements`
+    section. Used to confirm the living spec actually contains them — i.e. the
+    delta was synced, not just that the capability file exists. MODIFIED/REMOVED/
+    RENAMED are intentionally not checked here (rarer, harder; see decision-log)."""
+    reqs = []
+    in_added = False
+    in_code = False
+    for line in delta_file.read_text(encoding="utf-8-sig").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        m_section = re.match(r"^##\s+(\w+)\s+Requirements\s*$", line, re.IGNORECASE)
+        if m_section:
+            in_added = m_section.group(1).upper() == "ADDED"
+            continue
+        if in_added:
+            m_req = re.match(r"^###\s+Requirement:\s*(.+?)\s*$", line, re.IGNORECASE)
+            if m_req:
+                name = m_req.group(1).strip().strip("`")
+                if name and not name.startswith("<"):
+                    reqs.append(name)
+    return reqs
+
+
+def requirement_present(living_spec: Path, requirement: str) -> bool:
+    """True if the living spec contains a heading matching this requirement text."""
+    if not living_spec.is_file():
+        return False
+    needle = requirement.lower().strip()
+    in_code = False
+    for line in living_spec.read_text(encoding="utf-8-sig").splitlines():
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if line.lstrip().startswith("#") and needle in line.lower():
+            return True
+    return False
+
+
 def cmd_status() -> None:
     root = find_root()
     changes_root = root / "sdd-plus" / "changes"
@@ -159,15 +217,31 @@ def cmd_archive(name: str, force: bool) -> None:
     rc = cmd_verify(name)
     root = find_root()
     change_dir = root / "sdd-plus" / "changes" / name
+    caps_dir = root / "sdd-plus" / "specs" / "capabilities"
     unsynced = [
         cap for cap in delta_capabilities(change_dir)
-        if not (root / "sdd-plus" / "specs" / "capabilities" / f"{cap}.md").is_file()
+        if not (caps_dir / f"{cap}.md").is_file()
     ]
     if unsynced and not force:
         sys.exit(
             "error: delta specs reference capabilities with no living spec yet: "
             + ", ".join(unsynced)
             + ". Run the spec-sync skill (/drydock:sync) first, or rerun with --force."
+        )
+    missing_reqs = []
+    for delta_file in delta_spec_files(change_dir):
+        file_caps = delta_capabilities_in_file(delta_file)
+        for cap in file_caps:
+            living = caps_dir / f"{cap}.md"
+            for req in delta_added_requirements(delta_file):
+                if not requirement_present(living, req):
+                    missing_reqs.append(f"{cap}: {req}")
+    if missing_reqs and not force:
+        sys.exit(
+            "error: these delta requirements are not present in the living spec "
+            "(delta not synced?):\n  - "
+            + "\n  - ".join(missing_reqs)
+            + "\nRun /drydock:sync first, or rerun with --force."
         )
     _, pending = task_counts(change_dir / "tasks.md")
     if (pending > 0 or rc != 0) and not force:

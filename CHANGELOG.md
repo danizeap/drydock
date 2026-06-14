@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.3
+- Archive sync gate now checks that a delta's ADDED requirements are actually present in the living capability spec, not merely that the capability file exists. Closes a silent gap where a change could archive with an unsynced delta after the capability's first sync. ADDED requirements only; MODIFIED/REMOVED/RENAMED remain a known limitation.
+
 ## 0.1.2
 - Fix stale `/sdd:sync` reference in `sdd.py` archive gate → now `/drydock:sync` (both the plugin copy and the distributed scaffold copy).
 - `init` now creates `sdd-plus/specs/capabilities/`, the directory the archive gate checks against; previously every delta read as unsynced on fresh installs.
