@@ -3,6 +3,8 @@ description: Start a new SDD+ change packet, with optional delta specs
 ---
 Create a new SDD+ change for: $ARGUMENTS
 
+Script resolution: use `./scripts/sdd.py` if it exists in the project, otherwise `"${CLAUDE_PLUGIN_ROOT}/scripts/sdd.py"`; if neither resolves, tell the Owner to run /drydock:init-project first. Invoke it with `python3` (on Windows: `python`).
+
 1. If no kebab-case change name can be derived from the arguments, propose one and confirm.
 2. Run `python3 scripts/sdd.py new <name>` (on Windows: `python`).
 3. Fill `brief.md` and `plan.md` from the conversation context — never leave TBD placeholders if the information exists. Run task intake per `sdd-plus/protocols/framework-usage.md` (mode, primary skill, approvals).

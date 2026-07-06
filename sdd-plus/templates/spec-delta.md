@@ -1,6 +1,8 @@
 # Spec Delta: {{CHANGE_NAME}}
 
-Capability: <kebab-capability-name, e.g. user-auth, lead-import>
+Capability: <capability-name>
+<!-- Exactly one kebab-case capability per delta file, e.g. user-auth or lead-import. -->
+
 
 Delta specs describe how this change modifies the living capability spec at
 `sdd-plus/specs/capabilities/<capability>.md`. Write requirements as testable

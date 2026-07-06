@@ -1,0 +1,2 @@
+# Keep the living-capability-specs directory in git so the archive sync gate
+# has somewhere to look on a fresh install. sdd.py init also creates it.

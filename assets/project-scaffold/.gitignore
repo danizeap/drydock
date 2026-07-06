@@ -1,6 +1,26 @@
 .env
 .env.*
 !.env.example
+!.env.template
+!.env.sample
+# private keys, keystores, and credential files (Drydock's secrets hook also blocks writing these)
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.ppk
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+.envrc
+credentials.json
+secrets.json
+secrets.yaml
+secrets.yml
+secrets.toml
+service-account*.json
 __pycache__/
 *.pyc
 node_modules/

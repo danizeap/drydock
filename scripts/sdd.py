@@ -21,7 +21,6 @@ SDD_DIRS = ["sdd-plus", "sdd-plus/standards", "sdd-plus/specs",
             "sdd-plus/specs/capabilities", "sdd-plus/changes",
             "sdd-plus/archive", "sdd-plus/templates"]
 KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-PLACEHOLDER = re.compile(r"^\s*-?\s*TBD\s*$", re.MULTILINE)
 
 
 def find_root(require: bool = True) -> Path:
@@ -32,7 +31,7 @@ def find_root(require: bool = True) -> Path:
             return candidate
     if require:
         sys.exit("error: no sdd-plus directory found in this or any parent directory. "
-                 "Run 'python scripts/sdd.py init' from the project root first.")
+                 "Run 'python3 scripts/sdd.py init' (on Windows: 'python') from the project root first.")
     return current
 
 
@@ -98,27 +97,35 @@ def delta_spec_files(change_dir: Path) -> list[Path]:
     return sorted(p for p in specs_dir.glob("*.md") if not p.name.endswith(".template"))
 
 
-def delta_capabilities(change_dir: Path) -> list[str]:
-    caps = []
-    for f in delta_spec_files(change_dir):
-        for line in f.read_text(encoding="utf-8-sig").splitlines():
-            if line.lower().startswith("capability:"):
-                cap = line.split(":", 1)[1].strip().strip("`<>")
-                if cap and not cap.startswith("kebab-capability"):
-                    caps.append(cap)
-                break
-    return caps
-
-
 def delta_capabilities_in_file(delta_file: Path) -> list[str]:
-    """The capability(ies) declared in a single delta file."""
-    caps = []
+    """The capability declared in a single delta file, if it is a valid kebab-case
+    name appearing outside any fenced code block. Returns [] when the line is
+    missing, still the placeholder, fenced, or not kebab-case — callers fail
+    closed on [] rather than skip the sync gate silently."""
+    in_code = False
     for line in delta_file.read_text(encoding="utf-8-sig").splitlines():
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
         if line.lower().startswith("capability:"):
-            cap = line.split(":", 1)[1].strip().strip("`<>")
-            if cap and not cap.startswith("kebab-capability"):
+            raw = line.split(":", 1)[1].strip()
+            if "<" in raw or ">" in raw:  # unfilled angle-bracket placeholder
+                return []
+            cap = raw.strip("`").strip()
+            if KEBAB.match(cap):
+                return [cap]
+            return []
+    return []
+
+
+def delta_capabilities(change_dir: Path) -> list[str]:
+    caps: list[str] = []
+    for f in delta_spec_files(change_dir):
+        for cap in delta_capabilities_in_file(f):
+            if cap not in caps:
                 caps.append(cap)
-            break
     return caps
 
 
@@ -138,9 +145,8 @@ def delta_added_requirements(delta_file: Path) -> list[str]:
             continue
         if in_code:
             continue
-        m_section = re.match(r"^##\s+(\w+)\s+Requirements\s*$", line, re.IGNORECASE)
-        if m_section:
-            in_added = m_section.group(1).upper() == "ADDED"
+        if re.match(r"^##(?!#)\s", line):  # any level-2 heading closes the ADDED section
+            in_added = bool(re.match(r"^##\s+ADDED\s+Requirements\s*$", line, re.IGNORECASE))
             continue
         if in_added:
             m_req = re.match(r"^###\s+Requirement:\s*(.+?)\s*$", line, re.IGNORECASE)
@@ -152,10 +158,12 @@ def delta_added_requirements(delta_file: Path) -> list[str]:
 
 
 def requirement_present(living_spec: Path, requirement: str) -> bool:
-    """True if the living spec contains a heading matching this requirement text."""
+    """True if the living spec has a `### Requirement: <name>` heading whose name
+    equals this requirement (whitespace/case-normalized). Exact name, not a
+    substring — so 'Session' does not match '### Requirement: Session Expiry'."""
     if not living_spec.is_file():
         return False
-    needle = requirement.lower().strip()
+    target = " ".join(requirement.strip().strip("`").lower().split())
     in_code = False
     for line in living_spec.read_text(encoding="utf-8-sig").splitlines():
         if line.strip().startswith("```"):
@@ -163,8 +171,49 @@ def requirement_present(living_spec: Path, requirement: str) -> bool:
             continue
         if in_code:
             continue
-        if line.lstrip().startswith("#") and needle in line.lower():
+        m = re.match(r"^#{2,4}\s+Requirement:\s*(.+?)\s*$", line, re.IGNORECASE)
+        if m:
+            name = " ".join(m.group(1).strip().strip("`").lower().split())
+            if name == target:
+                return True
+    return False
+
+
+def text_has_placeholder(text: str) -> bool:
+    """True if the text still carries template placeholder residue. Fenced blocks
+    and inline `code` spans are ignored, so a brief/decision-log that quotes a
+    placeholder form as an example is not flagged. Detects {{CHANGE_NAME}}, or TBD
+    as a whole line / list item / checkbox / real (non-quoted) table cell."""
+    in_code = False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        bare = re.sub(r"`[^`]*`", "", line)  # drop inline code spans (mentions)
+        if "{{CHANGE_NAME}}" in bare:
             return True
+        if re.match(r"^\s*-?\s*(\[[ xX]?\]\s*)?TBD\s*$", bare):
+            return True
+        if bare.lstrip().startswith("|") and re.search(r"\|\s*TBD\s*\|", bare):
+            return True
+    return False
+
+
+def verification_result_is_pending(text: str) -> bool:
+    """True if verification.md's `## Result` section is empty or still 'Pending.'."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"^##\s+Result\s*$", line, re.IGNORECASE):
+            collected = []
+            for nxt in lines[i + 1:]:
+                if re.match(r"^#{1,6}\s", nxt):
+                    break
+                if nxt.strip():
+                    collected.append(nxt.strip())
+            joined = " ".join(collected).strip().lower().rstrip(".")
+            return joined in ("", "pending")
     return False
 
 
@@ -200,7 +249,9 @@ def cmd_verify(name: str) -> int:
     unfilled = []
     for fname in REQUIRED_FILES:
         text = (change_dir / fname).read_text(encoding="utf-8-sig")
-        if PLACEHOLDER.search(text) or "{{CHANGE_NAME}}" in text:
+        if text_has_placeholder(text) or (
+            fname == "verification.md" and verification_result_is_pending(text)
+        ):
             unfilled.append(fname)
 
     complete, pending = task_counts(change_dir / "tasks.md")
@@ -218,6 +269,14 @@ def cmd_archive(name: str, force: bool) -> None:
     root = find_root()
     change_dir = root / "sdd-plus" / "changes" / name
     caps_dir = root / "sdd-plus" / "specs" / "capabilities"
+    unattributable = [f.name for f in delta_spec_files(change_dir)
+                      if not delta_capabilities_in_file(f)]
+    if unattributable and not force:
+        sys.exit(
+            "error: delta spec(s) with no valid 'Capability:' line: "
+            + ", ".join(unattributable)
+            + ". Add a kebab-case Capability line, or rerun with --force."
+        )
     unsynced = [
         cap for cap in delta_capabilities(change_dir)
         if not (caps_dir / f"{cap}.md").is_file()

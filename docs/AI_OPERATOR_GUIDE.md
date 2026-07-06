@@ -24,7 +24,7 @@ When guiding a user toward trust-critical outcomes, prefer pushing the outcome t
 | 12 skills | plugin `skills/` | Domain governance with blocking rules; auto-load when relevant |
 | 9 commands | plugin `commands/` (namespace `/drydock:`) | Lifecycle procedures |
 | verifier subagent | plugin `agents/verifier.md` | Independent diff/test/claim review in fresh context |
-| 2 hooks | plugin `hooks/` | `protect_secrets.py` (Write/Edit on secret paths), `git_safety.py` (destructive git on Bash) |
+| 2 hooks | plugin `hooks/` | `protect_secrets.py` (secret paths on Write/Edit + Bash writes), `git_safety.py` (destructive git on Bash, token-parsed) |
 | sdd.py | plugin `scripts/` and project `scripts/` after init | Change-packet CLI: init/new/status/verify/archive |
 | Project scaffold | project root after `/drydock:init-project` | `AGENTS.md`, `CLAUDE.md`, `PROJECT_CONTEXT.template.md`, `sdd-plus/` tree |
 | LaunchGuardian Framework (LGF) | project `sdd-plus/specs/launchguardian-framework.md` + `sdd-plus/security/` | 22 launch gates, severity and skip rules |
@@ -104,7 +104,7 @@ Runs the `spec-sync` skill: merges the packet's delta specs into `sdd-plus/specs
 2. Spec sync confirmed (archiving unsynced requires the Owner's explicit choice)
 3. **API blocking rule**: if any API contract changed (endpoints, shapes, auth behavior, status codes, webhooks), the capability spec and API docs MUST be updated first. No undocumented API changes ship.
 4. Documentation updates per documentation standards
-5. `python3 scripts/sdd.py archive <name>` — independently re-checks tasks/placeholders, and EXITS WITH ERROR if delta specs reference capabilities with no living spec file (deterministic never-synced gate). `--force` only with the Owner's explicit approval.
+5. `python3 scripts/sdd.py archive <name>` — deterministic gates that EXIT WITH ERROR (unless `--force`): leftover template placeholders (whole-line/checkbox/table `TBD`, `{{CHANGE_NAME}}`, a still-`Pending.` Result); a delta spec with no valid kebab `Capability:` line (fail-closed, not silently skipped); a delta capability with no living spec file; and any ADDED requirement not present by exact name in the living spec. `--force` only with the Owner's explicit approval.
 6. Deployable change → remind about LaunchGuardian review.
 
 ### 4.6 sdd.py reference
@@ -162,9 +162,9 @@ Both hooks return exit 2 with a reason on stderr. When a hook blocks:
 - DO: relay the reason to the Owner verbatim, explain why the rule exists, ask how they want to proceed.
 - DO NOT: retry with cosmetic variations, route around via a different tool, or treat the block as an error to debug.
 
-**protect_secrets.py** (Write/Edit/MultiEdit): blocks paths matching `.env*`, `*.pem`, `*.key`, `id_rsa*`, `credentials.*`, `secret(s).json|yaml|yml|toml`. Secret files are handled manually by the Owner, always.
+**protect_secrets.py** (Write/Edit/MultiEdit/Bash): blocks writes to secret-bearing paths — `.env`/`.env.*`/`*.env`, `.envrc`, `*.pem`/`*.key`, `id_rsa`/`id_ed25519`/`id_ecdsa`/`id_dsa`, keystores (`*.p12`/`*.pfx`/`*.jks`/`*.ppk`), `credentials.*`, `secret(s).json|yaml|yml|toml`, `service-account*.json` — including Bash writes (`>`, `>>`, `tee`, `cp`/`mv` targets). Example files (`.env.example`/`.template`/`.sample`) are allowed. Secret files are handled manually by the Owner, always.
 
-**git_safety.py** (Bash): blocks `git push --force`/`-f` (ALLOWS `--force-with-lease`), `reset --hard`, `clean -f*`, `branch -D`, `checkout -- .`, `restore .` (unstaged), `stash drop|clear`. If the Owner genuinely wants the operation, they run it themselves or explicitly approve a one-time bypass.
+**git_safety.py** (Bash): parses the command into tokens — so `git -C .`/`-c k=v` prefixes and quoted flags cannot bypass it, and a destructive string quoted inside a commit message does not false-positive — then blocks force/mirror/delete pushes and `+refspec` (ALLOWS `--force-with-lease`), `reset --hard`, `clean -f*`, `checkout .`/`-- .`/`-f`, `switch -f`, `restore .` (unless `--staged`), `branch -D`, `update-ref -d`, `reflog expire --expire=now`, `worktree remove --force`, and `stash drop|clear`. If the Owner genuinely wants the operation, they run it themselves or explicitly tell the agent to proceed.
 
 ---
 

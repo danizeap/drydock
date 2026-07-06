@@ -1,0 +1,12 @@
+# Normalize line endings to LF in the repository so the root <-> scaffold
+# byte-identical parity (checked by scripts/check_sync.py) is stable across
+# platforms and checkouts. Prevents the CRLF/LF drift the enforcement audit found.
+* text=auto eol=lf
+
+# Binary assets: never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary

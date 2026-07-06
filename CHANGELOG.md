@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5 — enforcement-layer hardening (security)
+
+Fixes every high-severity finding from an enforcement-layer audit, shipped through Drydock's own SDD+ lifecycle (its first dogfood: a `PROJECT_CONTEXT.md` plus a verified, synced, archived change packet with living capability specs).
+
+- **Destructive-git hook, rewritten on token parsing.** `git_safety.py` now analyses commands as shell tokens instead of substrings. Closes bypasses via global flags (`git -C .`, `git -c k=v`) and quoted flags, and stops false-positiving on destructive strings quoted inside commit messages. Broadens coverage to `checkout .`/`switch -f`/`restore .` working-tree discards, `+refspec`/`--mirror`/`--delete` pushes, `update-ref -d`, `reflog expire`, and `worktree remove --force`. Honest block message (no phantom "one-time bypass").
+- **Secrets hook now covers Bash writes.** `protect_secrets.py` blocks output redirections, `tee`, and `cp`/`mv` into secret paths (previously only Write/Edit), adds modern key types (`id_ed25519`), keystores (`*.p12`/`*.pfx`/`*.jks`), `.envrc`, and `service-account.json`, and stops wrongly blocking `.env.example`/`.template`/`.sample`.
+- **Cross-platform hooks.** `hooks.json` invokes `python3 || python`, so the guardrails are no longer silently inert on Windows installs where `python3` is only a Store stub.
+- **Deterministic packet gates.** `verify`/`archive` now catch the shipped templates' own placeholder forms (checkbox `- [ ] TBD`, `| TBD |` table cells, a still-`Pending.` Result), match requirement names exactly (no substring false-pass), respect ADDED-section boundaries, and fail closed on a delta spec with no valid `Capability:` line. Fixed the `sdd.ps1` wrapper, which was broken for single-argument commands (`status`, `init`).
+- **First test suite and CI.** New `tests/` (117 tests) and GitHub Actions (Ubuntu + Windows × Python 3.9/3.12) running pytest, scaffold-parity, and live guardrail smoke-tests. `check_sync.py` now guards all 10 root↔scaffold pairs (was 1); `.gitattributes` enforces LF so the parity is stable across platforms.
+
 ## 0.1.4
 - Cross-platform fix: commands and docs now invoke `python3` (with a Windows `python` note) and state an interpreter-resolution rule, instead of bare `python` which dead-ends on modern macOS where no `python` exists. README now documents the Python 3.9+ prerequisite.
 - Re-saved README.md as clean UTF-8, fixing mojibake (garbled `⚓`, em-dashes, apostrophes) that showed on the GitHub and marketplace listings.
