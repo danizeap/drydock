@@ -264,29 +264,50 @@ def cmd_verify(name: str) -> int:
     return 1 if unfilled else 0
 
 
-def cmd_archive(name: str, force: bool) -> None:
+def record_override(change_dir: Path, waived: list, reason: str) -> None:
+    """Append an auditable override record to the change's decision-log.md.
+
+    Overrides travel with the packet into archive/, so a forced archive always
+    leaves a paper trail of which gate(s) were waived and why."""
+    entry = (f"\n## Override — {datetime.date.today().isoformat()}\n"
+             f"- Gates waived: {'; '.join(waived)}\n"
+             f"- Reason: {reason}\n")
+    with (change_dir / "decision-log.md").open("a", encoding="utf-8") as f:
+        f.write(entry)
+
+
+def cmd_archive(name: str, force: bool, reason: str = "") -> None:
+    if force and not reason:
+        sys.exit('error: --force requires --reason "<why>" so the override is auditable '
+                 "(it is recorded to the packet's decision-log.md). "
+                 f'e.g. archive {name} --force --reason "hotfix; tests tracked in #123".')
     rc = cmd_verify(name)
     root = find_root()
     change_dir = root / "sdd-plus" / "changes" / name
     caps_dir = root / "sdd-plus" / "specs" / "capabilities"
+    waived = []
     unattributable = [f.name for f in delta_spec_files(change_dir)
                       if not delta_capabilities_in_file(f)]
-    if unattributable and not force:
-        sys.exit(
-            "error: delta spec(s) with no valid 'Capability:' line: "
-            + ", ".join(unattributable)
-            + ". Add a kebab-case Capability line, or rerun with --force."
-        )
+    if unattributable:
+        if not force:
+            sys.exit(
+                "error: delta spec(s) with no valid 'Capability:' line: "
+                + ", ".join(unattributable)
+                + ". Add a kebab-case Capability line, or rerun with --force."
+            )
+        waived.append("unattributable delta specs (" + ", ".join(unattributable) + ")")
     unsynced = [
         cap for cap in delta_capabilities(change_dir)
         if not (caps_dir / f"{cap}.md").is_file()
     ]
-    if unsynced and not force:
-        sys.exit(
-            "error: delta specs reference capabilities with no living spec yet: "
-            + ", ".join(unsynced)
-            + ". Run the spec-sync skill (/drydock:sync) first, or rerun with --force."
-        )
+    if unsynced:
+        if not force:
+            sys.exit(
+                "error: delta specs reference capabilities with no living spec yet: "
+                + ", ".join(unsynced)
+                + ". Run the spec-sync skill (/drydock:sync) first, or rerun with --force."
+            )
+        waived.append("unsynced capabilities (" + ", ".join(unsynced) + ")")
     missing_reqs = []
     for delta_file in delta_spec_files(change_dir):
         file_caps = delta_capabilities_in_file(delta_file)
@@ -295,17 +316,24 @@ def cmd_archive(name: str, force: bool) -> None:
             for req in delta_added_requirements(delta_file):
                 if not requirement_present(living, req):
                     missing_reqs.append(f"{cap}: {req}")
-    if missing_reqs and not force:
-        sys.exit(
-            "error: these delta requirements are not present in the living spec "
-            "(delta not synced?):\n  - "
-            + "\n  - ".join(missing_reqs)
-            + "\nRun /drydock:sync first, or rerun with --force."
-        )
+    if missing_reqs:
+        if not force:
+            sys.exit(
+                "error: these delta requirements are not present in the living spec "
+                "(delta not synced?):\n  - "
+                + "\n  - ".join(missing_reqs)
+                + "\nRun /drydock:sync first, or rerun with --force."
+            )
+        waived.append("unsynced requirements (" + ", ".join(missing_reqs) + ")")
     _, pending = task_counts(change_dir / "tasks.md")
-    if (pending > 0 or rc != 0) and not force:
-        sys.exit("error: cannot archive with pending tasks or unfilled placeholders. "
-                 "Complete the packet or rerun with --force.")
+    if pending > 0 or rc != 0:
+        if not force:
+            sys.exit("error: cannot archive with pending tasks or unfilled placeholders. "
+                     "Complete the packet or rerun with --force.")
+        waived.append("pending tasks / unfilled placeholders")
+    if force and waived:
+        record_override(change_dir, waived, reason)
+        print(f"OVERRIDE recorded in decision-log.md: waived {len(waived)} gate(s) — {reason}")
     archive_root = root / "sdd-plus" / "archive"
     archive_root.mkdir(parents=True, exist_ok=True)
     target = archive_root / f"{datetime.date.today().isoformat()}-{name}"
@@ -327,6 +355,9 @@ def main() -> None:
     p_archive = sub.add_parser("archive")
     p_archive.add_argument("name")
     p_archive.add_argument("--force", action="store_true")
+    p_archive.add_argument("--reason", default="",
+                           help="required with --force: why the gate is being waived "
+                                "(recorded to the packet's decision-log.md)")
     args = parser.parse_args()
 
     if args.command == "init":
@@ -338,7 +369,7 @@ def main() -> None:
     elif args.command == "verify":
         sys.exit(cmd_verify(args.name))
     elif args.command == "archive":
-        cmd_archive(args.name, args.force)
+        cmd_archive(args.name, args.force, args.reason)
 
 
 if __name__ == "__main__":

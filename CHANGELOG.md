@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — autopilot floor
+
+Moves lifecycle *orientation* and *override governance* into the deterministic tier, so the agent is self-aware of project state and the guardrails prove themselves every session — the foundation for a protocol that governs itself. Shipped through Drydock's own lifecycle (third dogfood).
+
+- **`SessionStart` orientation hook (`hooks/session_orient.py`).** Read-only; fires every session; **silent outside a Drydock project** and **always exits 0** (it can only add context, never block or slow a session). In a Drydock project it injects state — PROJECT_CONTEXT filled/template/missing, active packets, pending tasks, unfilled verification — and a **guardrail liveness verdict** (probes `git_safety`/`protect_secrets` under this interpreter; "live" only on a genuine block + benign control + expected message; plus a static `hooks.json` wiring check). Designed against an adversarial red-team: bounded project discovery (never orients on a foreign or template repo), untrusted-`cwd` handling, `except BaseException` (SystemExit-safe), and derived-signals-only output (no file content or absolute paths).
+- **Governed `--force`.** `sdd.py archive --force` now requires `--reason "<why>"` and appends an auditable override record (date, gate(s) waived, reason) to the packet's `decision-log.md`, which travels into `archive/`. Bare `--force` is refused.
+
 ## 0.1.6 — release & update tooling
 
 Makes publishing reliable and updates discoverable, shipped through Drydock's own lifecycle (second dogfood: a verified, archived change packet with a living capability spec).

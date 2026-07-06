@@ -47,3 +47,15 @@ jobs:
           echo '{"tool_name":"Bash","tool_input":{"command":"echo K=v > .env"}}' | python hooks/protect_secrets.py
           [ $? -eq 2 ] || { echo "FAIL: protect_secrets did not block a Bash redirect to .env"; exit 1; }
           echo "guardrails live"
+
+      - name: SessionStart hook never fails a session (must always exit 0)
+        shell: bash
+        run: |
+          set +e
+          echo 'not valid json' | python hooks/session_orient.py
+          [ $? -eq 0 ] || { echo "FAIL: session_orient did not exit 0 on malformed stdin"; exit 1; }
+          echo '' | python hooks/session_orient.py
+          [ $? -eq 0 ] || { echo "FAIL: session_orient did not exit 0 on empty stdin"; exit 1; }
+          echo '{"source":"startup"}' | python hooks/session_orient.py
+          [ $? -eq 0 ] || { echo "FAIL: session_orient did not exit 0 on missing cwd"; exit 1; }
+          echo "session_orient exits 0"

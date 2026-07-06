@@ -1,4 +1,6 @@
 """Behavioral tests for the deterministic packet gates (change-packet-gates spec)."""
+import pytest
+
 import sdd
 
 
@@ -101,3 +103,33 @@ def test_capability_accepts_valid_kebab(tmp_path):
     f = tmp_path / "d.md"
     f.write_text("Capability: git-safety-hook\n", encoding="utf-8")
     assert sdd.delta_capabilities_in_file(f) == ["git-safety-hook"]
+
+
+# --- governed --force ------------------------------------------------------
+def test_force_without_reason_is_refused_before_touching_files():
+    # the reason check is first in cmd_archive, so it exits before any file access
+    with pytest.raises(SystemExit) as exc:
+        sdd.cmd_archive("some-change", force=True, reason="")
+    assert "--reason" in str(exc.value)
+
+
+def test_record_override_appends_auditable_entry(tmp_path):
+    log = tmp_path / "decision-log.md"
+    log.write_text("# Decision Log\n\n## Decisions\n", encoding="utf-8")
+    sdd.record_override(tmp_path, ["pending tasks", "unsynced capabilities (x)"], "hotfix per #123")
+    text = log.read_text(encoding="utf-8")
+    assert "## Override" in text
+    assert "pending tasks; unsynced capabilities (x)" in text
+    assert "hotfix per #123" in text
+    # append-only: the original content is preserved
+    assert "## Decisions" in text
+
+
+def test_record_override_is_append_only(tmp_path):
+    log = tmp_path / "decision-log.md"
+    log.write_text("# Decision Log\n", encoding="utf-8")
+    sdd.record_override(tmp_path, ["a"], "first")
+    sdd.record_override(tmp_path, ["b"], "second")
+    text = log.read_text(encoding="utf-8")
+    assert text.count("## Override") == 2
+    assert "first" in text and "second" in text

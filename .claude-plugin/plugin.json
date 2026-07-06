@@ -1,6 +1,6 @@
 {
   "name": "drydock",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Where vibe code becomes seaworthy. Spec-driven development with a safety layer: governed skills, security gates, deterministic hooks, and independent verification for AI-assisted coding.",
   "author": { "name": "Daniel Paez", "url": "https://github.com/danizeap" },
   "homepage": "https://github.com/danizeap/drydock",

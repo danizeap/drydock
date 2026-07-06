@@ -30,6 +30,21 @@ WHEN a delta spec file under the change's `specs/` directory yields no valid keb
 - **WHEN** a delta file's capability line is still an angle-bracket placeholder (e.g. `Capability: <capability-name>`)
 - **THEN** `archive` (without --force) exits non-zero naming that file
 
+### Requirement: Governed override
+`archive --force` SHALL require an accompanying `--reason "<text>"`; bare `--force` SHALL be refused with guidance. When `--force` actually waives one or more gates, an auditable override record (date, the gate(s) waived, the reason) SHALL be appended to the change's `decision-log.md` before the packet is moved — so the record travels with the packet into `archive/`.
+
+#### Scenario: Bare force is refused
+- **WHEN** `sdd.py archive <name> --force` runs without `--reason`
+- **THEN** it exits non-zero, telling the user that `--reason` is required, and moves nothing
+
+#### Scenario: Forced override is recorded
+- **WHEN** `sdd.py archive <name> --force --reason "<why>"` runs and one or more gates would otherwise fail
+- **THEN** a `## Override` entry naming the waived gate(s) and the reason is appended to `decision-log.md`, and the packet is then archived
+
+#### Scenario: Reason-only override without waived gates
+- **WHEN** `--force --reason` is given but no gate actually fails
+- **THEN** the archive proceeds and no override record is written (nothing was waived)
+
 ### Requirement: Exact requirement-name matching in the sync gate
 The archive sync gate SHALL treat a delta's ADDED requirement as synced only when a living-spec heading's requirement name equals the delta's requirement name after whitespace/case normalization — substring containment SHALL NOT count.
 
