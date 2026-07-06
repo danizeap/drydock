@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 — release & update tooling
+
+Makes publishing reliable and updates discoverable, shipped through Drydock's own lifecycle (second dogfood: a verified, archived change packet with a living capability spec).
+
+- **`scripts/release.py` — version lockstep + test-gated releases.** The version is declared in four hand-edited places (`plugin.json`, `marketplace.json`, the operator-guide `VERSION:` line, and the `CHANGELOG` heading) that kept drifting. `release.py <version>` bumps all of them together, refuses on a non-increasing version or missing CHANGELOG notes, runs the test suite + `check_sync`, and prints — never executes — the git publish commands. `release.py --check` detects drift and is wired into CI, so a version mismatch now fails the build. It immediately caught the operator guide, stale at 0.1.3 through four releases.
+- **Update-path docs.** README and the operator-guide troubleshooting table now cover the most common "plugin won't update" cause — a stale per-user marketplace clone — with the one-line fix, so users can self-serve.
+- **`docs/DEVELOPING.md`.** New maintainer guide: how updates actually reach users, local dev-install (run the plugin from your working tree for instant dogfooding), and the release process.
+- **Tests.** `tests/test_release.py` (9 tests; suite now 126), including a negative test proving `release.py` never invokes git.
+
 ## 0.1.5 — enforcement-layer hardening (security)
 
 Fixes every high-severity finding from an enforcement-layer audit, shipped through Drydock's own SDD+ lifecycle (its first dogfood: a `PROJECT_CONTEXT.md` plus a verified, synced, archived change packet with living capability specs).

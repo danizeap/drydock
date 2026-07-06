@@ -31,6 +31,9 @@ jobs:
       - name: Check root/scaffold parity
         run: python scripts/check_sync.py
 
+      - name: Check version consistency (no drift across manifests + docs)
+        run: python scripts/release.py --check
+
       - name: Smoke-test guardrails are live (must block with exit 2)
         shell: bash
         run: |

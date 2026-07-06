@@ -17,6 +17,8 @@ Vibe coding has a known problem: the code works until it doesn't, and nobody can
 
 Using another AI to learn Drydock? Point it at `docs/AI_OPERATOR_GUIDE.md`.
 
+**Updating:** `/plugin marketplace update drydock`, then `/plugin update drydock@drydock`, then restart. If an update won't take — usually a stale local marketplace clone — see [`docs/DEVELOPING.md`](docs/DEVELOPING.md) for the one-line fix. Maintainers: that file also covers local dev-install and the `scripts/release.py` release flow.
+
 Then, inside any project:
 
 ```
