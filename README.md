@@ -28,9 +28,11 @@ Then, inside any project:
 
 ## What you get
 
-**A safety layer that can't be talked out of.** Hooks block agent edits to secrets files (`.env`, keys, credentials) and stop destructive git commands (`push --force`, `reset --hard`, `clean -f`, stash drops) before they execute — deterministic code, not polite suggestions the model might ignore.
+**A safety layer that can't be talked out of.** Deterministic hooks run as code, not polite suggestions the model might ignore. Agent edits to secrets files (`.env`, keys, credentials — including through shell redirection) are blocked, and destructive git commands (`push --force`, `reset --hard`, `clean -f`, stash drops) are stopped before they execute.
 
-**Twelve governed skills** that load automatically when relevant: backend, frontend, api-contract, database-steward, testing, architect, codebase-cartographer, mcp-ranger (tool-permission governance), explainer, explore, spec-sync, and launchguardian. Each carries explicit blocking rules — a backend change with no auth on a data mutation, a webhook without signature verification, permission logic without negative tests: **BLOCKED**, with the reason stated.
+**It governs itself.** Three more hooks make the process self-driving, so non-experts stay safe without learning the machinery. Every session **orients itself** — project state, active changes, and a live self-test proving the guardrails still fire — and stays aware of it throughout. Ungoverned edits to narrow high-risk paths (new migrations, CI/CD configs, Dockerfiles) are **caught** with a one-line recovery path, while trivial edits flow free. And "done" is held to mean **verified done**: a change claimed complete with its verification still empty earns one nudge, never a silent pass. Every hook fails toward silence — it can slow a risky move, never break your session.
+
+**Twelve governed skills** that load automatically when relevant: backend, frontend, api-contract, database-steward, testing, architect, codebase-cartographer, mcp-ranger (tool-permission governance), explainer, explore-mode, spec-sync, and launchguardian. Each carries explicit blocking rules — a backend change with no auth on a data mutation, a webhook without signature verification, permission logic without negative tests: **BLOCKED**, with the reason stated.
 
 **A spec lifecycle that kills documentation drift.** Changes carry delta specs — testable SHALL requirements with WHEN/THEN scenarios — that merge into living capability specs when the change archives. Archive is gated: verification, spec sync, an API blocking rule (no undocumented API changes ship), then documentation. Your specs stay true because staying true is mechanical.
 

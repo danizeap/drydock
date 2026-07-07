@@ -1,5 +1,5 @@
 ---
-name: explore
+name: explore-mode
 description: Thinking-partner mode for exploring ideas, investigating problems, and clarifying requirements before any change exists. Use when the user wants to think something through, compare approaches, or understand a problem space - NOT to implement. Reading and investigating the codebase is allowed; writing code is never allowed.
 ---
 

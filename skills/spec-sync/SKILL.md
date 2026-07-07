@@ -24,7 +24,7 @@ Living capability specs at `sdd-plus/specs/capabilities/<capability>.md` are the
 - The delta is intent, not replacement — partial updates are the norm.
 - The operation must be idempotent: running twice produces the same living spec.
 - Never invent requirements that are in neither the delta nor the living spec.
-- If a MODIFIED/REMOVED/RENAMED target cannot be found in the living spec, stop and ask rather than guessing.
+- If a MODIFIED/REMOVED/RENAMED target cannot be found in the living spec, stop and ask rather than guessing — UNLESS the delta's end state already holds (the requirement is already gone; the TO heading already exists with the expected content). Treat that as already applied and report a no-op, so re-running a sync stays idempotent instead of blocking.
 - Show what you change as you go; this edit is itself subject to normal review.
 - Requirement style: "The system SHALL <behavior>" with `#### Scenario:` blocks using **WHEN/THEN** bullets. Keep new content in this style.
 

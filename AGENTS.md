@@ -30,16 +30,18 @@ Skill routing table (definitions ship with the Drydock plugin; if this project c
 | `codebase-cartographer` | Understanding an unfamiliar or stale repo; creating or refreshing durable repo maps before broad work |
 | `api-contract` | Designing or changing endpoint/interface contracts, webhooks, agent/tool APIs, versioning, or breaking changes — before implementation depends on them |
 | `database-steward` | Schemas, migrations, indexes, ownership, tenant isolation, retention, deletion, audit trails, backups, RAG/vector storage |
-| `backend` | Implementing or reviewing routes, services, auth enforcement, jobs, webhooks, integrations, server-side AI logic, or data mutations |
+| `backend` | Implementing or reviewing routes, services, auth enforcement, jobs, webhooks, integrations, server-side AI logic, data mutations, or deployment/CI/infrastructure config (paired with database-steward, mcp-ranger, launchguardian) |
 | `frontend` | Implementing approved designs, components, UI states, accessibility basics, and browser-side security without unauthorized redesign |
 | `testing` | Proving meaningful behavior: test design, regression coverage, negative permission tests, verification commands |
 | `mcp-ranger` | Adding or changing MCP servers, connectors, agent tools, automations, or any privileged integration's permissions and side effects |
 | `explainer` | Explaining a change or subsystem to the Owner in plain English and technical layers |
 | `launchguardian` | Deciding whether a project is safe enough to ship; release/security review (graduated into `launchguardian-cli`) |
-| `explore` | Thinking through an idea or problem before any change exists — investigation only, never implementation |
+| `explore-mode` | Thinking through an idea or problem before any change exists — investigation only, never implementation |
 | `spec-sync` | Merging a change's delta specs into the living capability specs (typically at archive time) |
 
 Statuses: all skills above are `active`; `launchguardian` is `graduated` (it became its own tool — the skill defines when to invoke it and what boundaries apply).
+
+Deployment, CI/CD, and infrastructure config (pipelines, Dockerfiles, deploy scripts, IaC) is implemented under the `backend` skill, paired with `database-steward` for schema and migrations, `mcp-ranger` for the credentials and side effects of the automation, and `launchguardian` for the ship / no-ship review. Treat all of it as high-impact — it requires human approval, and the packet-guard hook denies ungoverned edits to new CI configs, Dockerfiles, and migration files.
 
 ## Operating Protocol
 

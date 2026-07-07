@@ -1,6 +1,6 @@
 ---
 name: backend
-description: Disciplined backend implementation and review. Use for routes, API handlers, services, server actions, business logic, database queries, auth, sessions, roles, webhooks, jobs, queues, integrations, env/config, file import/export, server-side AI/RAG/agent logic, data mutation, payments, or any private/tenant data. Enforces safe, permissioned, testable, maintainable backend changes.
+description: Disciplined backend implementation and review. Use for routes, API handlers, services, server actions, business logic, database queries, auth, sessions, roles, webhooks, jobs, queues, integrations, env/config, file import/export, server-side AI/RAG/agent logic, data mutation, payments, any private/tenant data — and deployment/infrastructure implementation (CI/CD pipelines, Dockerfiles, IaC, deploy scripts; pair with mcp-ranger for credentials and launchguardian for release review). Enforces safe, permissioned, testable, maintainable backend changes.
 ---
 
 # Backend Skill
@@ -44,7 +44,7 @@ BLOCK if any of these hold:
 - payment/billing/business-critical logic has no validation or audit trail;
 - file upload/import/export lacks validation;
 - a job or repeated operation can duplicate, corrupt, delete, or overwrite data without idempotency/guardrails;
-- no tests exist for meaningful behavior, or permission logic lacks negative tests without justification;
+- no tests and no justified, concretely described manual verification exist for meaningful behavior, or permission logic lacks negative tests without justification;
 - test commands are listed but the behavior they prove cannot be explained;
 - errors leak sensitive internals, or logs include secrets, tokens, PII, or private business data;
 - external integration lacks timeout/retry/failure behavior;

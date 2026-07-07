@@ -33,6 +33,10 @@ The product idea or change request; intended users and their main jobs; the desi
 16. Next Skill Recommendation
 ```
 
+## Graduation
+
+Scale the blueprint to the change. A brand-new system or FULL-mode feature (auth, payments, migrations, external services, sensitive data) earns the full sixteen-point blueprint. A STANDARD in-scope change earns a compact blueprint — goal, components touched, data and permission impact, key risks, phases — and may omit sections that do not apply. LITE work (typos, copy, CSS, isolated fixes) needs no blueprint; if such a task surfaces architectural uncertainty, that is the signal to graduate up, not to keep coding.
+
 ## Blocking rules
 
 BLOCK implementation if any of these hold:

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3 — audit-debt polish
+
+Closes every remaining finding from the six-dimension audit; the docs now match the product. Sixth dogfooded packet.
+
+- **README and both `CLAUDE.md` copies tell the truth about the safety layer**: five hooks, not two — including the autonomy story (self-orienting sessions with a live guardrail self-test, packet guard on ungoverned high-risk edits, "done" means verified done, every hook failing toward silence).
+- **`explore` skill renamed to `explore-mode`**, breaking the duplicate `drydock:explore` registration (the skill and the command collided); the `/drydock:explore` command is unchanged and now invokes `explore-mode` — the same pattern as `spec-sync` backing `/drydock:sync`. The fix is pinned in the deterministic tier: new `tests/test_skill_command_registry.py` fails on any future skill/command id collision or skill name/directory drift.
+- **Deployment/CI/infrastructure routing gap closed**: the `backend` skill now owns deployment, CI/CD pipelines, Dockerfiles, and IaC implementation (pairing with `database-steward` for migrations, `mcp-ranger` for credentials/side effects, `launchguardian` for release review), stated consistently across AGENTS.md, the operator guide, and the skill itself.
+- **Skills-layer contradictions resolved**: backend now accepts justified, concretely-described manual verification (aligned with `testing`); spec-sync's stop-and-ask rule reconciled with idempotent re-runs (already-applied deltas report a no-op); `architect` and `mcp-ranger` gained the LITE/STANDARD/FULL graduation their peer skills had; one grammar fix.
+- Dogfood note: the verifier's first pass returned NOT VERIFIED because the packet's own `verification.md` was still the template while tasks claimed verification done — the exact condition the completion gate exists to catch, caught by the verifier and cured before archive. Suite now 197 tests.
+
 ## 0.2.2 — packet guard
 
 The last enforcement brick: catching ungoverned work. Fifth dogfooded packet.
