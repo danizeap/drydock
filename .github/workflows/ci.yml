@@ -59,3 +59,13 @@ jobs:
           echo '{"source":"startup"}' | python hooks/session_orient.py
           [ $? -eq 0 ] || { echo "FAIL: session_orient did not exit 0 on missing cwd"; exit 1; }
           echo "session_orient exits 0"
+
+      - name: Stop-hook completion gate never fails a turn (must always exit 0)
+        shell: bash
+        run: |
+          set +e
+          for payload in 'not valid json' '' '{"session_id":"abc12345"}' '{"cwd":"/","session_id":"abc12345"}'; do
+            echo "$payload" | python hooks/completion_gate.py >/dev/null
+            [ $? -eq 0 ] || { echo "FAIL: completion_gate did not exit 0 on: $payload"; exit 1; }
+          done
+          echo "completion_gate exits 0"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — completion integrity
+
+Adds the Stop-hook completion gate: "done" should mean *verified* done. Third autonomy brick, shipped through Drydock's own lifecycle.
+
+- **`hooks/completion_gate.py` (Stop hook).** When — and only when — a change packet whose implementation tasks look complete still has `verification.md` at `Pending.` AND its content changed during this session, the hook blocks the stop **once for that packet** (hard session cap) with a precise nudge: run `/drydock:verify <name>`, or explicitly tell the Owner why verification is deferred. Silent in every other case (pure conversation, work-in-progress, verification filled). **Loop-safe by construction:** the nudge ledger is persisted atomically *before* the block is spoken, so a persistence failure degrades to silence, never repetition; any error/malformed input/missing state → exit 0 (fail-toward-silence — the archive gates remain the deterministic backstop).
+- **Shared `hooks/_drydock_common.py`.** Project discovery and packet fingerprinting now live in one module both hooks import, so the SessionStart stamp and the Stop gate can never drift. `session_orient.py` gains a best-effort per-session state stamp (per-user dir, hashed filename, atomic write) as the channel; it preserves the nudge ledger across auto-compaction/resume.
+- **Built against a 3-adversary red-team** (loop/nag, breakage/blind-spots, state-file attacks): content-hash fingerprints (immune to git-checkout/clock-skew false nudges), completion-shaped precondition (budget can't be burned on a freshly-scaffolded packet), strict state-file schema + traversal/symlink/oversize defenses.
+
 ## 0.2.0 — autopilot floor
 
 Moves lifecycle *orientation* and *override governance* into the deterministic tier, so the agent is self-aware of project state and the guardrails prove themselves every session — the foundation for a protocol that governs itself. Shipped through Drydock's own lifecycle (third dogfood).

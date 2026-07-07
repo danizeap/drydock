@@ -8,6 +8,13 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/completion_gate.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/completion_gate.py\"" }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|Bash",

@@ -30,11 +30,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from _drydock_common import (find_drydock_root, plugin_root_from_env, sanitize_sid,
+                             state_path, read_state, write_state, new_state, fingerprint_project)
+
 _GUARD_TIMEOUT_S = 2.0        # per probe; subprocess.run kills the child on timeout
 _MAX_PACKETS = 25
 _MAX_READ_BYTES = 64 * 1024   # cap bytes read from any project file
 _MAX_CTX_BYTES = 2000         # cap the emitted additionalContext
-_MAX_WALK = 40                # cap ancestor levels
 _KEBAB = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
@@ -72,45 +74,26 @@ def _context_state(root):
     return "real"
 
 
-# --- bounded Drydock-project discovery -------------------------------------
-def _looks_real_root(cand, plugin_root):
-    s = str(cand).replace("\\", "/")
-    if "assets/project-scaffold" in s:
-        return False
-    if plugin_root is not None:
-        try:
-            if cand == plugin_root or plugin_root in cand.parents:
-                return False
-        except OSError:
-            pass
+# --- session-state stamp (channel for the Stop-hook completion gate) -------
+def _stamp_session_state(root, data):
+    """Best-effort: write/refresh the per-session state file the Stop gate reads.
+    MERGE semantics — on resume/compact an existing session's baseline and nudge
+    ledger are preserved (auto-compaction must not re-arm the nudge). Only a new
+    session (startup/clear, or no valid existing file) gets a fresh baseline.
+    Orientation never depends on this succeeding."""
     try:
-        return (cand / "AGENTS.md").is_file() or (cand / "sdd-plus" / "protocols").is_dir()
-    except OSError:
-        return False
-
-
-def find_drydock_root(cwd, plugin_root):
-    try:
-        home = Path.home()
-    except (OSError, RuntimeError):
-        home = None
-    for level, cand in enumerate([cwd, *cwd.parents]):
-        if level >= _MAX_WALK:
-            break
-        try:
-            has_sddplus = (cand / "sdd-plus").is_dir()
-        except OSError:
-            has_sddplus = False
-        if has_sddplus and _looks_real_root(cand, plugin_root):
-            return cand  # closest match wins
-        try:
-            if (cand / ".git").exists():
-                break  # do not ascend past the git repo boundary
-        except OSError:
-            pass
-        if home is not None and cand == home:
-            break
-    return None
+        sid = sanitize_sid(data.get("session_id"))
+        if sid is None:
+            return
+        path = state_path(sid)
+        if path is None:
+            return
+        existing = read_state(path, sid)
+        if existing is not None and data.get("source") not in ("startup", "clear"):
+            return  # preserve baseline + nudge ledger
+        write_state(path, new_state(sid, fingerprint_project(root)))
+    except BaseException:
+        return
 
 
 def scan(root):
@@ -227,11 +210,10 @@ def run():
     cwd = data.get("cwd")
     if not isinstance(cwd, str) or not cwd or not os.path.isabs(cwd) or not os.path.isdir(cwd):
         return ""  # untrusted/absent cwd -> no-op (never fall back to the process cwd)
-    plugin_env = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    plugin_root = Path(plugin_env) if plugin_env else None
-    root = find_drydock_root(Path(cwd), plugin_root)
+    root = find_drydock_root(Path(cwd), plugin_root_from_env())
     if root is None:
         return ""  # not a Drydock project -> silent
+    _stamp_session_state(root, data)  # best-effort channel for the Stop gate
     return build_context(root, Path(__file__).resolve().parent)
 
 
