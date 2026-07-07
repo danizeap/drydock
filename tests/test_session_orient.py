@@ -154,3 +154,62 @@ def test_main_exits_zero_even_on_systemexit(monkeypatch):
         raise SystemExit(2)  # BaseException, escapes `except Exception`
     monkeypatch.setattr(so, "run", boom)
     assert so.main() == 0
+
+
+# --- v0.3.0: staleness sentinel + coverage marker (owner-brief packet) -------
+import pytest
+import _drydock_common as common
+
+
+@pytest.fixture
+def iso_state(tmp_path, monkeypatch):
+    d = tmp_path / "state"
+    d.mkdir()
+    monkeypatch.setattr(common, "_state_dir", lambda: d)
+    monkeypatch.setattr(common, "_candidate_state_bases", lambda: [])
+    monkeypatch.delenv("DRYDOCK_PROBE", raising=False)
+    return d
+
+
+def _status_file(root, fp):
+    (root / "OWNER_STATUS.md").write_text(
+        f"# Project status - 2026-01-01\n\nold content\n\n"
+        f"<!-- drydock-brief fp={fp} lang=en v=1 -->\n", encoding="utf-8")
+
+
+def test_stale_status_yields_trust_line_on_startup(tmp_path, monkeypatch, iso_state):
+    root = make_project(tmp_path)
+    _status_file(root, "0" * 16)  # never the real fingerprint
+    _feed(monkeypatch, {"cwd": str(root), "source": "startup", "session_id": "session-abcdef123456"})
+    out = so.run()
+    assert "OWNER_STATUS.md is STALE" in out
+    assert "do not cite it as current" in out
+
+
+def test_resume_and_compact_never_rearm_sentinel(tmp_path, monkeypatch, iso_state):
+    root = make_project(tmp_path)
+    _status_file(root, "0" * 16)
+    for source in ("resume", "compact"):
+        _feed(monkeypatch, {"cwd": str(root), "source": source, "session_id": "session-abcdef123456"})
+        assert "STALE" not in so.run()
+
+
+def test_fresh_or_absent_status_is_silent(tmp_path, monkeypatch, iso_state):
+    root = make_project(tmp_path)
+    _feed(monkeypatch, {"cwd": str(root), "source": "startup", "session_id": "session-abcdef123456"})
+    assert "STALE" not in so.run()  # absent file
+    _status_file(root, common.project_fingerprint_hex(root))
+    _feed(monkeypatch, {"cwd": str(root), "source": "startup", "session_id": "session-abcdef123456"})
+    assert "STALE" not in so.run()  # matching fingerprint
+
+
+def test_session_marker_only_on_true_session_start(tmp_path, monkeypatch, iso_state):
+    root = make_project(tmp_path)
+    _feed(monkeypatch, {"cwd": str(root), "source": "startup", "session_id": "session-abcdef123456"})
+    so.run()
+    _feed(monkeypatch, {"cwd": str(root), "source": "resume", "session_id": "session-abcdef123456"})
+    so.run()
+    _feed(monkeypatch, {"cwd": str(root), "source": "compact", "session_id": "session-abcdef123456"})
+    so.run()
+    events = common.read_events(root)
+    assert sum(1 for e in events if e.get("category") == "session") == 1

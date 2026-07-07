@@ -9,10 +9,12 @@ path (redirections, tee, cp/mv destinations). Example/template env files are
 explicitly allowed, matching the scaffold .gitignore's `!.env.example`.
 """
 import json
+import os
 import re
 import sys
+from pathlib import Path
 
-from _drydock_common import bash_write_targets
+from _drydock_common import append_event, bash_write_targets, find_drydock_root, plugin_root_from_env
 
 # Basenames that look secret but are documentation templates -> always allowed.
 _ALLOW_BASENAMES = {".env.example", ".env.template", ".env.sample"}
@@ -74,8 +76,24 @@ def main():
     reason = check(payload.get("tool_name"), payload.get("tool_input"))
     if reason:
         print(f"Blocked by SDD+ secrets guardrail: {reason}", file=sys.stderr)
+        sys.stderr.flush()
+        _record_deny(payload)  # best-effort telemetry, strictly after the verdict
         return 2
     return 0
+
+
+def _record_deny(payload):
+    """Ledger append for the Owner brief. Never raises, never fsyncs, cannot
+    change the verdict above (which is already written and flushed)."""
+    try:
+        cwd = payload.get("cwd")
+        if not isinstance(cwd, str) or not cwd or not os.path.isabs(cwd) or not os.path.isdir(cwd):
+            return
+        root = find_drydock_root(Path(cwd), plugin_root_from_env())
+        if root is not None:
+            append_event(root, "protect_secrets", "deny", "secrets-deny")
+    except BaseException:
+        return
 
 
 if __name__ == "__main__":

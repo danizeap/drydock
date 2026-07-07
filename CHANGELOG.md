@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — the Owner surface, part 1: the brief
+
+Drydock now reports to the person it protects. Seventh dogfooded packet; designed by a 4-lens exploration, built against a 22-attack red-team, verified in two adversarial rounds.
+
+- **`/drydock:brief`** — plain-language project status in the Owner's own language: what shipped, what's in flight, what needs you, and what the safety net did lately. Every item sits on a fixed **promise ladder** (idea → being built → built-but-NOT-yet-checked → checked & recorded → done & documented), each rung captioned with *what you can safely say out loud*. Every fact is computed by deterministic code (`scripts/brief.py`, plugin-only) from the project's own records; the model translates the FACTS block and can never add to it. Absence renders as **unavailable — never as zero, never as fine**.
+- **Earned rungs, not typed ones.** The engine's own parsers require positive evidence to ascend: a missing tasks.md is an *idea*, a "NOT VERIFIED" or headingless verification record freezes at *built-not-yet-checked*, a `--force`d or hand-moved archive renders *with recorded exceptions* — never as done. "Confirmed on this computer" is earned only by `brief.py --record-verify`, which re-runs the deterministic gate itself and binds the packet's content-hash; editing after verification demotes automatically.
+- **Event ledger.** The four guard/gate hooks now best-effort append category-only events (deny/warn/nudge; no paths, no commands, date-only timestamps) to a per-user journal — the previously-missing "what the system prevented" data source. Appends are post-verdict, never fsync, and provably cannot change a guard's verdict or its delivered bytes (test-pinned per writer, falsification-proven). Orientation liveness probes are excluded via `DRYDOCK_PROBE=1`, so the heartbeat never fabricates drama; counts render bounded ("on this computer, N sessions since <date>") with the honest false-alarm clause.
+- **`OWNER_STATUS.md`** — a durable snapshot the engine authors from frozen labels (English + Spanish, language remembered): visible staleness warning first, git commit anchor, embedded fingerprint. Hooks never write it; hand-edits are **denied** by the packet guard (the one file built to be trusted must not be forgeable); a fingerprint-matching rerun never rewrites it (no git churn); the orientation hook flags a stale copy at session start as a trust instruction.
+- Dogfood note: the packet climbed its own ladder live (idea → being built → built-not-checked → checked & recorded, confirmed on this computer), and the verifier's first pass returned NOT VERIFIED after proving the flagship safety test *vacuous* — passing while testing nothing. Rebuilt structurally anti-vacuous and falsification-proven (a sabotaged ledger makes the tests fail; the verifier independently reproduced it). Suite now 251 tests.
+
 ## 0.2.3 — audit-debt polish
 
 Closes every remaining finding from the six-dimension audit; the docs now match the product. Sixth dogfooded packet.

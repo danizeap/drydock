@@ -20,9 +20,9 @@ import json
 import sys
 from pathlib import Path
 
-from _drydock_common import (STATE_SCHEMA, find_drydock_root, plugin_root_from_env,
-                             sanitize_sid, state_path, read_state, write_state,
-                             new_state, fingerprint_project)
+from _drydock_common import (STATE_SCHEMA, append_event, find_drydock_root,
+                             plugin_root_from_env, sanitize_sid, state_path,
+                             read_state, write_state, new_state, fingerprint_project)
 
 _MAX_NUDGES = 3
 
@@ -74,7 +74,12 @@ def run(data):
             # (e.g. packet_guard's `warned`) own keys we must not drop.
             updated = dict(state)
             updated["nudged"] = nudged + [name]
-            return name if write_state(path, updated) else None
+            if write_state(path, updated):
+                # verdict decided and persisted; telemetry is best-effort and
+                # cannot repeat the nudge or change what main() emits
+                append_event(root, "completion_gate", "nudge", "verify-nudge")
+                return name
+            return None
     return None
 
 

@@ -13,9 +13,11 @@ tokenized (e.g. unbalanced quotes), we fall back to a legacy pattern scan so
 the guard never fails open.
 """
 import json
+import os
 import re
 import shlex
 import sys
+from pathlib import Path
 
 # git global options that take a separate argument (skip both tokens)
 _GLOBAL_WITH_ARG = {
@@ -174,8 +176,25 @@ def main():
     reason = check_command(command)
     if reason:
         print(block_message(reason), file=sys.stderr)
+        sys.stderr.flush()
+        _record_deny(payload)  # best-effort telemetry, strictly after the verdict
         return 2
     return 0
+
+
+def _record_deny(payload):
+    """Ledger append for the Owner brief. Never raises, never fsyncs, cannot
+    change the verdict above (already written and flushed)."""
+    try:
+        from _drydock_common import append_event, find_drydock_root, plugin_root_from_env
+        cwd = payload.get("cwd")
+        if not isinstance(cwd, str) or not cwd or not os.path.isabs(cwd) or not os.path.isdir(cwd):
+            return
+        root = find_drydock_root(Path(cwd), plugin_root_from_env())
+        if root is not None:
+            append_event(root, "git_safety", "deny", "git-deny")
+    except BaseException:
+        return
 
 
 if __name__ == "__main__":

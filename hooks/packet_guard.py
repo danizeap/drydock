@@ -26,9 +26,9 @@ import os
 import sys
 from pathlib import Path
 
-from _drydock_common import (bash_write_targets, find_drydock_root, plugin_root_from_env,
-                             sanitize_sid, state_path, read_state, write_state,
-                             new_state, fingerprint_project)
+from _drydock_common import (append_event, bash_write_targets, find_drydock_root,
+                             plugin_root_from_env, sanitize_sid, state_path, read_state,
+                             write_state, new_state, fingerprint_project)
 
 # Path segments that suppress the deny tier: test/fixture/example work in a
 # high-risk-named directory is not high-risk work.
@@ -163,7 +163,8 @@ def _mark_warned(root, sid):
 
 
 def classify(data):
-    """Return (decision, payload) where decision is 'silent' | 'warn' | ('deny', label)."""
+    """Return (decision, payload): ('silent', None) | ('warn', root) |
+    ('deny', (label, root)) — deny carries the root so main() can ledger it."""
     tool = data.get("tool_name")
     tool_input = data.get("tool_input") or {}
     cwd = data.get("cwd")
@@ -196,13 +197,20 @@ def classify(data):
             root = find_drydock_root(target.parent, plugin_root)
         if root is None or not _inside(target, root):
             continue  # outside any Drydock project -> not ours to govern
+        if (target.name.casefold() == "owner_status.md"
+                and not _SOFT_SEGMENTS.intersection(_rel_parts(target, root))):
+            # Generated artifact: hand-editing would let the status lie. Checked
+            # BEFORE the .md exemption and regardless of packet state — no packet
+            # makes freelancing the Owner surface governed work. The engine's own
+            # --write-status is script-internal I/O the guard never sees.
+            return ("deny", ("status-file", root))
         if is_exempt(target, root):
             continue
         if packet_active(root):
             continue  # governed session
         label = is_high_risk(target, root)
         if label:
-            return ("deny", label)
+            return ("deny", (label, root))
         if not bash:
             warn_root = root  # warn tier is Write/Edit only, by design
     return ("warn", warn_root) if warn_root is not None else ("silent", None)
@@ -215,6 +223,20 @@ DENY_REASON = (
     "then retry this exact change. Do not work around this with shell redirection; "
     "if the Owner explicitly says to skip governance, they can disable the guard."
 )
+
+STATUS_DENY_REASON = (
+    "Drydock packet guard: OWNER_STATUS.md is a generated snapshot authored by the "
+    "brief engine — hand-editing it would let the Owner's status surface lie. "
+    "Regenerate it with /drydock:brief. If the Owner wants it gone, they can delete "
+    "or gitignore it themselves."
+)
+
+_DENY_CATEGORY = {
+    "schema migration": "packet-deny:migration",
+    "new CI workflow/config": "packet-deny:new-ci",
+    "container build/deploy config": "packet-deny:container-config",
+    "status-file": "packet-deny:status-file",
+}
 
 WARN_NOTE = (
     "[Drydock] Note (once per session): this session is editing project source with no "
@@ -232,11 +254,15 @@ def main():
             return 0
         decision, payload = classify(data)
         if decision == "deny":
+            label, root = payload
+            reason = STATUS_DENY_REASON if label == "status-file" else DENY_REASON.format(label=label)
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": DENY_REASON.format(label=payload),
+                "permissionDecisionReason": reason,
             }}))
+            sys.stdout.flush()
+            append_event(root, "packet_guard", "deny", _DENY_CATEGORY.get(label, "other"))
         elif decision == "warn":
             sid = sanitize_sid(data.get("session_id"))
             if _mark_warned(payload, sid):
@@ -245,6 +271,8 @@ def main():
                     "permissionDecision": "allow",
                     "additionalContext": WARN_NOTE,
                 }}))
+                sys.stdout.flush()
+                append_event(payload, "packet_guard", "warn", "packet-warn")
     except BaseException:
         return 0  # never break an edit; silent-allow is the fail direction
     return 0

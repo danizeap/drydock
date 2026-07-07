@@ -32,6 +32,8 @@ Then, inside any project:
 
 **It governs itself.** Three more hooks make the process self-driving, so non-experts stay safe without learning the machinery. Every session **orients itself** — project state, active changes, and a live self-test proving the guardrails still fire — and stays aware of it throughout. Ungoverned edits to narrow high-risk paths (new migrations, CI/CD configs, Dockerfiles) are **caught** with a one-line recovery path, while trivial edits flow free. And "done" is held to mean **verified done**: a change claimed complete with its verification still empty earns one nudge, never a silent pass. Every hook fails toward silence — it can slow a risky move, never break your session.
 
+**It reports to you — in your language.** `/drydock:brief` turns the machinery into a plain-language status: what shipped, what's in flight, what needs you, and what the safety net did lately — each item placed on a fixed **promise ladder** ("being built" → "built, but not yet checked" → "checked & recorded" → "done & documented") captioned with what you can safely say out loud to a customer. Every fact is computed by deterministic code from the project's own records — the model translates, it cannot embellish; anything unreadable says **unavailable** instead of pretending to be fine; a "NOT VERIFIED" record or a forced archive is demoted, never greenwashed. The durable snapshot (`OWNER_STATUS.md`) is machine-authored, self-dating, and guarded against hand-editing — a status surface that would rather admit ignorance than lie to you.
+
 **Twelve governed skills** that load automatically when relevant: backend, frontend, api-contract, database-steward, testing, architect, codebase-cartographer, mcp-ranger (tool-permission governance), explainer, explore-mode, spec-sync, and launchguardian. Each carries explicit blocking rules — a backend change with no auth on a data mutation, a webhook without signature verification, permission logic without negative tests: **BLOCKED**, with the reason stated.
 
 **A spec lifecycle that kills documentation drift.** Changes carry delta specs — testable SHALL requirements with WHEN/THEN scenarios — that merge into living capability specs when the change archives. Archive is gated: verification, spec sync, an API blocking rule (no undocumented API changes ship), then documentation. Your specs stay true because staying true is mechanical.
@@ -47,7 +49,8 @@ Then, inside any project:
 | Command | What it does |
 | --- | --- |
 | `/drydock:new` | Open a change packet (with delta specs when behavior changes) |
-| `/drydock:status` | Active changes, task counts, spec-sync state |
+| `/drydock:brief` | Owner brief — plain-language status + `OWNER_STATUS.md` snapshot |
+| `/drydock:status` | Active changes, task counts, spec-sync state (engineering view) |
 | `/drydock:verify` | Artifacts, spec coverage, independent verifier review |
 | `/drydock:sync` | Merge delta specs into living capability specs |
 | `/drydock:archive` | Gated close: verify → sync → API rule → docs |

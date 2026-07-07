@@ -79,3 +79,16 @@ jobs:
             [ $? -eq 0 ] || { echo "FAIL: packet_guard did not exit 0 on: $payload"; exit 1; }
           done
           echo "packet_guard exits 0"
+
+      - name: Brief engine always exits 0 with a valid FACTS block
+        shell: bash
+        run: |
+          set +e
+          out=$(cd /tmp && python "$GITHUB_WORKSPACE/scripts/brief.py")
+          [ $? -eq 0 ] || { echo "FAIL: brief.py did not exit 0 outside a project"; exit 1; }
+          echo "$out" | python -c "import json,sys; assert json.load(sys.stdin)['drydock']=='not-initialized'" \
+            || { echo "FAIL: brief.py block invalid outside a project"; exit 1; }
+          out=$(python scripts/brief.py)
+          echo "$out" | python -c "import json,sys; assert json.load(sys.stdin)['drydock']=='ok'" \
+            || { echo "FAIL: brief.py block invalid on this repo"; exit 1; }
+          echo "brief engine ok"

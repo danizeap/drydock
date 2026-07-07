@@ -30,8 +30,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _drydock_common import (find_drydock_root, plugin_root_from_env, sanitize_sid,
-                             state_path, read_state, write_state, new_state, fingerprint_project)
+from _drydock_common import (append_event, find_drydock_root, plugin_root_from_env,
+                             project_fingerprint_hex, sanitize_sid, state_path,
+                             read_state, write_state, new_state, fingerprint_project)
 
 _GUARD_TIMEOUT_S = 2.0        # per probe; subprocess.run kills the child on timeout
 _MAX_PACKETS = 25
@@ -129,10 +130,16 @@ _PROBES = [
 
 
 def _run_guard(guard_path, payload):
+    # DRYDOCK_PROBE=1 marks the child as a synthetic liveness probe: the guard's
+    # VERDICT logic never reads it (a probe must prove real blocking), but the
+    # event-ledger append no-ops under it, so probes never pollute the Owner
+    # brief's "what the safety net did" history with fabricated denies.
+    env = dict(os.environ)
+    env["DRYDOCK_PROBE"] = "1"
     return subprocess.run(
         [sys.executable, str(guard_path)],
         input=json.dumps(payload).encode("utf-8"),
-        capture_output=True, timeout=_GUARD_TIMEOUT_S,
+        capture_output=True, timeout=_GUARD_TIMEOUT_S, env=env,
     )
 
 
@@ -201,6 +208,27 @@ def build_context(root, hooks_dir):
     return out
 
 
+def _staleness_line(root):
+    """One trust-instruction line when OWNER_STATUS.md's embedded fingerprint no
+    longer matches current state; '' otherwise. Read-only, bounded, fail-silent.
+    Deliberately NOT an offer-generator: a fingerprint mismatch is true at almost
+    every session start of an active repo, and 'offer the Owner a refresh' at that
+    frequency is chronic-yellow wallpaper (red-teamed). The agent is told only not
+    to trust the file until status actually comes up."""
+    try:
+        status = root / "OWNER_STATUS.md"
+        if not status.is_file():
+            return ""
+        m = re.search(r"<!--\s*drydock-brief\s+fp=([0-9a-f]{16})\b", _read_head(status))
+        if not m or m.group(1) == project_fingerprint_hex(root):
+            return ""
+        return ("- OWNER_STATUS.md is STALE (predates current work): do not cite it as "
+                "current. If the Owner asks about status, run /drydock:brief and answer "
+                "in the Owner's language.")
+    except BaseException:
+        return ""
+
+
 def run():
     """Return the additionalContext string, or '' to emit nothing. Never raises."""
     raw = sys.stdin.read()
@@ -214,7 +242,15 @@ def run():
     if root is None:
         return ""  # not a Drydock project -> silent
     _stamp_session_state(root, data)  # best-effort channel for the Stop gate
-    return build_context(root, Path(__file__).resolve().parent)
+    ctx = build_context(root, Path(__file__).resolve().parent)
+    if data.get("source") in ("startup", "clear"):
+        # True new session only — resume/compaction must not re-arm the sentinel
+        # or double-count coverage (both red-teamed adoption failures).
+        append_event(root, "session_orient", "session", "session")
+        stale = _staleness_line(root)
+        if stale and len((ctx + "\n" + stale).encode("utf-8")) <= _MAX_CTX_BYTES:
+            ctx = ctx + "\n" + stale
+    return ctx
 
 
 def main():

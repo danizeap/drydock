@@ -100,10 +100,16 @@ def test_claude_dir_exempt_except_settings(tmp_path, state_dir):
 
 
 # --- deny tier: narrow, suppressed by soft segments --------------------------
+def deny_label(result):
+    """classify() deny payload is (label, root); tests assert on the label."""
+    decision, payload = result
+    return (decision, payload[0] if decision == "deny" else payload)
+
+
 def test_deny_migrations(tmp_path, state_dir):
     root = make_project(tmp_path)
-    assert call(root, root / "migrations" / "0002_add_users.sql") == ("deny", "schema migration")
-    assert call(root, root / "db" / "migrate" / "20260707_add_x.rb") == ("deny", "schema migration")
+    assert deny_label(call(root, root / "migrations" / "0002_add_users.sql")) == ("deny", "schema migration")
+    assert deny_label(call(root, root / "db" / "migrate" / "20260707_add_x.rb")) == ("deny", "schema migration")
 
 
 def test_deny_is_case_insensitive(tmp_path, state_dir):
@@ -129,7 +135,7 @@ def test_new_workflow_denied_existing_workflow_warns(tmp_path, state_dir):
     wf.mkdir(parents=True)
     (wf / "ci.yml").write_text("name: ci\n", encoding="utf-8")
     assert call(root, wf / "ci.yml")[0] == "warn"                     # existing: routine
-    assert call(root, wf / "deploy.yml") == ("deny", "new CI workflow/config")  # new: high-risk
+    assert deny_label(call(root, wf / "deploy.yml")) == ("deny", "new CI workflow/config")  # new: high-risk
 
 
 def test_deny_dockerfile_and_compose(tmp_path, state_dir):
@@ -264,3 +270,64 @@ def test_latency_sanity(tmp_path, state_dir):
         call(root, root / "src" / "x.py")
     per_call = (time.monotonic() - t0) / 20
     assert per_call < 0.05, f"classify too slow: {per_call*1000:.1f}ms per edit"
+
+
+# --- v0.3.0: generated status file is deny-protected (owner-brief packet) -----
+def test_owner_status_write_denied_even_with_packet(tmp_path, state_dir):
+    root = make_project(tmp_path, with_packet=True)  # packet active: still denied
+    out = call(root, root / "OWNER_STATUS.md")
+    assert out[0] == "deny" and out[1][0] == "status-file"
+    out2 = call(root, root / "owner_status.MD".upper())  # casefolded basename
+    assert out2[0] == "deny"
+
+
+def test_owner_status_bash_redirect_denied(tmp_path, state_dir):
+    root = make_project(tmp_path, with_packet=True)
+    assert bash(root, "echo all-green > OWNER_STATUS.md")[0] == "deny"
+
+
+def test_owner_status_fixture_copy_editable(tmp_path, state_dir):
+    root = make_project(tmp_path, with_packet=True)
+    assert call(root, root / "tests" / "fixtures" / "OWNER_STATUS.md")[0] == "silent"
+
+
+def test_owner_status_outside_drydock_untouched(tmp_path, state_dir):
+    (tmp_path / "plain").mkdir()
+    assert call(tmp_path / "plain", tmp_path / "plain" / "OWNER_STATUS.md")[0] == "silent"
+
+
+def _main_with(monkeypatch, capsys, payload):
+    import io, sys as _sys
+    monkeypatch.setattr(_sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert pg.main() == 0
+    return capsys.readouterr().out
+
+
+def test_deny_appends_ledger_event(tmp_path, state_dir, monkeypatch, capsys):
+    root = make_project(tmp_path)
+    out = _main_with(monkeypatch, capsys, {
+        "tool_name": "Write", "session_id": SID, "cwd": str(root),
+        "tool_input": {"file_path": str(root / "migrations" / "x.sql")}})
+    assert '"deny"' in out
+    cats = [e["category"] for e in common.read_events(root)]
+    assert "packet-deny:migration" in cats
+
+
+def test_warn_through_main_appends_packet_warn(tmp_path, state_dir, monkeypatch, capsys):
+    root = make_project(tmp_path)
+    out = _main_with(monkeypatch, capsys, {
+        "tool_name": "Write", "session_id": SID, "cwd": str(root),
+        "tool_input": {"file_path": str(root / "src" / "x.py")}})
+    assert '"allow"' in out and "once per session" in out
+    cats = [e["category"] for e in common.read_events(root)]
+    assert "packet-warn" in cats
+
+
+def test_status_file_deny_appends_its_own_category(tmp_path, state_dir, monkeypatch, capsys):
+    root = make_project(tmp_path, with_packet=True)
+    out = _main_with(monkeypatch, capsys, {
+        "tool_name": "Write", "session_id": SID, "cwd": str(root),
+        "tool_input": {"file_path": str(root / "OWNER_STATUS.md")}})
+    assert '"deny"' in out and "/drydock:brief" in out
+    cats = [e["category"] for e in common.read_events(root)]
+    assert "packet-deny:status-file" in cats

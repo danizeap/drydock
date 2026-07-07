@@ -7,5 +7,6 @@ Script resolution: use `./scripts/sdd.py` if it exists in the project, otherwise
 
 1. Run `python3 scripts/sdd.py verify <name>` and report its output (missing artifacts, TBD placeholders, pending tasks).
 2. If the change has delta specs, check **spec coverage**: for each requirement, search the codebase for implementation evidence and each scenario for test evidence. Report per requirement: IMPLEMENTED (file:line) / NOT FOUND / PARTIAL.
-3. Invoke the `verifier` subagent for independent review of the diff, tests, and evidence claims.
+3. Invoke the `verifier` subagent for independent review of the diff, tests, and evidence claims. Check the packet's Owner-language line ("What this means for your product") states a concrete observable change, not a virtue.
 4. Output a unified result: COMPLETENESS (tasks, artifacts), CORRECTNESS (requirement→implementation mapping, tests), COHERENCE (follows existing patterns and the plan). Verdict: PASS / PASS WITH OPEN QUESTIONS / BLOCKED.
+5. On a PASS verdict, record it for the Owner brief: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/brief.py" --record-verify <name>` (on Windows: `python`). This re-runs the deterministic gate itself and only records on a genuine pass — it binds the packet's current content-hash, so later edits automatically demote the "confirmed on this computer" caption until re-verified. Skip silently if the engine is unavailable (older installs).

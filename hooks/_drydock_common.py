@@ -163,27 +163,38 @@ def sanitize_sid(raw):
     return raw
 
 
+def _candidate_state_bases():
+    """Ordered candidate base dirs for per-user state. The WRITE side uses the
+    first usable one; the ledger READ side probes all of them, because the hook
+    process and a script process can resolve different winners (python3-vs-python
+    env divergence — a red-teamed silent-empty-ledger failure mode)."""
+    out = []
+    if os.name == "nt":
+        la = os.environ.get("LOCALAPPDATA")
+        if la:
+            out.append(la)
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    if xdg:
+        out.append(xdg)
+    try:
+        out.append(str(Path.home() / ".cache"))
+    except (OSError, RuntimeError):
+        pass
+    out.append(tempfile.gettempdir())
+    return out
+
+
 def _state_dir():
     """Per-user app dir (never world-writable /tmp): %LOCALAPPDATA%/drydock or
     ~/.cache/drydock. Created 0o700. None on failure."""
-    base = None
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA")
-    if not base:
-        base = os.environ.get("XDG_CACHE_HOME")
-    if not base:
+    for base in _candidate_state_bases():
         try:
-            base = str(Path.home() / ".cache")
-        except (OSError, RuntimeError):
-            base = None
-    if not base:
-        base = tempfile.gettempdir()
-    try:
-        d = Path(base) / "drydock"
-        d.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return d
-    except OSError:
-        return None
+            d = Path(base) / "drydock"
+            d.mkdir(parents=True, exist_ok=True, mode=0o700)
+            return d
+        except OSError:
+            continue
+    return None
 
 
 def state_path(sid):
@@ -292,3 +303,168 @@ def write_state(path, obj):
 
 def new_state(sid, fingerprints):
     return {"v": STATE_SCHEMA, "session_id": sid, "fingerprints": fingerprints, "nudged": []}
+
+
+# --- event ledger (per-user, per-project, category-only, best-effort) --------
+# The ledger is a DISPOSABLE telemetry cache feeding the Owner brief. Contract
+# (red-team-derived, spec-pinned): appends fire only after a non-silent verdict
+# is decided; they never fsync, never raise, and can never change a verdict or
+# its delivery. Categories are validated HERE at the sink — callers cannot leak
+# paths/commands into the file by mistake. DRYDOCK_PROBE=1 (set by the
+# orientation liveness probe on its children) makes append a no-op so synthetic
+# probe denies never pollute the Owner-facing history.
+LEDGER_CATEGORIES = frozenset({
+    "session",                       # orientation coverage marker (new sessions)
+    "ledger-created",                # first line of every journal
+    "packet-deny:migration",
+    "packet-deny:new-ci",
+    "packet-deny:container-config",
+    "packet-deny:status-file",
+    "packet-warn",
+    "secrets-deny",
+    "git-deny",
+    "verify-nudge",
+    "verify-run",                    # deterministic gate pass recorded by brief.py
+})
+PREVENTION_CATEGORIES = frozenset({
+    "packet-deny:migration", "packet-deny:new-ci", "packet-deny:container-config",
+    "packet-deny:status-file", "secrets-deny", "git-deny",
+})
+_LEDGER_HOOKS = frozenset({"packet_guard", "protect_secrets", "git_safety",
+                           "completion_gate", "session_orient", "brief", "ledger"})
+_LEDGER_ACTIONS = frozenset({"deny", "warn", "nudge", "session", "created", "verify"})
+_MAX_LEDGER_BYTES = 256 * 1024   # writer rotation threshold
+_LEDGER_TAIL_BYTES = 128 * 1024  # reader tail window (the true growth bound)
+_MAX_EVENT_LINE = 512            # writer refuses longer lines; reader skips them
+_MAX_EVENTS = 2000
+_HEX16 = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _today():
+    import time
+    return time.strftime("%Y-%m-%d")
+
+
+def ledger_path(root):
+    d = _state_dir()
+    if d is None:
+        return None
+    digest = hashlib.sha256(os.path.normcase(str(root)).encode("utf-8", "replace")).hexdigest()[:16]
+    return d / f"drydock-journal-{digest}.ndjson"
+
+
+def append_event(root, hook, action, category, extra=None):
+    """Best-effort single-line NDJSON append. Never raises, returns None. Every
+    field is validated/coerced at this sink; ts is DATE-ONLY (full timestamps
+    would fingerprint work hours into a file the brief may summarize publicly)."""
+    import json
+    try:
+        if os.environ.get("DRYDOCK_PROBE") == "1":
+            return
+        path = ledger_path(root)
+        if path is None:
+            return
+        evt = {
+            "ts": _today(),
+            "hook": hook if hook in _LEDGER_HOOKS else "other",
+            "action": action if action in _LEDGER_ACTIONS else "other",
+            "category": category if category in LEDGER_CATEGORIES else "other",
+        }
+        if isinstance(extra, dict):
+            pk, hs = extra.get("packet"), extra.get("hash")
+            if isinstance(pk, str) and len(pk) <= 64 and _KEBAB.match(pk):
+                evt["packet"] = pk
+            if isinstance(hs, str) and _HEX16.match(hs):
+                evt["hash"] = hs
+        line = (json.dumps(evt, separators=(",", ":")) + "\n").encode("utf-8")
+        if len(line) > _MAX_EVENT_LINE:
+            return
+        existed = True
+        try:
+            st = path.lstat()
+            if not stat.S_ISREG(st.st_mode):
+                return  # symlinked/odd journal: refuse to touch it
+            if st.st_size > _MAX_LEDGER_BYTES:
+                try:
+                    os.replace(str(path), str(path) + ".1")
+                    existed = False
+                except OSError:
+                    pass  # e.g. Windows sharing violation: append to the big file
+        except OSError:
+            existed = False
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(path), flags, 0o600)
+        try:
+            if not existed:
+                born = {"ts": _today(), "hook": "ledger", "action": "created",
+                        "category": "ledger-created"}
+                os.write(fd, (json.dumps(born, separators=(",", ":")) + "\n").encode("utf-8"))
+            os.write(fd, line)  # one complete line per single write: no torn lines
+        finally:
+            os.close(fd)
+    except BaseException:
+        return
+
+
+def read_events(root):
+    """Parsed event dicts from the ledger's tail window, oldest-first, or None if
+    NO ledger could be read (callers must render that as 'unavailable' — absence
+    is not zero). Probes every candidate base, mirrors read_state's lstat and
+    size discipline, skips malformed/oversized lines instead of crashing."""
+    import json
+    digest = hashlib.sha256(os.path.normcase(str(root)).encode("utf-8", "replace")).hexdigest()[:16]
+    name = f"drydock-journal-{digest}.ndjson"
+    candidates = []
+    primary = _state_dir()
+    if primary is not None:
+        candidates.append(primary / name)
+    for base in _candidate_state_bases():
+        p = Path(base) / "drydock" / name
+        if p not in candidates:
+            candidates.append(p)
+    for path in candidates:
+        try:
+            st = path.lstat()
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            size = st.st_size
+            with open(path, "rb") as f:
+                if size > _LEDGER_TAIL_BYTES:
+                    f.seek(size - _LEDGER_TAIL_BYTES)
+                    f.readline()  # discard the partial first line
+                data = f.read(_LEDGER_TAIL_BYTES + 4096)
+        except OSError:
+            continue
+        events = []
+        for ln in data.decode("utf-8", "replace").splitlines()[-_MAX_EVENTS:]:
+            if not ln.strip() or len(ln) > _MAX_EVENT_LINE:
+                continue
+            try:
+                obj = json.loads(ln)
+            except ValueError:
+                continue
+            if (isinstance(obj, dict) and isinstance(obj.get("ts"), str)
+                    and isinstance(obj.get("category"), str)):
+                events.append(obj)
+        return events
+    return None
+
+
+def project_fingerprint_hex(root):
+    """One 16-hex token over active-packet states + archive dir names — the
+    'has anything moved' signal embedded in OWNER_STATUS.md and compared by the
+    orientation staleness sentinel."""
+    h = hashlib.sha256()
+    for name, st in sorted(fingerprint_project(root).items()):
+        h.update(name.encode("utf-8", "replace"))
+        h.update(str(st.get("hash", "")).encode("utf-8", "replace"))
+    arch = root / "sdd-plus" / "archive"
+    try:
+        names = sorted(p.name for p in arch.iterdir() if p.is_dir())[:200] if arch.is_dir() else []
+    except OSError:
+        names = []
+    for n in names:
+        h.update(n.encode("utf-8", "replace"))
+    return h.hexdigest()[:16]
