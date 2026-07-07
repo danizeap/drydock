@@ -69,3 +69,13 @@ jobs:
             [ $? -eq 0 ] || { echo "FAIL: completion_gate did not exit 0 on: $payload"; exit 1; }
           done
           echo "completion_gate exits 0"
+
+      - name: Packet guard never breaks an edit (must always exit 0)
+        shell: bash
+        run: |
+          set +e
+          for payload in 'garbage' '' '{"tool_name":"Write","cwd":"/","session_id":"abc12345","tool_input":{"file_path":"x.py"}}'; do
+            echo "$payload" | python hooks/packet_guard.py >/dev/null
+            [ $? -eq 0 ] || { echo "FAIL: packet_guard did not exit 0 on: $payload"; exit 1; }
+          done
+          echo "packet_guard exits 0"

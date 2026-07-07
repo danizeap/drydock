@@ -70,8 +70,10 @@ def run(data):
         if st.get("verification_pending") and st.get("claimed_done") and changed:
             # persist the nudge BEFORE speaking; keep the session-start baseline
             # so later work on other packets still compares against session start.
-            updated = {"v": STATE_SCHEMA, "session_id": sid,
-                       "fingerprints": baseline, "nudged": nudged + [name]}
+            # Copy-and-update per the shared-state writer contract: other hooks
+            # (e.g. packet_guard's `warned`) own keys we must not drop.
+            updated = dict(state)
+            updated["nudged"] = nudged + [name]
             return name if write_state(path, updated) else None
     return None
 

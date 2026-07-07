@@ -49,6 +49,13 @@ WHEN no valid session-state file exists at a stop (the orientation stamp never r
 - **WHEN** the completion gate finds no valid state file
 - **THEN** it stamps a baseline and emits nothing
 
+### Requirement: Shared-state writers preserve foreign keys
+Every writer of the per-session state file (orientation stamp, completion gate, packet guard, and any future hook) SHALL copy-and-update the existing state dict, preserving keys it does not own — never reconstructing the dict from its own fields. Validation SHALL remain permissive toward unknown keys so hooks of different versions interoperate.
+
+#### Scenario: Nudge persistence preserves the warned flag
+- **WHEN** the packet guard has set `warned` and the completion gate later persists a nudge in the same session
+- **THEN** the rewritten state still carries `warned` (and any other foreign keys)
+
 ### Requirement: State-file safety
 The session-state file SHALL live in a per-user directory (not a world-writable temp dir), be named by a hash of the session id (no path traversal, no collision), and be read only when it is a regular file within a size cap and passes strict schema validation (matching session id, kebab packet names, bounded lists). A tampered, oversized, symlinked, corrupt, or foreign-session file SHALL be treated as missing. The nudge reason SHALL be a fixed template interpolating only a kebab-validated packet name.
 

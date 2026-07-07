@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2 — packet guard
+
+The last enforcement brick: catching ungoverned work. Fifth dogfooded packet.
+
+- **`hooks/packet_guard.py` (PreToolUse).** When no change packet is active, edits get a risk-tiered response: **silent** for exempt/LITE work (docs, licenses, `sdd-plus/` itself, `.claude/` config, anything outside the project, or any session with an active packet); **one orientation warn per session** (allow + note: trivial edits are fine, meaningful work should open a packet) — persisted before spoken, so a state failure degrades to silence, never nagging; **deny** only for a narrow, red-team-approved high-risk list — schema migrations (`migrations/`, `db/migrate/`), **creation** of new CI configs (editing existing workflows only warns), and Dockerfiles/compose — with the recovery path in the reason. Test/fixture/example paths suppress the deny; matching is casefolded and path-aware (no string-prefix false positives); Bash write targets are covered for the deny tier so shell redirection can't dodge it.
+- **Cross-hook state contract.** The red-team caught a real v0.2.1 bug: the completion gate's nudge persistence rebuilt the shared session-state dict and would have dropped foreign keys. All state writers now copy-and-update (contract documented in `_drydock_common`, pinned by a cross-hook test); `bash_write_targets` moved to the shared module so the two guards' extraction logic cannot drift.
+- **Survived its own gate:** the first verifier pass returned NOT VERIFIED with three reproducible wrongful-deny classes (ancestor-directory poisoning, quoted-`>` strings, non-adjacent db+migrate) that unit fixtures structurally could not see; all three fixed, pinned by regression tests, and confirmed dead by live re-verification.
+- Suite now 193 tests; stated non-goals documented in the capability spec (NotebookEdit/MCP writes → mcp-ranger's domain; Bash warn tier; per-edit packet attribution; bare quoted-`">"` tokens).
+
 ## 0.2.1 — completion integrity
 
 Adds the Stop-hook completion gate: "done" should mean *verified* done. Third autonomy brick, shipped through Drydock's own lifecycle.

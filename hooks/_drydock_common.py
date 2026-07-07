@@ -227,9 +227,49 @@ def read_state(path, sid):
     return obj if _valid_state(obj, sid) else None
 
 
+def bash_write_targets(command):
+    """Best-effort set of paths a Bash command writes to (redirections, tee, cp/mv).
+    Shared by protect_secrets (secret paths) and packet_guard (high-risk paths) so
+    the two guards' extraction logic can never drift."""
+    import shlex
+    targets = []
+    tokenized = True
+    try:
+        tokens = shlex.split(command, comments=False, posix=True)
+    except ValueError:  # unbalanced quotes -> regex-only fallback below
+        tokens = []
+        tokenized = False
+    for i, tok in enumerate(tokens):
+        if tok in (">", ">>", "1>", "2>", "&>", ">|") and i + 1 < len(tokens):
+            targets.append(tokens[i + 1])
+        elif re.match(r"^\d*>>?\|?\S", tok) and re.match(r"^\d*>", tok):
+            # attached redirection like >.env, >>out.log, 2>err.log
+            targets.append(re.sub(r"^\d*>>?\|?", "", tok))
+        elif tok == "tee":
+            for nxt in tokens[i + 1:]:
+                if not nxt.startswith("-"):
+                    targets.append(nxt)
+                    break
+        elif tok in ("cp", "mv") and len(tokens) > i + 2:
+            targets.append(tokens[-1])  # destination is the last argument
+    if not tokenized:
+        # Regex fallback ONLY when tokenization failed. Running it on successfully
+        # tokenized commands treats '>' inside QUOTED arguments (grep patterns,
+        # commit messages) as redirections — a wrongful-deny/false-block class
+        # found by adversarial verification.
+        for m in re.finditer(r">>?\|?\s*([^\s;|&>]+)", command):
+            targets.append(m.group(1))
+    return targets
+
+
 def write_state(path, obj):
     """Atomic write (mkstemp + os.replace, 0o600). Returns True only if the new
-    state is durably in place — callers gate any user-visible action on this."""
+    state is durably in place — callers gate any user-visible action on this.
+
+    WRITER CONTRACT: the state file is shared by multiple hooks (orientation
+    stamp, completion gate's `nudged`, packet guard's `warned`). Every writer
+    MUST copy-and-update the existing dict, preserving keys it does not own —
+    never reconstruct the dict from its own known fields."""
     import json
     if path is None:
         return False

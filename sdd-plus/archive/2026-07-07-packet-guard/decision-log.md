@@ -1,0 +1,19 @@
+# Decision Log
+
+## Change
+
+packet-guard
+
+## Decisions
+
+| Date | Decision | Reason | Alternatives Considered |
+| --- | --- | --- | --- |
+| 2026-07-07 | Three tiers: silent / warn-once / deny — not a binary gate | Drydock's own framework blesses LITE work without a packet; a binary guard would either miss everything or nag everything. Proportional ceremony, automated. | Deny-all-ungoverned (rejected: wars with the LITE rule, adoption killer); warn-only (rejected: high-impact paths deserve a hard stop). |
+| 2026-07-07 | Do not use `ask`/`defer` permissionDecisions | Under-documented semantics (docs fetch confirmed no definition); building enforcement on unverified behavior contradicts this repo's empirical-dependency discipline. | `ask` for the high-risk tier (attractive — puts the human in the loop — revisit when documented; deny+reason is deterministic today and recoverable by opening a packet). |
+| 2026-07-07 | Warn = allow + additionalContext, once per session | Docs-confirmed warn-but-allow channel; the note lands next to the tool result, steering the NEXT action without blocking this one. Once per session via the hardened v0.2.1 state channel. | Warn every edit (rejected: nag erosion); systemMessage to the user (rejected for v1: the agent, not the Owner, is who should act on it). |
+| 2026-07-07 | Any active packet = governed (no per-edit attribution) | Deterministically attributing an edit to a packet is impossible without semantics; the completion gate polices the packet's own integrity once it exists. | Path-to-packet matching heuristics (rejected: false precision, guaranteed FPs). |
+| 2026-07-07 | Bash writes: covered for the DENY tier, non-goal for the WARN tier (superseded the original all-Bash non-goal after the red-team) | The red-team showed the deny reason itself teaches the shell escape (`echo x > migrations/y.sql`), so the narrow deny classes apply to Bash write targets via the shared extractor. The warn tier stays Write/Edit-only — shell-parsing for general governance is FP-prone in exactly the way this hook cannot afford. | Full non-goal as originally planned (superseded: leaves the deny tier trivially escapable); symmetric warn-tier coverage (rejected: FP surface). |
+| 2026-07-07 | Deny/exempt lists finalized by the red-team, not by intuition | The wrongful-deny surface is the whole risk of this feature; independent adversaries hunting FP cases before code is the discipline that already caught 4 HIGHs in v0.2.0 and reshaped v0.2.1. | Shipping intuition-derived lists and iterating (rejected: the first wrongful deny costs trust that doesn't come back). |
+| 2026-07-07 | Persistence failure on the warned flag → skip the warn, stay allow | Mirrors v0.2.1 persist-before-speak: a state failure must degrade toward silence, never toward repetition or blocking. | Warn anyway without persisting (rejected: unbounded re-warns on a broken temp dir). |
+| 2026-07-07 | Post-verification fix round: classify on project-RELATIVE paths; regex fallback only when tokenization fails; strict db+migrate adjacency | First verifier pass returned NOT VERIFIED with three reproducible wrongful-deny classes (ancestor-directory poisoning; `>` inside quoted grep/commit strings; non-adjacent db+migrate). Unit fixtures could never see class 1 (tmp_path has no migrations ancestor) — only live adversarial probing found it. | Shipping and patching later (rejected: wrongful deny is the named adoption-killer risk; the packet's own gate says must-fail). |
+| 2026-07-07 | Fix the attached-redirect token branch exposed by gating the regex fallback | The `>.env` token branch had a broken condition and was dead code — the unconditional regex had been masking it. Gating the fallback surfaced it via a failing secrets test; fixed properly instead of re-widening the fallback. | Keep the unconditional regex (rejected: that IS wrongful-deny class 2). |
