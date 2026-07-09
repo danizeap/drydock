@@ -14,7 +14,7 @@ The 22 gates are structurally sound but scoped for a 2023 web app, not a 2025 ag
 
 ### CONFIRMED (survived 3-vote adversarial verification)
 
-- **The "lethal trifecta" is the signature threat for this exact audience, and Gate 15 as written misses it.** Documented incident (generalanalysis.com, Jul 2025; corroborated by Simon Willison and Supabase's own defense-in-depth-mcp post): a Supabase MCP server + an IDE agent that reads customer support tickets. Attacker hides instructions in a ticket; the agent, holding a `service_role` key, executes them as SQL and exfiltrates the database.
+- **The "lethal trifecta" is the signature threat for this exact audience, and Gate 15 as written misses it.** Documented incident (generalanalysis.com, Jul 2025; corroborated by Simon Willison and Supabase's own defense-in-depth-mcp post): a Supabase MCP server + an IDE agent that reads customer support tickets. Attacker hides instructions in a ticket; the agent, holding a `service_role` key, executes them as SQL and exfiltrates the database — including a sensitive `integration_tokens` table holding OAuth/session credentials. [3-0]
   - Root cause is **structural**: an LLM cannot separate instructions from data (confused-deputy). Not a patchable bug. [3-0]
   - **Succeeds with RLS correctly enabled**, because `service_role` bypasses RLS entirely. [2-0]
   - Implication: Gate 15's "tool permissions" point-check is insufficient. The risk is the *combination* — private data + untrusted content + outbound channel — which read-only mode and RLS do not neutralize.

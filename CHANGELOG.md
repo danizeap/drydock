@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — LaunchGuardian: Gate 15 lethal-trifecta test
+
+First evidence-backed upgrade to the security gates themselves, from a web-researched, adversarially-verified gap analysis of the 2024–2026 threat landscape. Eighth dogfooded packet.
+
+- **Gate 15 (AI/RAG/Agent Security) re-scoped from a checklist to a structural test.** The framework now names the **lethal trifecta** — an AI agent, MCP server, or LLM tool-chain that combines (1) access to private data, (2) exposure to untrusted content, and (3) an outbound channel. When all three co-exist, prompt injection becomes data exfiltration, and the configuration is **high-risk regardless of Row-Level Security or read-only settings** (a privileged service credential bypasses RLS; read-only governs writes, not the read-inject-exfiltrate path). The prescribed control is to **break a leg** — remove or human-gate any one of the three. Grounded in the documented July 2025 Supabase MCP incident that exfiltrated a database including an `integration_tokens` table of OAuth/session credentials.
+- **The trifecta is recordable, not just prose.** Both gate-applicability templates gain a `lethal_trifecta` block (three legs + broken-leg + mitigation) so a project captures the combination as durable evidence, with a worked example in the output template. Severity: unmitigated trifecta is High by default, Critical when a breach would expose sensitive, cross-tenant, or production data. "RLS on" or "read-only" alone is not an accepted mitigation.
+- **No CLI change required.** `launchguardian` (PyPI, 0.1.1) consumes the framework as an agent-reviewed gate; its YAML parser ignores unknown keys and Gate 15 is not scanner-backed, so the new field breaks nothing. Auto-detecting the trifecta legs in the scanner is future CLI work (see `sdd-plus/specs/launchguardian-v0.4-gap-research.md`).
+- Verifier returned VERIFIED WITH NOTES on the faithfulness bar: the framework's most specific detail (the OAuth/session-token table) had been dropped from its own source note during summarization, and the read-only clause was over-confident. Both resolved before archive — the detail re-sourced with its confirmed marker, the clause recalibrated from assertion to mechanism. Suite unchanged at 251 (no code touched).
+
 ## 0.3.0 — the Owner surface, part 1: the brief
 
 Drydock now reports to the person it protects. Seventh dogfooded packet; designed by a 4-lens exploration, built against a 22-attack red-team, verified in two adversarial rounds.

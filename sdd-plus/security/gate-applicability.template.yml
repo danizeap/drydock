@@ -212,6 +212,15 @@ gates:
     human_confirmation_required: false
     confirmed_by: ""
     confirmed_at: ""
+    lethal_trifecta:
+      # All three legs in one agent/MCP/tool-chain = high-risk, regardless of RLS or
+      # read-only. Break (remove or human-gate) any one leg to mitigate. RLS/read-only
+      # alone is NOT an accepted mitigation.
+      private_data_access: "unknown"        # true | false | unknown
+      untrusted_content_exposure: "unknown" # true | false | unknown
+      outbound_channel: "unknown"           # true | false | unknown
+      broken_leg: ""                         # which leg is removed or human-gated, if any
+      mitigation: ""                         # required when two or more legs are present
   multi_tenant_internal_permission_isolation:
     gate: 16
     name: "Gate 16 — Multi-Tenant & Internal Permission Isolation"

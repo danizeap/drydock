@@ -59,7 +59,7 @@ Canonical LGF gates:
 | Gate 12 — Resilience, DDoS, Abuse & Cost Defense | Review rate limits, quotas, retries, abuse paths, cost controls, and degradation behavior. |
 | Gate 13 — Webhooks, Background Jobs & Integrations | Review webhook verification, job idempotency, retries, third-party integrations, and failure handling. |
 | Gate 14 — Privacy, Legal & Data Lifecycle | Review personal data, notice/consent, retention, deletion, legal constraints, and data sharing. |
-| Gate 15 — AI/RAG/Agent Security | Review prompt injection, tool permissions, retrieval boundaries, model data exposure, and agent actions. |
+| Gate 15 — AI/RAG/Agent Security | Review prompt injection, tool/MCP permissions, retrieval boundaries, model data exposure, and agent actions. Apply the **lethal-trifecta test** (see "Gate 15 — the Lethal-Trifecta Test" below): an AI agent, MCP server, or LLM tool-chain that combines access to private data, exposure to untrusted content, and an outbound channel is high-risk regardless of RLS or read-only settings. |
 | Gate 16 — Multi-Tenant & Internal Permission Isolation | Review tenant isolation, internal roles, admin access, scoped permissions, and cross-account access. |
 | Gate 17 — Observability, Logs & Incident Readiness | Review logging, monitoring, alerting, sensitive log data, incident paths, and ownership. |
 | Gate 18 — Backup, Recovery, Deletion & Rotation | Review backups, restore tests, deletion paths, credential rotation, and recovery objectives. |
@@ -70,6 +70,28 @@ Canonical LGF gates:
 The agent may propose which gates apply. A human must confirm skipped high-risk gates before launch.
 
 For any high-risk gate, `applies: false` is invalid unless all of the following are filled: `human_confirmation_required: true`, `confirmed_by`, `confirmed_at`, `reason`, and `evidence`.
+
+## Gate 15 — the Lethal-Trifecta Test
+
+Gate 15 is assessed as a *combination*, not a checklist of independent items. The dominant, adversarially-confirmed 2025 attack against AI-assisted apps (the July 2025 Supabase MCP database-exfiltration incident) succeeds not because any single control is missing, but because three capabilities co-exist in one agent. Ticking "tool permissions scoped" and "RLS on" individually still passes the vulnerable configuration.
+
+**The lethal trifecta** is the co-occurrence, in a single AI agent, MCP server, or LLM tool-chain, of:
+
+1. **Private data** — the agent can read data that is sensitive, another user's, cross-tenant, or production (directly, or through a credential or tool that can).
+2. **Untrusted content** — the agent ingests text it did not author and an attacker can influence: support tickets, form submissions, uploaded files, emails, web pages, RAG documents, tool output.
+3. **Outbound channel** — the agent can send data or effects outside the trust boundary: replying to the same ticket or email, writing to a shared record, calling an external API, following a URL, emitting a webhook.
+
+When all three are present, prompt injection becomes data exfiltration: instructions hidden in the untrusted content are executed with the agent's privileges, and the results leave through the outbound channel. This is **structural** — an LLM cannot reliably separate instructions from data — so it cannot be patched with better prompts.
+
+**Standard access controls do not break the trifecta.** Row-Level Security does not help when the agent holds a privileged service credential (e.g. Supabase `service_role`), which bypasses RLS entirely. Read-only mode narrows the damage but does not close the trifecta either: it governs database *writes*, whereas the exfiltration path here is *reading* private data, being injected, and sending the result out through the outbound channel — none of which a read-only setting prevents. A reviewer who records "RLS enabled" or "read-only" as the Gate 15 mitigation has recorded false comfort.
+
+**The control is to break a leg** — remove or human-gate any ONE of the three:
+
+- **Private data** — scope the agent's data access to only the requesting user's own data; never give an agent a broad service or admin credential when it also touches untrusted content.
+- **Untrusted content** — isolate untrusted text from the tool-calling context (summarize or quote it in a separate, non-privileged step; do not let it reach the model that holds the tools).
+- **Outbound channel** — remove it, or require explicit per-action human approval before any tool call that can send data out (the `mcp-ranger` skill governs this at development time).
+
+**Severity.** An AI/agent feature with all three legs and no broken leg is **High** by default. It is **Critical** when a successful injection would expose sensitive, cross-tenant, or production data (the documented incident exfiltrated an entire database, including a table of OAuth/session tokens). Record the three legs and the mitigation in the Gate 15 applicability entry; "RLS on" or "read-only" alone is not an accepted mitigation.
 
 ## Severity Model
 

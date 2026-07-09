@@ -50,6 +50,8 @@ For each deployable change, record:
 
 Skipped high-risk gates must include a human-confirmed reason.
 
+An AI agent, MCP server, or LLM tool-chain that combines access to private data, exposure to untrusted content, and an outbound channel (the **lethal trifecta**, Gate 15) is high-risk by default, regardless of Row-Level Security or read-only settings. Record the three legs and either a broken leg or a human-confirmed mitigation; "RLS on" or "read-only" alone is not an accepted mitigation.
+
 For any high-risk gate, `applies: false` is invalid unless all of the following are filled:
 
 - `human_confirmation_required: true`

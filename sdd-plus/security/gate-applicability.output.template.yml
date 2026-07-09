@@ -307,6 +307,15 @@ gates:
     human_confirmation_required: false
     confirmed_by: ""
     confirmed_at: ""
+    lethal_trifecta:
+      # All three legs in one agent/MCP/tool-chain = high-risk, regardless of RLS or
+      # read-only. Break (remove or human-gate) any one leg to mitigate. RLS/read-only
+      # alone is NOT an accepted mitigation.
+      private_data_access: "unknown"        # true | false | unknown
+      untrusted_content_exposure: "unknown" # true | false | unknown
+      outbound_channel: "unknown"           # true | false | unknown
+      broken_leg: ""                         # which leg is removed or human-gated, if any
+      mitigation: ""                         # required when two or more legs are present
     unresolved_questions:
       - "Confirm AI/RAG/agent usage."
   - gate_id: 16
@@ -568,6 +577,13 @@ example_completed_matrix_generic_saas_ai_app:
         - type: "repo_evidence"
           detail: "LLM provider and vector DB detected."
       reason: "LLM and vector retrieval detected."
+      lethal_trifecta:
+        # Worked example: all three legs present, one leg broken to mitigate.
+        private_data_access: true          # org/tenant data reachable by the agent
+        untrusted_content_exposure: true   # user prompts and retrieved documents
+        outbound_channel: true             # integrations/webhooks can send data out
+        broken_leg: "outbound_channel"     # agent tool calls that send data require human approval
+        mitigation: "Outbound tool calls human-gated; agent scoped to the requesting user's data; untrusted content summarized in a non-privileged step. RLS/read-only alone would NOT suffice."
       human_confirmation_required: false
       confirmed_by: ""
       confirmed_at: ""
