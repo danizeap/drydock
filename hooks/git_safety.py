@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """PreToolUse hook: require Owner confirmation for destructive git commands.
 
-Reads tool-call JSON from stdin. Exit 2 blocks the call and feeds stderr back
-to the agent. Exit 0 allows it. Conservative by design: only fires on commands
-that can destroy committed or uncommitted work.
+Reads tool-call JSON from stdin. Denies via the PreToolUse JSON
+permissionDecision protocol (exit 0) — NEVER exit 2, which the `python3 X ||
+python X` wrapper reads as launch failure and swallows by re-running on drained
+stdin. Exit 0 with no output allows. Conservative by design: only fires on
+commands that can destroy committed or uncommitted work. Covers the Bash and
+PowerShell shell tools.
 
 Matching is token-based (shlex), not substring-based: git global options
 (-C, -c, --git-dir, ...) are skipped to find the real subcommand, so prefixes
@@ -18,6 +21,8 @@ import re
 import shlex
 import sys
 from pathlib import Path
+
+from _drydock_common import emit_permission_deny
 
 # git global options that take a separate argument (skip both tokens)
 _GLOBAL_WITH_ARG = {
@@ -146,7 +151,8 @@ def check_command(command):
         return None
     for seg in _segments(tokens):
         for idx, tok in enumerate(seg):
-            if tok == "git" or tok.endswith("/git") or tok.endswith("\\git"):
+            base = tok[:-4] if tok.lower().endswith(".exe") else tok  # git.exe on Windows/PowerShell
+            if base == "git" or base.endswith("/git") or base.endswith("\\git"):
                 sub_i = _subcommand_index(seg, idx)
                 if sub_i is None:
                     continue
@@ -170,15 +176,14 @@ def main():
         payload = json.load(sys.stdin)
     except Exception:
         return 0  # never break the session on malformed input
-    if payload.get("tool_name") not in (None, "Bash"):
+    if payload.get("tool_name") not in (None, "Bash", "PowerShell"):
         return 0
     command = (payload.get("tool_input") or {}).get("command", "")
     reason = check_command(command)
     if reason:
-        print(block_message(reason), file=sys.stderr)
-        sys.stderr.flush()
+        emit_permission_deny(block_message(reason))  # JSON deny, exit 0: ||-immune
         _record_deny(payload)  # best-effort telemetry, strictly after the verdict
-        return 2
+        return 0
     return 0
 
 

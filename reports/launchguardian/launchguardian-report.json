@@ -1,0 +1,74 @@
+{
+  "schema_name": "launchguardian.report",
+  "schema_version": "0.1.0",
+  "generated_at": "2026-07-09T13:27:18.289177Z",
+  "launchguardian_version": "0.2.0",
+  "target": "C:\\Users\\Daniel Paez\\drydock",
+  "mode": "framework",
+  "validation_mode": "framework",
+  "scan_mode": "local",
+  "lgf_validation_skipped": false,
+  "strict_scanners": false,
+  "launch_status": "INCOMPLETE",
+  "lgf_config_valid": true,
+  "lgf_validation_status": "valid",
+  "scanner_availability": {
+    "gitleaks": "ran",
+    "semgrep": "failed",
+    "trivy": "ran",
+    "frontend_exposure": "ran",
+    "api_surface": "ran"
+  },
+  "scanner_counts": {
+    "gitleaks": 0,
+    "semgrep": 0,
+    "trivy": 0,
+    "frontend_exposure": 0,
+    "api_surface": 0
+  },
+  "scanner_blocking_counts": {
+    "gitleaks": 0,
+    "semgrep": 0,
+    "trivy": 0,
+    "frontend_exposure": 0,
+    "api_surface": 0
+  },
+  "counts_by_severity": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "counts_by_scanner": {},
+  "counts_by_gate": {},
+  "blocking_findings": [],
+  "launchguardian_config": {
+    "found": false,
+    "path": "",
+    "configured_output_dir": "reports\\launchguardian",
+    "effective_output_dir": "C:\\Users\\Daniel Paez\\drydock\\reports\\launchguardian",
+    "include_tests": true,
+    "strict_scanners": false,
+    "disabled_scanners": {},
+    "exclude": {
+      "paths": [
+        "node_modules",
+        ".git",
+        "reports/launchguardian"
+      ],
+      "globs": [
+        "**/*.min.js",
+        "**/fixtures/**"
+      ]
+    },
+    "severity_policy": {
+      "critical_blocks": true,
+      "high_blocks": true,
+      "medium_blocks": false,
+      "low_blocks": false
+    }
+  },
+  "blocked": false,
+  "findings": []
+}

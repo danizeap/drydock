@@ -42,14 +42,14 @@ The emitted `additionalContext` SHALL contain only derived signals — enum stat
 - **THEN** the emitted context contains no file excerpts and no absolute paths, only derived states/counts/names
 
 ### Requirement: Honest guardrail liveness probe
-The hook SHALL report a guard as "live" only when running that guard script under the current interpreter exits exactly 2 on a destructive probe payload, the guard's expected block message appears on stderr, AND a benign control payload exits 0. Any other outcome SHALL be reported as "degraded" (named) or "unverified". The verdict SHALL claim only what it verified (the guard SCRIPT blocks under a probe), and a separate static check SHALL report whether `hooks.json` registers the guards. The probe SHALL never claim the wired in-session PreToolUse chain is protected. The verdict SHALL be freshly measured each session (never cached).
+The hook SHALL report a guard as "live" only when running that guard script under the current interpreter emits a JSON `permissionDecision: deny` on stdout whose reason contains the guard's expected block fragment on a destructive probe payload, AND a benign control payload produces no deny — both exiting 0 (the guards deny via the JSON protocol, not exit 2). Any other outcome — including a guard that ALLOWS the destructive probe (fails open) — SHALL be reported as "degraded" (named) or "unverified". The verdict SHALL claim only what it verified (the guard SCRIPT denies under a probe), and a separate static check SHALL report whether `hooks.json` registers the guards. Because the guards deny with exit 0, the single-interpreter probe faithfully reflects the wrapped `python3 X || python X` chain (the `||` fallback never fires on a deny); the wrapped chain is separately regression-tested. The verdict SHALL be freshly measured each session (never cached).
 
-#### Scenario: Live only on a genuine block
-- **WHEN** a guard exits 2 with its expected message on the destructive probe and exits 0 on the benign control
+#### Scenario: Live only on a genuine deny
+- **WHEN** a guard emits a JSON deny with its expected reason on the destructive probe and no deny on the benign control
 - **THEN** that guard is reported "live"
 
-#### Scenario: Wrong-reason exit 2 is not "live"
-- **WHEN** a guard exits 2 without the expected block message (e.g. a SystemExit/argparse error) or blocks the benign control
+#### Scenario: A guard that fails open is not "live"
+- **WHEN** a guard allows the destructive probe (emits no deny), or denies with the wrong reason, or denies the benign control
 - **THEN** it is reported "degraded", never "live"
 
 #### Scenario: Missing guard script is degraded

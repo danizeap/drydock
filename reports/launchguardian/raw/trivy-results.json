@@ -1,0 +1,22 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.71.1"
+  },
+  "ReportID": "019f470f-af09-7160-8d35-f26f1fc0c082",
+  "CreatedAt": "2026-07-09T15:27:18.0250903+02:00",
+  "ArtifactID": "sha256:abf78d4c3329ec2c050a03a03796028d25cfcf15f0e4f5d49181f193c9b303af",
+  "ArtifactName": "C:/Users/Daniel Paez/drydock",
+  "ArtifactType": "repository",
+  "Metadata": {
+    "RepoURL": "git@github-personal:danizeap/drydock.git",
+    "Branch": "main",
+    "Tags": [
+      "v0.4.2"
+    ],
+    "Commit": "b546ceef1a5fb659518ec62b23ee053116244433",
+    "CommitMsg": "release: 0.4.2 — consequence-framed approvals (Owner surface, part 2)\n\nReplaces framework-usage.md §7's neutral approval prompt with a two-variant\nconsequence template a non-expert can decide: FULL ask (plain referents, what\ncould go wrong, who's affected, closed-vocabulary Undo, and a novel \"safety net\nafter your yes\" line) + QUICK ask for routine choices. Ternary reversibility\nheader so an unknown reversibility renders UNDO UNCERTAIN, never \"undoable\".\nReal decline path mapping to existing BLOCKED semantics with an anti-nag rule.\nNew approval-request template (+ scaffold twin, now check_sync 11/11) and an\napprovals living capability spec. Deterministic enforcement (per-packet record\n+ archive gate) intentionally deferred to its own red-teamed packet. Verifier\nVERIFIED WITH NOTES; caught the binary-header false-reassurance self-undercut,\nfixed to ternary before archive. Tenth dogfooded packet; suite 251.\n\nCo-Authored-By: Claude Fable 5 \u003cnoreply@anthropic.com\u003e",
+    "Author": "WeCollabify \u003cdanielp@wecollabify.com\u003e",
+    "Committer": "WeCollabify \u003cdanielp@wecollabify.com\u003e"
+  }
+}

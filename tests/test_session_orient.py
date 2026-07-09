@@ -27,15 +27,19 @@ def make_project(root, context="real", packet="demo-change", pending=2, unfilled
     return root
 
 
-def _fake_guard(path, block_rc, block_msg, benign_rc):
+def _fake_guard(path, reason, deny_benign=False, allow_all=False):
+    """A guard that denies via the JSON permissionDecision protocol (exit 0),
+    like the real guards. `reason` is the deny text; deny_benign denies the
+    control too; allow_all never denies (models a guard that fails open)."""
     path.write_text(
         "import sys, json\n"
         "d = json.load(sys.stdin)\n"
         "cmd = (d.get('tool_input') or {}).get('command')\n"
-        "if cmd == 'BLOCK':\n"
-        f"    sys.stderr.write({block_msg!r})\n"
-        f"    sys.exit({block_rc})\n"
-        f"sys.exit({benign_rc})\n",
+        f"reason, deny_benign, allow_all = {reason!r}, {deny_benign!r}, {allow_all!r}\n"
+        "if not allow_all and (cmd == 'BLOCK' or deny_benign):\n"
+        "    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',\n"
+        "        'permissionDecision': 'deny', 'permissionDecisionReason': reason}}))\n"
+        "sys.exit(0)\n",
         encoding="utf-8")
 
 
@@ -103,30 +107,40 @@ def test_output_has_no_abspath_or_file_content(tmp_path):
     assert "demo-change" in ctx                     # kebab name is fine
 
 
-# --- INV3: guardrail probe -------------------------------------------------
+# --- INV3: guardrail probe (JSON deny protocol) ----------------------------
 def test_probe_live_only_on_genuine_block(tmp_path):
-    _fake_guard(tmp_path / "g.py", 2, "the test guardrail fired", 0)
+    _fake_guard(tmp_path / "g.py", "the test guardrail fired")
     v = so.probe_guard(tmp_path, "g.py", {"tool_input": {"command": "BLOCK"}},
-                       {"tool_input": {"command": "OK"}}, b"guardrail")
+                       {"tool_input": {"command": "OK"}}, "guardrail")
     assert v == "live"
 
 
-def test_probe_exit2_wrong_reason_is_degraded(tmp_path):
-    _fake_guard(tmp_path / "g.py", 2, "argparse: error: unrecognized", 0)  # exit 2, no 'guardrail'
+def test_probe_wrong_reason_is_degraded(tmp_path):
+    _fake_guard(tmp_path / "g.py", "argparse: error: unrecognized")  # deny, but no 'guardrail'
     v = so.probe_guard(tmp_path, "g.py", {"tool_input": {"command": "BLOCK"}},
-                       {"tool_input": {"command": "OK"}}, b"guardrail")
+                       {"tool_input": {"command": "OK"}}, "guardrail")
     assert v.startswith("degraded")
 
 
 def test_probe_blocking_benign_is_degraded(tmp_path):
-    _fake_guard(tmp_path / "g.py", 2, "guardrail", 2)  # blocks EVERYTHING, incl. benign
+    _fake_guard(tmp_path / "g.py", "guardrail", deny_benign=True)  # denies EVERYTHING
     v = so.probe_guard(tmp_path, "g.py", {"tool_input": {"command": "BLOCK"}},
-                       {"tool_input": {"command": "OK"}}, b"guardrail")
+                       {"tool_input": {"command": "OK"}}, "guardrail")
+    assert v.startswith("degraded")
+
+
+def test_probe_failopen_guard_is_degraded(tmp_path):
+    """The honesty fix: a guard that ALLOWS the destructive probe (fails open,
+    emitting no deny) must never be reported 'live' — the exact overstatement
+    the ||-swallow bug produced."""
+    _fake_guard(tmp_path / "g.py", "guardrail", allow_all=True)
+    v = so.probe_guard(tmp_path, "g.py", {"tool_input": {"command": "BLOCK"}},
+                       {"tool_input": {"command": "OK"}}, "guardrail")
     assert v.startswith("degraded")
 
 
 def test_probe_missing_script_is_degraded(tmp_path):
-    assert "missing" in so.probe_guard(tmp_path, "nope.py", {}, {}, b"x")
+    assert "missing" in so.probe_guard(tmp_path, "nope.py", {}, {}, "x")
 
 
 # --- INV2: run()/main() never block ----------------------------------------

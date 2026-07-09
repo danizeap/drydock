@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """PreToolUse hook: block agent writes to secret-bearing paths.
 
-Reads the tool-call JSON from stdin. Exit code 2 blocks the tool call and
-feeds stderr back to the agent as the reason. Exit code 0 allows it.
+Reads the tool-call JSON from stdin. Denies via the PreToolUse JSON
+permissionDecision protocol (exit 0) — never exit 2, which the `python3 X ||
+python X` wrapper reads as launch failure and swallows by re-running on drained
+stdin. Exit 0 with no output allows.
 
-Covers Write/Edit/MultiEdit targets AND Bash commands that write to a secret
-path (redirections, tee, cp/mv destinations). Example/template env files are
-explicitly allowed, matching the scaffold .gitignore's `!.env.example`.
+Covers Write/Edit/MultiEdit targets AND Bash/PowerShell commands that write to a
+secret path (POSIX redirections/tee/cp/mv, plus PowerShell-native cmdlets like
+Set-Content/Out-File/Copy-Item). Example/template env files are explicitly
+allowed, matching the scaffold .gitignore's `!.env.example`.
 """
 import json
 import os
@@ -14,7 +17,8 @@ import re
 import sys
 from pathlib import Path
 
-from _drydock_common import append_event, bash_write_targets, find_drydock_root, plugin_root_from_env
+from _drydock_common import (append_event, command_write_targets, emit_permission_deny,
+                             find_drydock_root, plugin_root_from_env)
 
 # Basenames that look secret but are documentation templates -> always allowed.
 _ALLOW_BASENAMES = {".env.example", ".env.template", ".env.sample"}
@@ -56,9 +60,9 @@ def check(tool_name, tool_input):
                 f"'{path}' looks like a secrets/credentials file. Agents must not create "
                 "or edit secret-bearing files. Ask the Owner to handle this file manually."
             )
-    if tool_name in (None, "Bash"):
+    if tool_name in (None, "Bash", "PowerShell"):
         command = tool_input.get("command", "")
-        for target in bash_write_targets(command):
+        for target in command_write_targets(command, tool_name or "Bash"):
             if path_is_secret(target):
                 return (
                     f"this command writes to '{target}', which looks like a secrets/credentials "
@@ -75,10 +79,9 @@ def main():
         return 0  # never break the session on malformed input
     reason = check(payload.get("tool_name"), payload.get("tool_input"))
     if reason:
-        print(f"Blocked by SDD+ secrets guardrail: {reason}", file=sys.stderr)
-        sys.stderr.flush()
+        emit_permission_deny(f"Blocked by SDD+ secrets guardrail: {reason}")  # JSON deny, exit 0
         _record_deny(payload)  # best-effort telemetry, strictly after the verdict
-        return 2
+        return 0
     return 0
 
 

@@ -121,11 +121,11 @@ _PROBES = [
     ("git-safety", "git_safety.py",
      {"tool_name": "Bash", "tool_input": {"command": "git -C . reset --hard"}},
      {"tool_name": "Bash", "tool_input": {"command": "git status"}},
-     b"git-safety guardrail"),
+     "git-safety guardrail"),
     ("secrets", "protect_secrets.py",
      {"tool_name": "Write", "tool_input": {"file_path": ".env"}},
      {"tool_name": "Write", "tool_input": {"file_path": "notes.txt"}},
-     b"secrets guardrail"),
+     "secrets guardrail"),
 ]
 
 
@@ -143,10 +143,29 @@ def _run_guard(guard_path, payload):
     )
 
 
+def _deny_reason(proc):
+    """The permissionDecisionReason if the guard emitted a JSON permission-deny
+    on stdout, else None. The guards deny via JSON (exit 0), not exit 2."""
+    try:
+        out = (proc.stdout or b"").decode("utf-8", "replace").strip()
+        if not out:
+            return None
+        hso = (json.loads(out) or {}).get("hookSpecificOutput") or {}
+        if hso.get("permissionDecision") == "deny":
+            return hso.get("permissionDecisionReason") or ""
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return None
+
+
 def probe_guard(hooks_dir, script, block_payload, benign_payload, expect):
-    """'live' only if the guard exits 2 with the expected message on the block
-    payload AND exits 0 on a benign control. Proves the guard SCRIPT responds
-    under this interpreter — not that the wired PreToolUse path fires."""
+    """'live' only if the guard emits a JSON permissionDecision deny (reason
+    containing `expect`) on the destructive payload AND no deny on the benign
+    control, both exiting 0. Because the guards deny via JSON with exit 0, this
+    single-interpreter probe faithfully reflects the wrapped `python3 X || python
+    X` chain (a deny exits 0, so the `||` fallback never fires); the wrapped
+    chain itself is separately regression-tested. Proves the guard SCRIPT
+    responds — a static hooks.json check covers wiring."""
     guard = hooks_dir / script
     try:
         if not guard.is_file():
@@ -155,11 +174,11 @@ def probe_guard(hooks_dir, script, block_payload, benign_payload, expect):
         benign = _run_guard(guard, benign_payload)
     except (subprocess.TimeoutExpired, OSError):
         return "unverified (probe timed out)"
-    if (blocked.returncode == 2
-            and expect in (blocked.stderr or b"")
-            and benign.returncode == 0):
+    reason = _deny_reason(blocked)
+    if (reason is not None and expect in reason and blocked.returncode == 0
+            and _deny_reason(benign) is None and benign.returncode == 0):
         return "live"
-    return f"degraded (block rc={blocked.returncode}, benign rc={benign.returncode})"
+    return f"degraded (block denied={reason is not None} rc={blocked.returncode})"
 
 
 def wiring_ok(hooks_dir):

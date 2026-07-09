@@ -273,6 +273,112 @@ def bash_write_targets(command):
     return targets
 
 
+# --- PowerShell-native write coverage --------------------------------------
+# The Windows harness exposes a separate PowerShell tool; its native write
+# cmdlets are invisible to the POSIX-only bash_write_targets. Ported verbatim
+# from the tested reference (secpho drydock_deny_guards). The false-block traps
+# it handles are load-bearing: destination is the 2nd positional for
+# copy/move/rename; once an explicit -Path binds, later positionals are -Value
+# CONTENT (never a path); -Path:.env attached-colon; known value-params
+# (-Value/-Encoding/-ItemType/...) skip their value while every other flag is a
+# valueless switch that consumes nothing (fail-safe — a switch cannot hide the
+# path). POSIX spellings PowerShell shares (cp, mv, tee, >, >>) stay with
+# bash_write_targets.
+_PS_WRITE_CMDLETS = {
+    "out-file", "set-content", "sc", "add-content", "ac", "new-item", "ni",
+    "copy-item", "copy", "cpi", "move-item", "move", "mi", "tee-object",
+    "rename-item", "rni", "ren",
+}
+_PS_DEST_CMDLETS = {  # write target is the SECOND positional (source, destination)
+    "copy-item", "copy", "cpi", "move-item", "move", "mi",
+    "rename-item", "rni", "ren",
+}
+_PS_PATH_PARAMS = {"-path", "-literalpath", "-filepath", "-destination", "-newname"}
+# Known value-TAKING params on write cmdlets: skip their value so it is not
+# mistaken for a positional path. EVERYTHING ELSE starting with '-' is treated
+# as a valueless switch that consumes NOTHING — fail-SAFE. (The earlier
+# "unknown param consumes the next token" heuristic let a valueless switch like
+# -Verbose/-Debug before the path eat the path token and hide the write — a real
+# fail-open a security tool must not have.)
+_PS_VALUE_PARAMS = {
+    "-value", "-encoding", "-stream", "-delimiter", "-width", "-totalcount",
+    "-tail", "-filter", "-include", "-exclude", "-itemtype",
+}
+_PS_SEPARATORS = {";", "|", "&&", "||", "&"}
+
+
+def powershell_write_targets(command):
+    """Best-effort write-target paths of PowerShell file-writing cmdlets. Mirrors
+    bash_write_targets' conservatism: unparseable input yields no targets."""
+    import shlex
+    try:
+        tokens = shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        return []
+    targets = []
+    i = 0
+    while i < len(tokens):
+        cmdlet = tokens[i].lower()
+        if cmdlet not in _PS_WRITE_CMDLETS:
+            i += 1
+            continue
+        target_positional = 2 if cmdlet in _PS_DEST_CMDLETS else 1
+        positionals = 0
+        explicit_path = False  # once -Path/... binds, later positionals are -Value
+        i += 1
+        while i < len(tokens) and tokens[i] not in _PS_SEPARATORS:
+            tok = tokens[i]
+            low = tok.lower()
+            if low.startswith("-"):
+                name, _, attached = low.partition(":")
+                if name in _PS_PATH_PARAMS:
+                    explicit_path = True
+                    if attached:
+                        targets.append(tok.partition(":")[2])
+                    elif i + 1 < len(tokens):
+                        targets.append(tokens[i + 1])
+                        i += 1
+                elif name in _PS_VALUE_PARAMS and not attached and i + 1 < len(tokens):
+                    i += 1  # known value-taking parameter: skip its value
+                # else: a valueless switch (incl. -Verbose/-Debug) -> consume nothing (fail-safe)
+            else:
+                positionals += 1
+                if positionals == target_positional and not explicit_path:
+                    targets.append(tok)
+            i += 1
+    return targets
+
+
+def command_write_targets(command, tool_name="Bash"):
+    """Write-target paths for a shell command, dispatched by tool. Bash gets the
+    POSIX extractor; PowerShell gets POSIX (it shares >, >>, cp/mv/tee aliases)
+    UNIONED with the native-cmdlet extractor."""
+    targets = bash_write_targets(command)
+    if tool_name == "PowerShell":
+        targets = targets + powershell_write_targets(command)
+    return targets
+
+
+def emit_permission_deny(reason):
+    """Emit a PreToolUse JSON permission-deny on stdout and flush; the CALLER
+    exits 0. This is the ONLY sanctioned deny for a PreToolUse hook — NEVER exit
+    code 2. hooks.json wraps every hook as `python3 X || python X`; a non-zero
+    exit is read by the shell as launch failure, re-runs the hook on already-
+    drained stdin, and fails OPEN, silently losing the deny on any machine where
+    python3 works. Exit 0 means the `||` fallback never fires on a deny."""
+    import json
+    import sys
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
 def write_state(path, obj):
     """Atomic write (mkstemp + os.replace, 0o600). Returns True only if the new
     state is durably in place — callers gate any user-visible action on this.

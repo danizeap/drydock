@@ -204,7 +204,10 @@ def test_verdict_delivery_identical_healthy_vs_broken_ledger(tmp_path, script, p
     env, journal = _subprocess_ledger(tmp_path, root)
 
     healthy = _run_hook(script, payload, env)
-    assert healthy.returncode == 2 and expect in healthy.stderr
+    # deny is the JSON permissionDecision protocol (exit 0), never exit 2 (which
+    # the python3||python wrapper would swallow)
+    assert healthy.returncode == 0
+    assert b'"permissionDecision": "deny"' in healthy.stdout and expect in healthy.stdout
     # anti-vacuous guard: the healthy run MUST have reached the append path
     assert journal.is_file(), "append path was not exercised — test would be vacuous"
     assert category in journal.read_text(encoding="utf-8")
@@ -213,7 +216,7 @@ def test_verdict_delivery_identical_healthy_vs_broken_ledger(tmp_path, script, p
     journal.mkdir()  # a directory at the journal's own path: unwritable, no fallback
     hurt = _run_hook(script, payload, env)
     assert not any(journal.iterdir())  # nothing was written anywhere into it
-    assert hurt.returncode == healthy.returncode == 2
+    assert hurt.returncode == healthy.returncode == 0
     assert hurt.stdout == healthy.stdout
     assert hurt.stderr == healthy.stderr
 

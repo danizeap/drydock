@@ -28,7 +28,7 @@ Then, inside any project:
 
 ## What you get
 
-**A safety layer that can't be talked out of.** Deterministic hooks run as code, not polite suggestions the model might ignore. Agent edits to secrets files (`.env`, keys, credentials — including through shell redirection) are blocked, and destructive git commands (`push --force`, `reset --hard`, `clean -f`, stash drops) are stopped before they execute.
+**A safety layer that can't be talked out of.** Deterministic hooks run as code, not polite suggestions the model might ignore. Agent edits to secrets files (`.env`, keys, credentials — including through shell redirection and PowerShell-native cmdlets like `Set-Content`) are blocked, and destructive git commands (`push --force`, `reset --hard`, `clean -f`, stash drops) are stopped before they execute — across both the Bash and PowerShell shell tools, on macOS, Linux, and Windows.
 
 **It governs itself.** Three more hooks make the process self-driving, so non-experts stay safe without learning the machinery. Every session **orients itself** — project state, active changes, and a live self-test proving the guardrails still fire — and stays aware of it throughout. Ungoverned edits to narrow high-risk paths (new migrations, CI/CD configs, Dockerfiles) are **caught** with a one-line recovery path, while trivial edits flow free. And "done" is held to mean **verified done**: a change claimed complete with its verification still empty earns one nudge, never a silent pass. Every hook fails toward silence — it can slow a risky move, never break your session.
 

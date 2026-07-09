@@ -26,7 +26,7 @@ import os
 import sys
 from pathlib import Path
 
-from _drydock_common import (append_event, bash_write_targets, find_drydock_root,
+from _drydock_common import (append_event, command_write_targets, find_drydock_root,
                              plugin_root_from_env, sanitize_sid, state_path, read_state,
                              write_state, new_state, fingerprint_project)
 
@@ -175,9 +175,9 @@ def classify(data):
         raw = tool_input.get("file_path") or tool_input.get("path") or ""
         targets = [raw] if isinstance(raw, str) and raw else []
         bash = False
-    elif tool == "Bash":
+    elif tool in ("Bash", "PowerShell"):
         cmd = tool_input.get("command", "")
-        targets = [t for t in bash_write_targets(cmd) if isinstance(t, str) and t]
+        targets = [t for t in command_write_targets(cmd, tool) if isinstance(t, str) and t]
         bash = True
     else:
         return ("silent", None)

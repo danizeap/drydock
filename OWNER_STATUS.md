@@ -1,7 +1,7 @@
 # Project status - 2026-07-09
 
 **Snapshot generated 2026-07-09 - anything after this date is NOT reflected. Ask for a fresh brief (/drydock:brief).**
-As of commit 0531909.
+As of commit 13473a9.
 
 ## Needs you
 - Nothing needs you - checked: work items, verification records, archive records, safety-net history.
@@ -10,6 +10,9 @@ As of commit 0531909.
 (nothing in flight)
 
 ## Shipped
+- **hook-deny-and-powershell** - done & documented (2026-07-09)
+  Two ways the safety net was silently letting dangerous commands through — one on every machine where python3 works, one for every command run through PowerShell on Windows — are now closed, so "the guards can't be talked out of" is true in 
+  Safe to say: "it's done and documented" (as of 2026-07-09).
 - **gate15-lethal-trifecta** - done & documented (2026-07-09)
   If an AI agent in your app can read private data, see text from strangers, and send messages out, LaunchGuardian now flags that specific combination as dangerous — because that's the exact setup attackers used to steal whole databases, and 
   Safe to say: "it's done and documented" (as of 2026-07-09).
@@ -49,4 +52,4 @@ As of commit 0531909.
 
 *Everything above is read from the project's own records by deterministic code. Anything unreadable says so - it is never shown as fine.*
 
-<!-- drydock-brief fp=a74fbf10a6cd1352 lang=en v=1 -->
+<!-- drydock-brief fp=3ade4c1aaa1844e6 lang=en v=1 -->

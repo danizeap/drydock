@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — enforcement integrity: the `||` deny-swallow + PowerShell coverage
+
+Closes two enforcement holes found by a live-fire audit of Drydock running on a real project — both failing OPEN (no enforcement), the worst direction. Eleventh dogfooded packet.
+
+- **The interpreter fallback no longer swallows denies (severe, all machines).** `hooks.json` wraps every hook as `python3 X || python X`. `git_safety.py` and `protect_secrets.py` denied via **exit code 2** — which the shell's `||` reads as launch failure, re-running the hook on already-drained stdin and failing open, so the deny was silently lost on any machine where `python3` works. Both now deny via the **JSON `permissionDecision: deny` protocol with exit 0** (the `||`-immune protocol `packet_guard` already used, via a shared `emit_permission_deny()`). A new `tests/test_interpreter_fallback.py` runs the literal `X || X` chain and asserts the deny survives — falsification-proven (reverting to exit-2 fails it). The SessionStart liveness probe was also fixed: it detected exit-2 and so **overstated enforcement** ("live" while the wrapped chain failed open); it now detects the JSON deny, and a new test proves a guard that fails open is reported "degraded", never "live".
+- **PowerShell is no longer a bypass on Windows.** The guards hard-gated on `tool_name == "Bash"`, so any destructive command run through the PowerShell tool was unguarded. Now all three PreToolUse matchers include PowerShell; `git_safety`/`protect_secrets`/`packet_guard` accept the PowerShell tool; a ported, fail-safe PowerShell write-target extractor covers native cmdlets (`Set-Content`, `Out-File`, `Add-Content`, `New-Item`, `Copy-Item`/`Move-Item`/`Rename-Item` destinations, `Tee-Object`, aliases) alongside the POSIX forms PowerShell shares; and `git.exe` (the canonical Windows invocation) is now recognized.
+- **The verifier caught a subtler fail-open before release.** A valueless switch (`-Verbose`/`-Debug`) before the positional path defeated the secrets deny (`Set-Content -Verbose .env` was allowed) — a gap the ported reference and its 34 tests carried. Fixed by inverting the extractor's parameter default to **fail-safe**: an unknown flag consumes nothing, so a switch can never hide a path; only known value-parameters skip their value. The false-block traps (`-Value credentials.json` is content, `.env.example` templates, destination-is-2nd-positional, `-Path:.env`) remain handled. Suite now 274 tests.
+
 ## 0.4.2 — the Owner surface, part 2: consequence-framed approvals
 
 Turns the approval moment into a decision a non-expert can actually make. Tenth dogfooded packet; designed by the v0.3 Owner-surface exploration.

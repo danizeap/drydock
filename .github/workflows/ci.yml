@@ -34,19 +34,29 @@ jobs:
       - name: Check version consistency (no drift across manifests + docs)
         run: python scripts/release.py --check
 
-      - name: Smoke-test guardrails are live (must block with exit 2)
+      - name: Smoke-test guardrails deny via the ||-immune JSON protocol (exit 0)
         shell: bash
         run: |
-          set +e
-          echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | python hooks/git_safety.py
-          [ $? -eq 2 ] || { echo "FAIL: git_safety did not block a hard reset"; exit 1; }
-          echo '{"tool_name":"Bash","tool_input":{"command":"git -C . reset --hard"}}' | python hooks/git_safety.py
-          [ $? -eq 2 ] || { echo "FAIL: git_safety did not block the -C bypass"; exit 1; }
-          echo '{"tool_name":"Write","tool_input":{"file_path":".env"}}' | python hooks/protect_secrets.py
-          [ $? -eq 2 ] || { echo "FAIL: protect_secrets did not block a .env write"; exit 1; }
-          echo '{"tool_name":"Bash","tool_input":{"command":"echo K=v > .env"}}' | python hooks/protect_secrets.py
-          [ $? -eq 2 ] || { echo "FAIL: protect_secrets did not block a Bash redirect to .env"; exit 1; }
-          echo "guardrails live"
+          # assert_deny is called directly (NOT on the right of a pipe), so its
+          # `exit 1` exits this step — the checks actually gate the build.
+          assert_deny() {  # $1=hook  $2=payload  $3=desc ; must emit a JSON deny AND exit 0
+            out=$(printf '%s' "$2" | python "hooks/$1"); rc=$?
+            echo "$out" | grep -q '"permissionDecision": "deny"' \
+              || { echo "FAIL: $1 did not deny ($3)"; exit 1; }
+            [ "$rc" -eq 0 ] \
+              || { echo "FAIL: $1 denied with exit $rc — a non-zero deny is swallowed by the || wrapper ($3)"; exit 1; }
+          }
+          assert_deny git_safety.py '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' "hard reset"
+          assert_deny git_safety.py '{"tool_name":"Bash","tool_input":{"command":"git -C . reset --hard"}}' "-C bypass"
+          assert_deny git_safety.py '{"tool_name":"PowerShell","tool_input":{"command":"git push --force origin main"}}' "PowerShell force push"
+          assert_deny protect_secrets.py '{"tool_name":"Write","tool_input":{"file_path":".env"}}' ".env write"
+          assert_deny protect_secrets.py '{"tool_name":"Bash","tool_input":{"command":"echo K=v > .env"}}' "bash redirect to .env"
+          assert_deny protect_secrets.py '{"tool_name":"PowerShell","tool_input":{"command":"Set-Content -Path .env -Value x"}}' "PowerShell Set-Content .env"
+          assert_deny protect_secrets.py '{"tool_name":"PowerShell","tool_input":{"command":"Set-Content -Verbose .env -Value x"}}' "PowerShell -Verbose Set-Content .env (fail-safe switch)"
+          # headline: the deny must SURVIVE the python3 X || python X wrapper (not swallowed)
+          out=$(echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | sh -c 'python hooks/git_safety.py || python hooks/git_safety.py')
+          echo "$out" | grep -q '"permissionDecision": "deny"' || { echo "FAIL: deny swallowed by the || chain"; exit 1; }
+          echo "guardrails deny via JSON; PowerShell (incl. valueless switches) covered; || chain preserves the deny"
 
       - name: SessionStart hook never fails a session (must always exit 0)
         shell: bash
