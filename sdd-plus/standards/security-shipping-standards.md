@@ -52,6 +52,8 @@ Skipped high-risk gates must include a human-confirmed reason.
 
 An AI agent, MCP server, or LLM tool-chain that combines access to private data, exposure to untrusted content, and an outbound channel (the **lethal trifecta**, Gate 15) is high-risk by default, regardless of Row-Level Security or read-only settings. Record the three legs and either a broken leg or a human-confirmed mitigation; "RLS on" or "read-only" alone is not an accepted mitigation.
 
+Supply-chain review (Gate 10) covers install-script execution and CI/CD workflow integrity, not only known-CVE scanning: a freshly trojanized dependency or a mutable-tag CI Action has no CVE yet. For Backend-as-a-Service stacks, confirm row-level authorization is enabled on every private/tenant table and that no privileged service key is shipped client-side (Gates 6 & 16). See the LaunchGuardian framework spec for detail.
+
 For any high-risk gate, `applies: false` is invalid unless all of the following are filled:
 
 - `human_confirmation_required: true`

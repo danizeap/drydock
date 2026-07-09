@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — LaunchGuardian: 2025 threat-landscape gate re-scopes
+
+Aligns the remaining gates with the strongly-sourced findings from the same web-researched gap analysis, without renumbering the 22 gates. Ninth dogfooded packet.
+
+- **Gate 10 (Supply Chain) re-scoped** with a new subsection covering what CVE scanning structurally misses: **install-script execution** (a freshly trojanized package has no CVE — the Shai-Hulud npm worm, CISA alert Sept 2025), **lockfile integrity + version pinning**, **CI/CD workflow integrity** (SHA-pin third-party Actions instead of mutable tags; the tj-actions/changed-files compromise, CVE-2025-30066; plus workflow injection, runner persistence, secrets-in-build-logs), and **slopsquatting** (AI-hallucinated package names). Reflects OWASP Top 10 2025's new A03 Software Supply Chain Failures.
+- **Gates 6 & 16 (Object Authorization / Tenant Isolation)** now name the concrete Backend-as-a-Service failure that dominates this audience: **row-level authorization enabled on every private/tenant table; the anon/public key can't over-read; a service key is never shipped client-side**. The RLS-off breach class (Lovable CVE-2025-48757, the Tea app breach) is cited as a phenomenon.
+- **Gate 13** now names webhook signing-secret verification (present, non-empty, enforced — reject unsigned/mis-signed payloads); **Gate 12** now names fail-closed handling of exceptional conditions (OWASP 2025 A10 — a failing check must deny, not silently allow).
+- **Faithfulness held to the evidence tier.** These findings are primary-sourced (CISA/OWASP/Wiz/Unit42) but their adversarial verification pass was cut off, so the framework cites the incidents and standards while deliberately omitting every specific count, and bars the one statistic that was refuted in research. The verifier returned VERIFIED WITH NOTES on exactly two calibration phrases (a date range and a superlative); both were tightened before archive. No code touched; suite unchanged at 251.
+
 ## 0.4.0 — LaunchGuardian: Gate 15 lethal-trifecta test
 
 First evidence-backed upgrade to the security gates themselves, from a web-researched, adversarially-verified gap analysis of the 2024–2026 threat landscape. Eighth dogfooded packet.

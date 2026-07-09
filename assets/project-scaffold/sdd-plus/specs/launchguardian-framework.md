@@ -50,17 +50,17 @@ Canonical LGF gates:
 | Gate 3 — Code Security | Review security-sensitive code paths, unsafe patterns, privilege boundaries, and implementation evidence. |
 | Gate 4 — Secrets & Config Hygiene | Confirm secrets, tokens, keys, credentials, and environment configuration are handled safely. |
 | Gate 5 — Frontend Exposure | Review public routes, browser storage, client-side secrets, CORS, CSP, and user-controlled rendering. |
-| Gate 6 — API Auth & Object Authorization | Confirm API authentication, object-level authorization, tenant boundaries, and permission checks. |
+| Gate 6 — API Auth & Object Authorization | Confirm API authentication, object-level authorization (IDOR/BOLA), tenant boundaries, and permission checks. For Backend-as-a-Service stacks, confirm row-level authorization on every private/tenant table (see "Gates 6 & 16 — Row-Level Authorization" below). |
 | Gate 7 — Injection & Input Safety | Review input validation, output encoding, query construction, command execution, and parser safety. |
 | Gate 8 — Auth, Sessions & CSRF | Review login, signup, password reset, session lifecycle, cookies, MFA, CSRF, and logout behavior. |
 | Gate 9 — File Upload, SSRF, Imports & Exports | Review file handling, remote fetches, import/export formats, SSRF controls, and content processing. |
-| Gate 10 — Dependency, SBOM & Supply Chain | Review dependency policy, lockfiles, vulnerability thresholds, package sources, and SBOM expectations. |
+| Gate 10 — Dependency, SBOM & Supply Chain | Review dependency policy, lockfiles, vulnerability thresholds, package sources, and SBOM expectations — plus install-script execution, CI/CD workflow integrity, and slopsquatting (see "Gate 10 — Supply Chain & CI/CD Integrity" below). |
 | Gate 11 — Infrastructure, DNS, TLS & Web Hardening | Review hosting, DNS, TLS, headers, network exposure, environment separation, and web hardening. |
-| Gate 12 — Resilience, DDoS, Abuse & Cost Defense | Review rate limits, quotas, retries, abuse paths, cost controls, and degradation behavior. |
-| Gate 13 — Webhooks, Background Jobs & Integrations | Review webhook verification, job idempotency, retries, third-party integrations, and failure handling. |
+| Gate 12 — Resilience, DDoS, Abuse & Cost Defense | Review rate limits, quotas, retries, abuse paths, cost controls, and degradation behavior — including fail-closed handling of exceptional conditions (a failing security check must deny, not silently allow; OWASP 2025 A10). |
+| Gate 13 — Webhooks, Background Jobs & Integrations | Review webhook verification (confirm the signing secret is present, non-empty, and enforced — reject unsigned or mis-signed payloads), job idempotency, retries, third-party integrations, and failure handling. |
 | Gate 14 — Privacy, Legal & Data Lifecycle | Review personal data, notice/consent, retention, deletion, legal constraints, and data sharing. |
 | Gate 15 — AI/RAG/Agent Security | Review prompt injection, tool/MCP permissions, retrieval boundaries, model data exposure, and agent actions. Apply the **lethal-trifecta test** (see "Gate 15 — the Lethal-Trifecta Test" below): an AI agent, MCP server, or LLM tool-chain that combines access to private data, exposure to untrusted content, and an outbound channel is high-risk regardless of RLS or read-only settings. |
-| Gate 16 — Multi-Tenant & Internal Permission Isolation | Review tenant isolation, internal roles, admin access, scoped permissions, and cross-account access. |
+| Gate 16 — Multi-Tenant & Internal Permission Isolation | Review tenant isolation, internal roles, admin access, scoped permissions, and cross-account access. For Backend-as-a-Service stacks, confirm row-level authorization on every tenant table (see "Gates 6 & 16 — Row-Level Authorization" below). |
 | Gate 17 — Observability, Logs & Incident Readiness | Review logging, monitoring, alerting, sensitive log data, incident paths, and ownership. |
 | Gate 18 — Backup, Recovery, Deletion & Rotation | Review backups, restore tests, deletion paths, credential rotation, and recovery objectives. |
 | Gate 19 — Business Logic Abuse | Review workflow abuse, fraud paths, privilege escalation through product logic, and bypasses. |
@@ -92,6 +92,27 @@ When all three are present, prompt injection becomes data exfiltration: instruct
 - **Outbound channel** — remove it, or require explicit per-action human approval before any tool call that can send data out (the `mcp-ranger` skill governs this at development time).
 
 **Severity.** An AI/agent feature with all three legs and no broken leg is **High** by default. It is **Critical** when a successful injection would expose sensitive, cross-tenant, or production data (the documented incident exfiltrated an entire database, including a table of OAuth/session tokens). Record the three legs and the mitigation in the Gate 15 applicability entry; "RLS on" or "read-only" alone is not an accepted mitigation.
+
+## Gate 10 — Supply Chain & CI/CD Integrity
+
+Gate 10 covers more than known-CVE scanning. The dominant documented supply-chain compromises of 2025 were not vulnerable *versions* of packages — they were *freshly trojanized* packages and CI components, which a CVE scanner cannot flag because no CVE exists yet. OWASP Top 10 2025 reflects this by adding **A03 Software Supply Chain Failures** as a top-level category.
+
+Assess:
+
+- **Install-script execution** — pre/post-install lifecycle scripts run on `npm install` (and equivalents). The Shai-Hulud npm worm (CISA alert, September 2025; a further wave in November) ran install scripts to steal developer and CI credentials and self-propagate. Prefer `--ignore-scripts` where practical; review a new dependency's install scripts before trusting it.
+- **Lockfile integrity and pinning** — commit lockfiles; pin versions; treat an unexpected lockfile change during a dependency update as a signal, not noise.
+- **CI/CD workflow integrity** — pin third-party CI Actions to an immutable commit SHA, not a mutable tag. The tj-actions/changed-files compromise (CVE-2025-30066, March 2025) retroactively repointed the Action's tags at a malicious commit and dumped CI secrets into build logs. Also review workflow injection ("pwn requests"), self-hosted-runner persistence, and secrets printed to build logs.
+- **Slopsquatting** — attackers pre-register packages under names AI coding tools hallucinate. Verify that AI-suggested dependencies resolve to real, established packages before installing.
+
+## Gates 6 & 16 — Row-Level Authorization (Backend-as-a-Service)
+
+A common and repeatedly documented object-authorization failure for Backend-as-a-Service stacks (Supabase, Firebase, and similar) is data left readable or writable to the public. When Gate 6 or Gate 16 applies to a BaaS-backed project, confirm:
+
+- Row-Level Security (or the platform's row-level authorization) is **enabled on every table** that holds private, tenant, or user-owned data — not only on some.
+- The public/anon client key **cannot read or write beyond its intended policy**.
+- A privileged **service/admin key is never shipped in client-side code** — it bypasses row-level authorization entirely (see Gates 4 and 5).
+
+This class is behind repeated 2025 vibe-coding breaches (e.g. Lovable, CVE-2025-48757; the Tea app breach). Treat a private or tenant table with no row-level policy as high-risk.
 
 ## Severity Model
 
