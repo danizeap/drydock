@@ -13,7 +13,7 @@ Drydock is a Claude Code plugin implementing SDD+ (spec-driven development plus 
 1. **Advisory prose** — skills and protocols the agent is instructed to follow. Probabilistic adherence.
 2. **Procedural commands** — `/drydock:*` slash commands; deterministic invocation of defined procedures.
 3. **Independent verification** — the `verifier` subagent and the `/drydock:verify` flow; checks claims against repository reality.
-4. **Deterministic enforcement** — Python hooks that block tool calls (exit code 2) and the `launchguardian` CLI with real exit codes. Cannot be reasoned around.
+4. **Deterministic enforcement** — Python hooks that block tool calls (via the JSON `permissionDecision: deny` protocol, exit 0 — never exit 2, which the `python3 X \|\| python X` wrapper swallows) and the `launchguardian` CLI with real exit codes. Cannot be reasoned around.
 
 When guiding a user toward trust-critical outcomes, prefer pushing the outcome to a higher tier rather than relying on a lower one.
 
