@@ -1,7 +1,7 @@
 # Project status - 2026-07-09
 
 **Snapshot generated 2026-07-09 - anything after this date is NOT reflected. Ask for a fresh brief (/drydock:brief).**
-As of commit 4eaa6f3.
+As of commit 0531909.
 
 ## Needs you
 - Nothing needs you - checked: work items, verification records, archive records, safety-net history.
@@ -15,6 +15,9 @@ As of commit 4eaa6f3.
   Safe to say: "it's done and documented" (as of 2026-07-09).
 - **gate-rescopes-2025** - done & documented (2026-07-09)
   The safety review now looks for the attacks that actually hit apps like yours in 2025 — booby-trapped npm packages that run code the moment you install them, hijacked build pipelines, and databases left readable to the public — not just the
+  Safe to say: "it's done and documented" (as of 2026-07-09).
+- **consequence-approvals** - done & documented (2026-07-09)
+  When the AI needs your permission for something risky, it now asks in plain language with the consequences spelled out — what changes, what could go wrong, whether it can be undone, and what safety still protects you after you say yes — ins
   Safe to say: "it's done and documented" (as of 2026-07-09).
 - **owner-brief** - done & documented (2026-07-08)
   After a work session you can open one file — or ask one command — and see in plain language what shipped, what's in flight, what needs you, and proof the safety net is alive, without reading code or chat history.
@@ -46,4 +49,4 @@ As of commit 4eaa6f3.
 
 *Everything above is read from the project's own records by deterministic code. Anything unreadable says so - it is never shown as fine.*
 
-<!-- drydock-brief fp=776dc0d283e52a52 lang=en v=1 -->
+<!-- drydock-brief fp=a74fbf10a6cd1352 lang=en v=1 -->

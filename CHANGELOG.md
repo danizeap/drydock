@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — the Owner surface, part 2: consequence-framed approvals
+
+Turns the approval moment into a decision a non-expert can actually make. Tenth dogfooded packet; designed by the v0.3 Owner-surface exploration.
+
+- **`framework-usage.md` §7 approval format replaced** with a two-variant consequence template. The **FULL** ask (for side effects and gate overrides) states, in the Owner's own words: what I want to do (plain referents, never "destructive migration"), what could go wrong (concrete), who's affected, an **Undo** line from a **closed vocabulary** (a concrete procedure named in the plan / `NOT REVERSIBLE` / `REVERSIBILITY UNKNOWN` — the model may not free-text a comforting fourth), and a novel **"Safety net after your yes"** line that tells the Owner which guardrails still hold past this point. The header is ternary and honest — an unknown reversibility renders as `UNDO UNCERTAIN`, never `undoable`. A **QUICK** three-line ask covers routine choices so the FULL form's weight is never spent on "archive unsynced?".
+- **Real decline path.** "No" is a recorded decision (`OWNER DECLINED` in the packet's decision-log), becomes a stop condition mapping to existing BLOCKED semantics, and carries an anti-nag rule — a declined ask is never re-presented identically, questions never count as a yes, and an approval never survives the session or generalizes.
+- **New `sdd-plus/templates/approval-request.md`** with both fillable forms; a new `approvals` living capability spec; the template joined its six siblings under `check_sync` (now 11/11 guarded pairs).
+- Verifier VERIFIED WITH NOTES and caught a real self-undercut: the original binary header routed "unknown reversibility" to "undoable" — the exact false-reassurance the change exists to kill. Fixed to a ternary header before archive. The deterministic enforcement layer (a per-packet approval record + archive gate) is intentionally deferred to its own red-teamed packet. Suite 251.
+
 ## 0.4.1 — LaunchGuardian: 2025 threat-landscape gate re-scopes
 
 Aligns the remaining gates with the strongly-sourced findings from the same web-researched gap analysis, without renumbering the 22 gates. Ninth dogfooded packet.
