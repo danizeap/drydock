@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Drydock git pre-commit backstop — block committing secret-bearing files.
+
+Agent-agnostic: fires for Codex, Claude Code, AND a human `git commit`, so the
+secrets floor holds even when a tool's PreToolUse hooks are disabled or bypassed.
+
+Self-contained by design: it prefers the plugin's tested `path_is_secret`, but
+falls back to an inline matcher when the plugin isn't resolvable — a backstop
+must never fail *open* on its core job. Fail-mode contract:
+- git unavailable / cannot list staged files -> fail OPEN (exit 0), so a hook
+  bug can't brick the ability to commit (the PreToolUse layer is the primary).
+- secret-detection itself raises -> fail CLOSED (block), because a secrets
+  backstop must not pass a possibly-secret commit on its own bug.
+"""
+import glob
+import os
+import re
+import subprocess
+import sys
+
+# Inline fallback — mirrors hooks/protect_secrets.py::_SECRET (keep in sync).
+_FALLBACK = re.compile(
+    r"""^(
+        \.env(\..+)?
+        | .+\.env
+        | \.envrc
+        | .+\.pem
+        | .+\.key
+        | id_(rsa|dsa|ecdsa|ed25519)(\..+)?
+        | .+\.(ppk|p12|pfx|jks)
+        | credentials(\..+)?
+        | secrets?\.(json|ya?ml|toml)
+        | service[-_]account.*\.json
+    )$""",
+    re.IGNORECASE | re.VERBOSE,
+)
+_ALLOW = {".env.example", ".env.template", ".env.sample"}
+
+
+def _resolve_is_secret():
+    """Prefer the plugin's matcher; fall back to the inline one."""
+    try:
+        home = os.path.expanduser("~")
+        cands = glob.glob(os.path.join(home, ".claude", "plugins", "cache", "drydock",
+                                       "drydock", "*", "hooks", "protect_secrets.py"))
+        if cands:
+            d = os.path.dirname(max(cands, key=os.path.getmtime))
+            if d not in sys.path:
+                sys.path.insert(0, d)
+            from protect_secrets import path_is_secret
+            return path_is_secret
+    except Exception:
+        pass
+
+    def fallback(path):
+        if not path:
+            return False
+        base = path.replace("\\", "/").rstrip("/").split("/")[-1]
+        if base.lower() in _ALLOW:
+            return False
+        return bool(_FALLBACK.match(base))
+
+    return fallback
+
+
+def main():
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+            capture_output=True, text=True)
+        files = [f for f in proc.stdout.splitlines() if f.strip()]
+    except Exception:
+        return 0  # never block committing on our own failure
+    is_secret = _resolve_is_secret()
+    try:
+        bad = [f for f in files if is_secret(f)]
+    except Exception:
+        # Secret-detection itself failed — block to be safe (fail closed).
+        sys.stderr.write("BLOCKED by Drydock pre-commit: could not verify staged files; "
+                         "blocking to be safe. Resolve and re-commit.\n")
+        return 1
+    if bad:
+        sys.stderr.write("BLOCKED by Drydock pre-commit: staged secret-bearing file(s):\n")
+        for f in bad:
+            sys.stderr.write(f"  - {f}\n")
+        sys.stderr.write("Unstage them (git restore --staged <file>) and keep secrets out of git.\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

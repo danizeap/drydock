@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|PowerShell|shell|local_shell|apply_patch|Edit|Write|MultiEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .codex/hooks/drydock_guard.py",
+            "commandWindows": "py -3 .codex\\hooks\\drydock_guard.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
