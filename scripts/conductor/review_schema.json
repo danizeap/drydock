@@ -9,8 +9,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "issue", "suggestion"],
+        "required": ["file", "severity", "issue", "suggestion"],
         "properties": {
+          "file": {
+            "type": "string",
+            "description": "The reviewed file this finding refers to (as given in the prompt)."
+          },
           "severity": { "type": "string", "enum": ["low", "medium", "high"] },
           "issue": { "type": "string" },
           "suggestion": { "type": "string" }

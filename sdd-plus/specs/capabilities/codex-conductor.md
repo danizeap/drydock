@@ -138,6 +138,44 @@ Before pass/fail, the gate SHALL decide whether it applies. Docs/config-only →
 - **WHEN** the change touches code and tests are red or were not run
 - **THEN** the verdict is `red`/`blocked` with `clears: false`
 
+### Requirement: Never green on a result the gate cannot trust
+Trust SHALL be decided by an **allow-list**: a test command is trusted only when it is a SIMPLE command, optionally `&&`-chained (the one chain that short-circuits, so failure propagates). A pipe, `;` or bare `&` sequencing, `||`, a newline, a backtick or `$( )` subshell makes the exit code untrustworthy; an **unrecognised construct defaults to untrusted**, as does an **absent trust signal** (fail-closed). `2>&1` remains trusted (a redirect, not a separator). Quoting SHALL be platform-aware (`'` quotes only on POSIX; cmd.exe does not). A broken environment (worktree with `package.json` but no `node_modules`) is likewise untrusted. In every untrusted case the verdict SHALL be **`unverifiable`** with `clears: false` — never `green` — and the reason SHALL name the actual cause. Honest passes SHALL still reach `green` and honest failures `red`, so the gate stays usable.
+
+**Declared limit:** the gate judges the top-level command's SHAPE only. Masking *inside* a delegated script (`npm run ci`, `bash -c "false; true"`) is invisible to any top-level scan and SHALL be disclosed as an advisory at point of use, never silently trusted.
+
+#### Scenario: A masked exit code cannot read as green
+- **WHEN** the test command contains a pipe, `;`, bare `&`, `||`, a newline or a subshell and the shell exits 0 on a failing test
+- **THEN** the verdict is `unverifiable` with `clears: false`
+
+#### Scenario: Absent trust signal fails closed
+- **WHEN** a test result carries no trust signal
+- **THEN** it is treated as untrusted and the verdict is `unverifiable`
+
+#### Scenario: The gate stays usable
+- **WHEN** a simple or `&&`-chained command passes (or fails) in a sound environment
+- **THEN** the verdict is `green` (or `red`) as before
+
+### Requirement: Advisories inform, never gate
+The gate SHALL emit an `advisories` list — including a coverage-gap note when the diff changes code with no test file, and a disclosure when the command delegates to a script runner — and advisories SHALL NEVER affect `verdict` or `clears`.
+
+#### Scenario: Advisory does not change the decision
+- **WHEN** an advisory is present
+- **THEN** the verdict and `clears` are identical to the same result without it
+
+### Requirement: Handoff separates in-flight work; results name the path
+`gather_state()` SHALL report `packets` (all un-archived) and `in_flight_packets` (unchecked tasks or an unfilled verification); the `write` result SHALL include a `path` field.
+
+#### Scenario: A finished packet is not in-flight
+- **WHEN** a completed packet sits un-archived under `sdd-plus/changes`
+- **THEN** it appears in `packets` but not in `in_flight_packets`
+
+### Requirement: Review findings identify their file
+Each review finding SHALL carry the `file` it refers to, so multi-file reviews can be triaged.
+
+#### Scenario: Multi-file review is triageable
+- **WHEN** several files are reviewed in one run
+- **THEN** every finding names its file
+
 ### Requirement: No auto-merge; structured verdict for review
 `mutate.py` SHALL NEVER merge. It SHALL return `{worktree, branch, diff, files, tests, gate, clears_gate, merged: false, note}` for Claude to review and merge deliberately; clearing the gate is necessary, not sufficient. Every outcome SHALL be structured (no bare traceback).
 
@@ -193,3 +231,28 @@ An unverified executor SHALL NOT appear in the fleet `usable` set and SHALL refu
 #### Scenario: Spend the near-reset tank
 - **WHEN** two tanks are usable with different reset horizons
 - **THEN** the advice prefers spending the nearer-reset tank and protecting the other; Claude is noted as human-tracked
+
+### Requirement: Shared, single-flight gauge cache; fail-open always
+`coord.get_gauge(executor, ttl)` SHALL serve a per-tank gauge from a TTL cache within the window, best-effort single-flight refresh when stale (N concurrent chats collapse to ~1 real read per TTL), and fall back to a direct `executor.read_remaining()` on ANY error, on `DRYDOCK_COORD_DISABLE=1`, or when the state dir is unavailable. It SHALL NOT raise into or block a delegation.
+
+#### Scenario: Two reads share one refresh
+- **WHEN** the gauge is read twice within the TTL
+- **THEN** the first is a real read (`source: fresh`), the second is served from cache (`source: cache`) with no second real read
+
+#### Scenario: Any failure falls back to a direct read
+- **WHEN** the underlying read raises, coord is disabled, or the state dir can't be created
+- **THEN** `get_gauge` returns a direct read and never raises
+
+### Requirement: Only real numbers, honestly aged; never a fabricated reservation
+The cache SHALL store only successful reads and serve real values tagged with `source` + `as_of_age_s`, adjusting the reset countdown by cache age (clamped at 0), and SHALL NOT invent a reserved/allocated fuel percentage.
+
+#### Scenario: Aged serve is honest
+- **WHEN** a cached gauge is served after aging
+- **THEN** `resets_in_hours` is reduced by the cache age (never below 0) and the age is surfaced; no value is fabricated
+
+### Requirement: No deadlock; state off shared/synced trees; isolated in tests
+The single-flight lock SHALL be stealable once older than a threshold above the read timeout (a crashed holder never deadlocks). State SHALL live outside `~/.codex` and OneDrive-synced trees. A corrupt/wrong-shape cache SHALL self-heal (treated as absent). Tests SHALL never write the real coordination state dir.
+
+#### Scenario: Stale lock is stealable, fresh lock defers
+- **WHEN** a refresh lock is older than the stale threshold
+- **THEN** another session may steal it and refresh; a fresh lock instead defers to serve slightly-stale cache

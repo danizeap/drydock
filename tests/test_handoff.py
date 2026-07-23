@@ -63,17 +63,36 @@ def test_gather_render_write_read(monkeypatch, tmp_path):
     repo = str(tmp_path)
     _init_repo(repo)
     monkeypatch.chdir(repo)
-    os.makedirs(os.path.join(repo, "sdd-plus", "changes", "my-pkt"))
+    pkt = os.path.join(repo, "sdd-plus", "changes", "my-pkt")
+    os.makedirs(pkt)
+    with open(os.path.join(pkt, "tasks.md"), "w", encoding="utf-8") as f:
+        f.write("- [ ] unfinished\n")           # marks it genuinely IN-FLIGHT
     monkeypatch.setattr(ex, "fleet_status", lambda: _FAKE_FLEET)
     state = hf.gather_state()
     assert state["branch"] and state["branch"] != "(unknown)"
-    assert "my-pkt" in state["active_packets"]
+    assert "my-pkt" in state["packets"] and "my-pkt" in state["in_flight_packets"]
     path = hf.write_handoff("do the thing", "some notes",
                             path=os.path.join(repo, "HANDOFF.md"), stamp="2026-07-23 00:00Z")
     content = hf.read_handoff(path)
     assert "# HANDOFF" in content
     assert "do the thing" in content and "some notes" in content
     assert "codex: 90%" in content and "my-pkt" in content
+
+
+def test_finished_packet_is_not_in_flight(monkeypatch, tmp_path):
+    # "sitting in sdd-plus/changes" != "in flight" — a finished packet is listed
+    # but must not clutter the handoff's in-flight line (field-report 6.5).
+    repo = str(tmp_path)
+    _init_repo(repo)
+    monkeypatch.chdir(repo)
+    done = os.path.join(repo, "sdd-plus", "changes", "done-pkt")
+    os.makedirs(done)
+    with open(os.path.join(done, "tasks.md"), "w", encoding="utf-8") as f:
+        f.write("- [x] all done\n")
+    with open(os.path.join(done, "verification.md"), "w", encoding="utf-8") as f:
+        f.write("## Result\n\nVERIFIED.\n")
+    packets, in_flight = hf._packets()
+    assert "done-pkt" in packets and "done-pkt" not in in_flight
 
 
 def test_read_missing_handoff(tmp_path):

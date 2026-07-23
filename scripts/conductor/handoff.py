@@ -50,20 +50,50 @@ def _codex_worktrees():
     return trees
 
 
-def _active_packets():
+def _packets():
+    """(all un-archived packet dirs, the subset that still looks IN-FLIGHT).
+
+    "Sitting in sdd-plus/changes" != "in flight": a repo that doesn't archive
+    accumulates finished packets there, which made the handoff snapshot noisy
+    (a real user saw 48 listed as "active"). In-flight = unchecked tasks, or a
+    verification that is still Pending/TBD.
+    """
     base = os.path.join(os.getcwd(), "sdd-plus", "changes")
     if not os.path.isdir(base):
-        return []
-    return sorted(os.path.basename(p) for p in glob.glob(os.path.join(base, "*"))
-                  if os.path.isdir(p))
+        return [], []
+    names = sorted(os.path.basename(p) for p in glob.glob(os.path.join(base, "*"))
+                   if os.path.isdir(p))
+    in_flight = []
+    for n in names:
+        d = os.path.join(base, n)
+        unfinished = False
+        try:
+            with open(os.path.join(d, "tasks.md"), encoding="utf-8") as fh:
+                if "- [ ]" in fh.read():
+                    unfinished = True
+        except OSError:
+            pass
+        if not unfinished:
+            try:
+                with open(os.path.join(d, "verification.md"), encoding="utf-8") as fh:
+                    v = fh.read()
+                if "Pending." in v or "TBD" in v:
+                    unfinished = True
+            except OSError:
+                pass
+        if unfinished:
+            in_flight.append(n)
+    return names, in_flight
 
 
 def gather_state():
     """Deterministic snapshot: branch, HEAD, active packets, open codex worktrees, fleet fuel."""
+    packets, in_flight = _packets()
     return {
         "branch": _git(["branch", "--show-current"]).stdout.strip() or "(unknown)",
         "head": _git(["log", "--oneline", "-1"]).stdout.strip() or "(no commits)",
-        "active_packets": _active_packets(),
+        "packets": packets,
+        "in_flight_packets": in_flight,
         "codex_worktrees": _codex_worktrees(),
         "fleet": ex.fleet_status(),
     }
@@ -98,7 +128,8 @@ def render(state, next_step, notes, stamp):
     lines += ["## Where we are",
               f"- Branch: `{state['branch']}`",
               f"- HEAD: {state['head']}",
-              f"- Active change packets: {', '.join(state['active_packets']) or '(none)'}"]
+              f"- In-flight packets: {', '.join(state.get('in_flight_packets') or []) or '(none)'}"
+              f"  ({len(state.get('packets') or [])} un-archived total)"]
     if state["codex_worktrees"]:
         lines.append("- Open Codex worktrees (unmerged work):")
         for w in state["codex_worktrees"]:
@@ -150,7 +181,8 @@ def main():
         print(content if content is not None else json.dumps({"ok": False, "error": "no HANDOFF.md"}))
     else:
         p = write_handoff(args.next_step, args.notes, args.path)
-        print(json.dumps({"ok": True, "wrote": p}))
+        # emit `path` (what callers expect) and keep `wrote` for compatibility
+        print(json.dumps({"ok": True, "path": p, "wrote": p}))
     return 0
 
 

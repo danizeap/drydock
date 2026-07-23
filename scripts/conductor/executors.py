@@ -45,9 +45,13 @@ class Executor:
                "subscription_window": self.subscription_window}
         if avail and self.verified:
             try:
-                out["fuel"] = self.read_remaining()
-            except Exception as e:  # noqa: BLE001
-                out["fuel"] = {"ok": False, "error": str(e)}
+                from conductor import coord  # shared, cached, single-flight read
+                out["fuel"] = coord.get_gauge(self)
+            except Exception:  # noqa: BLE001 — coord absent/broken -> direct read
+                try:
+                    out["fuel"] = self.read_remaining()
+                except Exception as e:  # noqa: BLE001
+                    out["fuel"] = {"ok": False, "error": str(e)}
         elif avail and not self.verified:
             out["fuel"] = {"ok": False, "staged": True,
                            "error": "installed but not yet reality-checked"}
