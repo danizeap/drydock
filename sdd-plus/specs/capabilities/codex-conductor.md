@@ -97,3 +97,57 @@ Automated tests SHALL prove the above without invoking the real Codex service; a
 #### Scenario: Live test is opt-in
 - **WHEN** a developer sets `DRYDOCK_CODEX_LIVE=1`
 - **THEN** a single real round-trip may run locally; otherwise it is skipped
+
+### Requirement: In-session review CLI with structured outcomes
+`scripts/conductor/review.py` SHALL delegate a read-only review of one or more files to Codex and print a structured JSON result for EVERY outcome — never a bare traceback. It SHALL reuse the conductor primitives, refuse secret-bearing paths (given paths AND their realpaths), frame file content as untrusted data (prompt-injection defense), and enforce per-file and total byte caps.
+
+#### Scenario: Ordinary file reviewed
+- **WHEN** the target is an ordinary file and Codex is available
+- **THEN** the CLI prints `{ok: true, gauge, route, delegation.result}` and exits 0
+
+#### Scenario: Secret path refused (incl. via realpath)
+- **WHEN** a target path or its realpath is secret-bearing
+- **THEN** the CLI prints `{ok: false, stage: "secret_guard"}` and sends nothing
+
+#### Scenario: Every failure is structured
+- **WHEN** Codex is absent, a file is missing, exceeds the size cap, or a read fails
+- **THEN** the CLI prints `{ok: false, stage: "discover"|"missing_file"|"too_large"|"read_error"}` rather than raising
+
+### Requirement: The review command audits, never rubber-stamps
+The `/drydock:codex-review` command SHALL treat Codex's findings as input to an independent audit (confirm/refute/refine + additions from wider context), present a synthesis with Codex's remaining fuel noted, never send secret-bearing files, and never modify the repository.
+
+#### Scenario: Findings are audited before presentation
+- **WHEN** Codex returns findings
+- **THEN** Claude verifies each (CONFIRM/REFUTE/REFINE) before presenting, and Codex's output is never treated as authoritative
+
+### Requirement: Mutating delegation is isolated to a worktree, never the base branch
+`scripts/conductor/mutate.py` SHALL run Codex with sandbox `workspace-write` confined to a dedicated worktree on a fresh `codex/…` branch from `base`. It SHALL NOT write to the Owner's branch or working tree, and SHALL be the only conductor path that enables writes (the read-only `delegate()` lock is unchanged).
+
+#### Scenario: Writes are contained
+- **WHEN** a mutating task runs
+- **THEN** Codex's changes appear only in the isolated worktree/branch; the base branch HEAD is unadvanced and the main working tree is unmodified
+
+### Requirement: The merge gate is applicability-first; N/A is never a failure
+Before pass/fail, the gate SHALL decide whether it applies. Docs/config-only → test gate N/A (clean pass). Code/behavior change → green tests required (red or not-run is a hard block). N/A SHALL be distinct from FAIL.
+
+#### Scenario: Docs-only is N/A
+- **WHEN** the change touches only docs/config
+- **THEN** the verdict is `n/a` with `clears: true` — not a failure
+
+#### Scenario: Code needs green
+- **WHEN** the change touches code and tests are red or were not run
+- **THEN** the verdict is `red`/`blocked` with `clears: false`
+
+### Requirement: No auto-merge; structured verdict for review
+`mutate.py` SHALL NEVER merge. It SHALL return `{worktree, branch, diff, files, tests, gate, clears_gate, merged: false, note}` for Claude to review and merge deliberately; clearing the gate is necessary, not sufficient. Every outcome SHALL be structured (no bare traceback).
+
+#### Scenario: Nothing merges automatically
+- **WHEN** a mutating delegation completes
+- **THEN** the result reports `merged: false` and carries the diff + gate verdict; the worktree is kept when reviewable and cleaned up on empty/failed delegation
+
+### Requirement: Cleanup is blast-radius-bounded
+Worktree cleanup SHALL remove only the temp worktree and a branch whose name begins with `codex/`; it SHALL never delete any other branch.
+
+#### Scenario: Non-codex branch is safe
+- **WHEN** cleanup is asked to delete a non-`codex/` branch
+- **THEN** that branch is left intact
