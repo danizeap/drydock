@@ -151,3 +151,45 @@ Worktree cleanup SHALL remove only the temp worktree and a branch whose name beg
 #### Scenario: Non-codex branch is safe
 - **WHEN** cleanup is asked to delete a non-`codex/` branch
 - **THEN** that branch is left intact
+
+### Requirement: Pluggable executors with a proven/staged distinction
+The conductor SHALL expose executors through a common interface (`available`, `read_remaining`, `status`), with `CodexExecutor` verified (wrapping `codex_bridge`) and additional executors (e.g. `KimiExecutor`) staged. `available()` (presence) SHALL be separate from `verified` (proven on this machine).
+
+#### Scenario: Codex reads real fuel
+- **WHEN** `CodexExecutor` runs where a Codex core is discoverable
+- **THEN** it reports available + verified and reads real remaining fuel
+
+### Requirement: A staged executor can never run or be reported usable
+An unverified executor SHALL NOT appear in the fleet `usable` set and SHALL refuse to read fuel or execute, EVEN IF present on the machine.
+
+#### Scenario: Present-but-unverified is staged, not usable
+- **WHEN** a staged executor (Kimi) is present but unverified
+- **THEN** it is reported `staged`, never `usable`, and its run/read path raises `ExecutorUnverified`
+
+### Requirement: Honest fleet status + Owner-chosen stack
+`fleet_status()` SHALL list Claude (the conductor) separately as human-tracked (its quota is not machine-readable), report each executor's usable/staged state, and honor an Owner-configured stack (`DRYDOCK_EXECUTORS`) defaulting to auto-detection (Claude alone / +Codex / +Kimi / all three).
+
+#### Scenario: Stack is configurable
+- **WHEN** `DRYDOCK_EXECUTORS=codex`
+- **THEN** only Codex is considered; Claude remains the human-tracked conductor
+
+### Requirement: Deterministic, read-only handoff state
+`handoff.py::gather_state()` SHALL capture — without mutating the repo — the branch, HEAD, active change packets, open `codex/` worktrees, and the executor `fleet_status()`. Read failures SHALL degrade to benign values, never a traceback.
+
+#### Scenario: State is gathered read-only
+- **WHEN** `gather_state()` runs
+- **THEN** it returns branch/HEAD/active packets/open codex worktrees/fleet and makes no changes
+
+### Requirement: HANDOFF.md relay, re-verified on the way in
+`write_handoff()` SHALL render a fixed-shape `HANDOFF.md` (where-we-are / fleet fuel / next step / notes) where only the next step + notes are human-supplied; `read_handoff()` returns it or None. The `/drydock:handoff` command SHALL instruct the incoming leader to reconstruct from live reality — HANDOFF.md never overrides `git`/`sdd.py status`.
+
+#### Scenario: Incoming leader re-verifies
+- **WHEN** a leader writes a handoff and another resumes from it
+- **THEN** HANDOFF.md carries deterministic state + a one-line next step, and the incoming leader re-verifies against reality before acting
+
+### Requirement: Fuel-aware fleet advice; Claude human-tracked
+`fleet_recommendation()` SHALL list each usable tank's fuel/reset, flag a low tank (`<15%`), prefer spending the tank closest to its reset (protect the far one), and always note Claude as human-tracked.
+
+#### Scenario: Spend the near-reset tank
+- **WHEN** two tanks are usable with different reset horizons
+- **THEN** the advice prefers spending the nearer-reset tank and protecting the other; Claude is noted as human-tracked

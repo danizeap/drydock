@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — the fleet & the relay
+
+Turns the conductor from a Codex pair into a fleet, and adds the endurance substrate that makes leadership transferable. Sixteenth and seventeenth dogfooded packets.
+
+- **Executor fleet (`scripts/conductor/executors.py`).** A pluggable `{available, read_remaining, status}` interface so the conductor is a fleet manager, not a Codex pair. `CodexExecutor` is proven (wraps the verified `codex_bridge`); `KimiExecutor` is **STAGED** — documented from Kimi K3 / Moonshot docs but `verified=False`: it detects presence yet REFUSES to run and is never reported `usable` until an on-machine live-fire proof (the exact discipline that caught the stale Codex binary). `DRYDOCK_EXECUTORS` lets the Owner pick the stack (Claude alone / +Codex / +Kimi / all three); `fleet_status()` shows usable vs staged and lists Claude separately as **human-tracked** (its own quota is not machine-readable). The honesty guarantee — presence is code-separated from proven; nothing runs until live-fire verified — is the load-bearing property.
+- **Endurance / HANDOFF relay (`/drydock:handoff` + `scripts/conductor/handoff.py`).** When a tank runs low or the Owner switches drivers, `gather_state()` captures — read-only — the branch, HEAD, active packets, open `codex/` worktrees, and fleet fuel, and renders a fixed-shape `HANDOFF.md`; the incoming leader is instructed to **reconstruct from live reality** (HANDOFF.md never overrides `git`/`sdd.py status`). `fleet_recommendation()` gives fuel-aware advice — spend the tank closest to its reset, flag a low one, Claude human-tracked. The substrate that makes "code all day, reset to reset" literal.
+- **Product decision captured** (`multi-agent-orchestration-vision.md` §9): hardcode Codex + Kimi behind the interface; the Owner chooses the stack. Kimi K3 is frontier-tier (≈#4 neutral aggregate, wins several coding cuts, ~50–65% cheaper/task, open-weight, refilling subscription windows) and staged pending install — activation is a bounded adapter job, not a re-architecture. Suite 337.
+
 ## 0.7.0 — the two-agent workshop: Codex reviews, and Codex writes (safely)
 
 Builds the working surface on top of the 0.6.0 foundation. Codex goes from a library primitive to something you use — it reviews your code in-session, and it writes real code in a sandbox that can't reach your branch. Fourteenth and fifteenth dogfooded packets.

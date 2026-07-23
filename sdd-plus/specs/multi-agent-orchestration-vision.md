@@ -166,3 +166,24 @@ Codex auto-ingests the working root's context (`AGENTS.md`, repo docs). A trivia
 3. Read the gauge before routing; treat Codex (this plan) as a hard weekly bucket.
 4. Control the per-delegation context tax via `-C` (lean working root).
 5. **Verdict: feasibility proven end-to-end with current tooling. The reality-check phase is complete.**
+
+---
+
+## 9. Product decision — the executor fleet & user-choosable stack (2026-07-23)
+
+The conductor is a **fleet manager**, not a Codex pair. It supports a **bounded, hardcoded set of executors** (not a generic plugin loader) behind a small `{available, read_remaining, invoke}` interface, and the Owner **chooses the stack**:
+
+- **Just Claude** — solo governed coding.
+- **Claude + Codex** — a second frontier brain + mutual audit.
+- **Claude + Kimi** — same, cheaper tank, different-lab diversity.
+- **All three** — the fleet: frontier tanks with staggered refill windows + triangulated review.
+
+**Executors (as of this date):**
+- **Codex** — PROVEN (live-fire, §7–§8). `CodexExecutor` wraps the verified `codex_bridge`.
+- **Kimi (K3)** — STAGED. Frontier-tier (≈#4 on the neutral Artificial Analysis index, wins several coding cuts, ~50–65% cheaper/task, open-weight, subscription 5h/weekly windows). **Not yet installed or reality-checked on the Owner's machine.** `KimiExecutor` is `verified=False`: it detects presence but REFUSES to run and is never reported `usable`. When the Owner installs Kimi, run the **Codex-style live-fire** (discover the binary, drive it headless, read its `/usage` gauge — or the community `kimi-code-usage` MCP server), confirm the documented invocation, then flip `verified=True`.
+
+**The honesty guarantee (load-bearing):** presence (`available`) is code-separated from proven (`verified`); nothing runs or counts as a tank until live-fire proven on the machine — the exact discipline that caught the stale Codex binary, the config skew, and the flagship gate.
+
+**Routing (future, the endurance layer):** pick the executor by **fuel AND capability** — Kimi K3 for frontend/agentic + cost, Claude/Opus for the hardest planning/debugging, Codex where it shines — never a blind default. Claude's own quota stays human-tracked (not machine-readable).
+
+**Other candidates surveyed:** Gemini CLI (drivable, weak gauge — `/stats` UI only), Qwen Code (subscription windows but no programmatic usage read yet), Cursor/Windsurf (IDEs, not headless-fleet-shaped). Pay-per-token APIs (raw Kimi/Qwen/DeepSeek/Gemini) are a *different* self-awareness (dollar balance, no refilling window) and could be added later as balance-based executors.
