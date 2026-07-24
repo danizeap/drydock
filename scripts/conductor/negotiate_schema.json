@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["overall", "converged", "blocking_concerns", "gaps", "risks", "decomposition"],
+  "properties": {
+    "overall": {
+      "type": "string",
+      "description": "One honest paragraph on the plan, as an equal peer — not a rubber stamp."
+    },
+    "converged": {
+      "type": "boolean",
+      "description": "True ONLY if you have no blocking concerns and would happily start building now."
+    },
+    "blocking_concerns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue", "why"],
+        "properties": {
+          "issue": { "type": "string" },
+          "why": { "type": "string" }
+        }
+      }
+    },
+    "gaps": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "decomposition": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task", "owner", "tier", "why"],
+        "properties": {
+          "task": { "type": "string" },
+          "owner": { "type": "string", "enum": ["claude", "codex", "either"] },
+          "tier": { "type": "string", "enum": ["flagship", "workhorse", "cheap"] },
+          "why": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -329,3 +329,37 @@ The prompt SHALL delimit every untrusted region with a boundary marker absent fr
 #### Scenario: Scope is never silently discarded
 - **WHEN** flags are combined such that operator-specified scope would be ignored (`--diff` with paths, `--base` without `--diff`)
 - **THEN** the run is refused as `bad_arguments` rather than silently discarding the scope
+
+### Requirement: Plan negotiation is a read-only peer critique
+`negotiate.py` SHALL send an implementation plan to Codex as an equal peer and return a schema-locked critique — an honest overall take, a `converged` flag, `blocking_concerns`, `gaps`, `risks`, and a `decomposition` proposing per-task owner (claude/codex/either) and model tier (flagship/workhorse/cheap). It SHALL be read-only, SHALL frame the plan as data behind a boundary marker the content cannot close, and SHALL refuse to send a plan that is empty or appears to contain secret material — before Codex is spawned.
+
+#### Scenario: A real plan yields a fuel-routed critique
+- **WHEN** a real plan is negotiated
+- **THEN** Codex returns a structured critique routed to a fuel-appropriate model, and the critique is the pilot's input to audit — never authoritative
+
+#### Scenario: Empty or secret-bearing plans are refused before spawn
+- **WHEN** the plan is empty or looks secret-bearing
+- **THEN** the run is refused (`empty_plan` / `secret_content`) and no plan is sent
+
+#### Scenario: A plan cannot close its own fence
+- **WHEN** the plan text contains the boundary marker
+- **THEN** the marker escalates so the plan cannot close its own fence
+
+### Requirement: The negotiation loop is bounded and terminates
+A pure `loop_should_continue(critique, round, cap)` SHALL decide whether to negotiate another round, and SHALL stop when Codex has genuinely converged (the `converged` flag AND no blocking concerns) or the round cap is reached. The cap SHALL be the hard stop that prevents the two brains from consuming flagship tokens indefinitely. A `converged` flag that still lists blocking concerns SHALL NOT be trusted.
+
+#### Scenario: Genuine convergence stops the loop
+- **WHEN** Codex reports converged with no blocking concerns
+- **THEN** the loop stops — both brains agree
+
+#### Scenario: Blocking concerns continue the loop
+- **WHEN** blocking concerns remain and the cap is not reached
+- **THEN** the loop continues for another round
+
+#### Scenario: The cap is an absolute ceiling
+- **WHEN** the round cap is reached
+- **THEN** the loop stops regardless of remaining concerns — the pilot decides
+
+#### Scenario: A contradictory converged flag is not trusted
+- **WHEN** Codex reports `converged: true` but still lists blocking concerns
+- **THEN** the contradiction is not trusted and the loop does not treat it as converged

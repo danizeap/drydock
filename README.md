@@ -17,6 +17,8 @@ Vibe coding has a known problem: the code works until it doesn't, and nobody can
 
 Using another AI to learn Drydock? Point it at `docs/AI_OPERATOR_GUIDE.md`.
 
+> **Handing this repo to another agent to work on Drydock itself?** Start at **[`docs/HANDOFF.md`](docs/HANDOFF.md)** — the orientation map (what's the brain vs the harness wrapping, what's proven vs assumed, reading order), then **[`docs/CODEX_PORT_PROPOSAL.md`](docs/CODEX_PORT_PROPOSAL.md)** for the in-progress work to re-home Drydock onto Codex.
+
 **Updating:** `/plugin marketplace update drydock`, then `/plugin update drydock@drydock`, then restart. If an update won't take — usually a stale local marketplace clone — see [`docs/DEVELOPING.md`](docs/DEVELOPING.md) for the one-line fix. Maintainers: that file also covers local dev-install and the `scripts/release.py` release flow.
 
 Then, inside any project:
