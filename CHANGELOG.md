@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1 — the drain: see the backlog, and bury dead work honestly
+
+The second slice of the archive-inversion. 0.12.0 made the finish honest going forward; this gives the operator the tooling to clear an existing backlog of stalled packets — the field report's 48-packet junk drawer — without fabricating verifications or losing work. Twenty-fourth dogfooded packet.
+
+- **`sdd.py triage`** — read-only. Buckets every active packet into ARCHIVE-READY / NEEDS-SYNC / CLAIMED-DONE-UNVERIFIED / IN-PROGRESS / UNKNOWN, each with its next action, using the same predicates as verify and archive. It is crash-proof by construction: a broken packet (missing files — precisely the messiest backlog entries) becomes UNKNOWN rather than aborting the sweep, so you can always *see* the whole backlog.
+- **`archive --abandon --reason "<why>"`** — an honest disposition, distinct from `--force`. The 48 packets are abandoned *mid-lifecycle*, so the answer is neither "archive them all" nor "leave them": for work that genuinely shipped, sync then archive; for work that was given up on, `--abandon` records `Abandoned — never verified` (**never** a synthesized PASS), logs an Override so the Owner brief demotes it, warns before burying unsynced spec knowledge, and only ever *moves* — never deletes. `--force` waives a gate on work you stand behind; `--abandon` buries work you don't. They're mutually exclusive.
+- **Adversarial review found four honesty gaps and all were closed.** The one that mattered: the "you're burying unsynced spec knowledge" warning was *silent* for non-canonical or unattributable deltas — abandon, the one permanently-lossy operation, going quiet exactly where triage and verify are loud. It now names any delta whose sync it can't verify. The three smaller ones: abandon now checks for an archive-name collision *before* writing anything (so a clash can't leave a half-abandoned packet), scrubs a stray verdict off a malformed `## Result: PASS` heading (so no PASS survives an abandon), and rejects a whitespace-only reason. None fabricated a green; each was fixed because "never a PASS, never lose work" has to hold at the edges too. Dogfooded end to end, archived by following its own READY prompt. Suite 488.
+
 ## 0.12.0 — the honest finish: a well-timed prompt, and a vacuous-pass hole closed
 
 The first slice of the archive-inversion — the field report's top-weighted finding, that Drydock has a strong start and a weak finish. Designed by a 3-lens adversarial panel before a line was written; this slice flattens and *makes honest* the finish without ever writing to a living spec. Twenty-third dogfooded packet.

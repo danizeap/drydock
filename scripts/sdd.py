@@ -314,6 +314,67 @@ def cmd_status() -> None:
         print(f"{change.name}: {complete} complete, {pending} pending{suffix}")
 
 
+def _classify_packet(change_dir: Path, caps_dir: Path) -> tuple[str, str]:
+    """Bucket one packet. Robust by construction: any error becomes UNKNOWN, so a
+    single broken packet (a missing REQUIRED_FILE — precisely the messiest backlog
+    entries) never aborts the batch. Uses the same predicates as verify/archive."""
+    try:
+        missing = [f for f in REQUIRED_FILES if not (change_dir / f).is_file()]
+        if missing:
+            return "IN-PROGRESS", "missing " + ", ".join(missing)
+        _, pending = task_counts(change_dir / "tasks.md")
+        if pending > 0:
+            return "IN-PROGRESS", f"{pending} pending task(s)"
+        unfilled = packet_unfilled(change_dir)
+        if unfilled:
+            return "CLAIMED-DONE-UNVERIFIED", "tasks done; unfilled: " + ", ".join(unfilled)
+        if any(delta_heading_issues(f) for f in delta_spec_files(change_dir)):
+            return "NEEDS-SYNC", "non-canonical delta grammar; run /drydock:sync"
+        if archive_readiness(change_dir, caps_dir):
+            return "NEEDS-SYNC", "delta specs not yet in the living specs"
+        return "ARCHIVE-READY", "verified + synced"
+    except Exception as e:  # noqa: BLE001 — a triage crash must never abort the sweep
+        return "UNKNOWN", str(e)[:70]
+
+
+_TRIAGE_ORDER = ["ARCHIVE-READY", "NEEDS-SYNC", "CLAIMED-DONE-UNVERIFIED",
+                 "IN-PROGRESS", "UNKNOWN"]
+_TRIAGE_NEXT = {
+    "ARCHIVE-READY": "python3 scripts/sdd.py archive <name>",
+    "NEEDS-SYNC": "/drydock:sync <name>, then archive",
+    "CLAIMED-DONE-UNVERIFIED": "fill verification.md + /drydock:verify <name>  "
+                               "(or archive <name> --abandon --reason \"…\" if truly abandoned)",
+    "IN-PROGRESS": "finish the packet, or abandon it",
+    "UNKNOWN": "inspect by hand",
+}
+
+
+def cmd_triage() -> None:
+    """Read-only. Bucket every active packet and print a per-bucket next action, so
+    a backlog can be drained deliberately: archive the ready ones, sync the rest,
+    and make an explicit per-packet call on the ones abandoned mid-lifecycle."""
+    root = find_root()
+    changes = root / "sdd-plus" / "changes"
+    caps_dir = root / "sdd-plus" / "specs" / "capabilities"
+    dirs = sorted(p for p in changes.iterdir() if p.is_dir()) if changes.is_dir() else []
+    dirs = [d for d in dirs if KEBAB.match(d.name)]
+    if not dirs:
+        print("No active SDD+ changes.")
+        return
+    buckets: dict[str, list] = {}
+    for ch in dirs:
+        bucket, detail = _classify_packet(ch, caps_dir)
+        buckets.setdefault(bucket, []).append((ch.name, detail))
+    print(f"{len(dirs)} active packet(s):")
+    for bucket in _TRIAGE_ORDER:
+        items = buckets.get(bucket, [])
+        if not items:
+            continue
+        print(f"\n{bucket} ({len(items)}) — next: {_TRIAGE_NEXT[bucket]}")
+        for nm, detail in items:
+            print(f"  - {nm}: {detail}")
+
+
 def cmd_verify(name: str, show_ready_prompt: bool = True) -> int:
     assert_kebab(name)
     root = find_root()
@@ -383,6 +444,98 @@ def record_override(change_dir: Path, waived: list, reason: str) -> None:
         f.write(entry)
 
 
+def _replace_result_section(text: str, new_body: str) -> str:
+    """Replace the `## Result` section with a NORMALIZED `## Result` heading + new_body
+    (append one if absent). The heading match is liberal (`## Result:`, `## Result PASS`)
+    and the heading line is rewritten clean — so a stray verdict written onto a
+    malformed heading line cannot survive an abandon."""
+    lines = text.splitlines()
+    out, i, replaced = [], 0, False
+    while i < len(lines):
+        if re.match(r"^##\s+Result\b", lines[i], re.IGNORECASE):
+            out.extend(["## Result", "", new_body])   # drop any inline text on the heading
+            i += 1
+            while i < len(lines) and not re.match(r"^#{1,6}\s", lines[i]):
+                i += 1
+            replaced = True
+            continue
+        out.append(lines[i])
+        i += 1
+    if not replaced:
+        out.extend(["", "## Result", "", new_body])
+    return "\n".join(out) + "\n"
+
+
+def _unsynced_requirements(change_dir: Path, caps_dir: Path) -> list[str]:
+    """Canonical delta requirements not present in a living spec — the spec
+    knowledge an abandon would entomb unharvested (non-canonical grammar cannot be
+    checked, so it is not counted as safely-synced either)."""
+    missing = []
+    for f in delta_spec_files(change_dir):
+        for cap in delta_capabilities_in_file(f):
+            living = caps_dir / f"{cap}.md"
+            for req in delta_added_requirements(f):
+                if not requirement_present(living, req):
+                    missing.append(f"{cap}: {req}")
+    return missing
+
+
+def cmd_abandon(name: str, reason: str) -> None:
+    """Archive a packet as ABANDONED — never verified. Distinct from --force: it
+    records the ABSENCE of a verification (never a synthesized PASS), warns when it
+    buries unsynced spec knowledge, and — like archive — only MOVES, never deletes."""
+    if not reason.strip():
+        sys.exit('error: --abandon requires a non-empty --reason "<why>" — the honest '
+                 "record of why this packet is being buried unverified.")
+    assert_kebab(name)
+    root = find_root()
+    change_dir = root / "sdd-plus" / "changes" / name
+    caps_dir = root / "sdd-plus" / "specs" / "capabilities"
+    if not change_dir.is_dir():
+        sys.exit(f"error: change not found: sdd-plus/changes/{name}")
+    archive_root = root / "sdd-plus" / "archive"
+    target = archive_root / f"{datetime.date.today().isoformat()}-{name}"
+    # Collision check BEFORE any mutation, so a name clash leaves the packet fully
+    # intact in changes/ (never a half-abandoned packet, never a duplicate Override).
+    if target.exists():
+        sys.exit(f"error: archive already exists: {target.relative_to(root)}")
+
+    # Warn about ALL spec knowledge this abandon buries — canonical unsynced
+    # requirements AND deltas whose sync cannot even be verified (non-canonical
+    # grammar or no Capability line). triage and verify are loud about these; abandon
+    # — the permanently-lossy operation, run on precisely these messy packets — must
+    # not be the one place that goes quiet.
+    entombed = _unsynced_requirements(change_dir, caps_dir)
+    unverifiable = sorted(f.name for f in delta_spec_files(change_dir)
+                          if delta_heading_issues(f) or not delta_capabilities_in_file(f))
+    if entombed or unverifiable:
+        print("warning: this abandon buries spec knowledge not in the living specs "
+              "(it will not be harvested):")
+        if entombed:
+            print("  - unsynced requirements: " + "; ".join(entombed))
+        if unverifiable:
+            print("  - deltas whose sync cannot be verified (non-canonical grammar or "
+                  "no Capability line): " + ", ".join(unverifiable))
+
+    verif = change_dir / "verification.md"
+    text = verif.read_text(encoding="utf-8-sig") if verif.is_file() \
+        else "# Verification\n\n## Result\n\nPending.\n"
+    body = (f"Abandoned {datetime.date.today().isoformat()} — never verified. "
+            f"Reason: {reason}")
+    verif.write_text(_replace_result_section(text, body), encoding="utf-8")
+
+    waived = ["ABANDONED — never verified (archive gates not checked)"]
+    if entombed:
+        waived.append("entombs unsynced requirements (" + "; ".join(entombed) + ")")
+    if unverifiable:
+        waived.append("entombs unverifiable deltas (" + ", ".join(unverifiable) + ")")
+    record_override(change_dir, waived, reason)
+
+    archive_root.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(change_dir), str(target))
+    print(f"Abandoned (never verified) and moved to: {target.relative_to(root)}")
+
+
 def cmd_archive(name: str, force: bool, reason: str = "") -> None:
     if force and not reason:
         sys.exit('error: --force requires --reason "<why>" so the override is auditable '
@@ -422,13 +575,17 @@ def main() -> None:
     p_new = sub.add_parser("new")
     p_new.add_argument("name")
     sub.add_parser("status")
+    sub.add_parser("triage")
     p_verify = sub.add_parser("verify")
     p_verify.add_argument("name")
     p_archive = sub.add_parser("archive")
     p_archive.add_argument("name")
     p_archive.add_argument("--force", action="store_true")
+    p_archive.add_argument("--abandon", action="store_true",
+                           help="archive as ABANDONED — never verified (distinct from "
+                                "--force); records the absence of a result, never a PASS")
     p_archive.add_argument("--reason", default="",
-                           help="required with --force: why the gate is being waived "
+                           help="required with --force or --abandon: why "
                                 "(recorded to the packet's decision-log.md)")
     args = parser.parse_args()
 
@@ -438,10 +595,19 @@ def main() -> None:
         cmd_new(args.name)
     elif args.command == "status":
         cmd_status()
+    elif args.command == "triage":
+        cmd_triage()
     elif args.command == "verify":
         sys.exit(cmd_verify(args.name))
     elif args.command == "archive":
-        cmd_archive(args.name, args.force, args.reason)
+        if args.abandon:
+            if args.force:
+                sys.exit("error: use either --abandon or --force, not both — they are "
+                         "different dispositions (abandon records 'never verified'; "
+                         "force waives a specific gate on work you stand behind).")
+            cmd_abandon(args.name, args.reason)
+        else:
+            cmd_archive(args.name, args.force, args.reason)
 
 
 if __name__ == "__main__":
