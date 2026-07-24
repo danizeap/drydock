@@ -193,10 +193,14 @@ def _timeout_for(total_bytes):
     return min(900, 600 + total_bytes // 512)
 
 
-def _content_has_secret(text):
+def content_has_secret(text):
+    """Shared by any path that puts file CONTENT into a prompt (review, mutate)."""
     text = text or ""
     # Also test a NUL-stripped view: a UTF-16 file read as utf-8 becomes 's\x00k\x00-…'
     return bool(_SECRET_CONTENT.search(text) or _SECRET_CONTENT.search(text.replace("\x00", "")))
+
+
+_content_has_secret = content_has_secret   # pre-existing internal name
 
 
 def review(paths, weight="heavy", skip_secret_paths=False, deleted=None, excluded=None):
