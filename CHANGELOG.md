@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1 — field report #2: the meter reads honestly, and the scoping lever fits the files
+
+The operator who filed the first field report used 0.11.0 for a day and filed a second. Every `mutate` finding in it, fixed. Twenty-second dogfooded packet.
+
+- **The cost meter I called authoritative read zero.** A 181,184-token task moved the weekly fuel gauge by less than its 1% integer resolution, so `fuel_used_percent` rounded to `0` — which reads as "free." That is the same absence-of-evidence-as-reassurance failure as the boolean gauge and the deletion-only diff, a **third time** in the same subsystem. Fixed: below-resolution → `null` with a stated reason, never `0`; a genuine no-op (no tokens) is the only thing that reports a true zero. And the roles are corrected — **token counts are the per-task cost signal** (they have resolution at task scale), the fuel delta is the coarse weekly-drain signal. The reporter's reframe is why: a delegation's input cost is a near-fixed ~180k repo-ingestion floor, not driven by task size, so the gauge can't meter one task but tokens can.
+- **`--files` was capped below the file most worth scoping.** 64KB per file, versus a real `tools.ts` at 90,614 bytes — and asymmetric with `--diff`'s 256KB, so a file could be reviewable but not scopable. Since repo ingestion is the dominant cost, scoping is the *only* lever on it. The caps are now **imported** from `--diff` (256KB/file, 512KB total) so they can never drift apart again.
+- **A timed-out sweep threw its work away.** `mutate` deleted the worktree on any non-ok delegation, so a run killed at the timeout lost its 100 insertions. Now a timed-out run **keeps** whatever Codex wrote, flags it `partial`, and can never clear the gate (incomplete work is not green regardless of tests); a timeout that wrote nothing is still cleaned up. The default timeout is raised to 900s with a `--timeout` lever (clamped to 3600) for a sweep over a large file.
+- **Orphaned worktrees now have a broom.** `mutate.py --gc` sweeps `codex/` worktrees left by an external kill — removing only genuinely empty ones and **keeping any that hold work** (`--dry-run` to preview). The verifier caught that "holds work" first meant only *uncommitted* work, so a worktree that committed its changes would have been force-deleted; rather than narrow the claim, the guarantee was strengthened — a tip unique to its codex branch is kept too, and any probe error fails safe toward keeping.
+- **Fields renamed for honesty:** `fuel_used_before/after_percent` (they're *used* percentages, opposite the gauge's `remaining_percent` — the reporter had to check twice).
+- Verified adversarially (VERIFIED WITH NOTES; md5-frozen tree, every number reproduced, every new test proven to fail against the old code), then the one non-blocking finding fixed anyway because an overclaiming comment is how tomorrow's data loss ships. Suite 458.
+
 ## 0.11.0 — a meter on the expensive thing, and a gate that says when it's weak
 
 Field report §6.3: a one-tool change ingested **553,941 tokens**. The answer is three things, shaped by the reporter's own usage data rather than by our guesses. Twenty-first dogfooded packet.

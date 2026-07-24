@@ -135,12 +135,18 @@ def _num_or_none(v):
 
 
 def summarize_cost(usage, gauge_before, gauge_after, elapsed_s=None):
-    """What the run actually cost. Codex's token counts are informative; the fuel
-    delta is AUTHORITATIVE — it is what the account was charged.
+    """What the run actually cost.
 
-    Every field is `None` when it could not be measured. A cost report that
-    invents a number is worse than one that admits it does not know: the Owner
-    would budget against a fiction, and the shortfall arrives silently.
+    Field report #2 corrected the roles. The weekly fuel gauge reads in integer
+    percent, so a typical task (181k input tokens on a real repo) moves it by less
+    than 1% — below its own resolution. Reporting that as `fuel_used_percent: 0`
+    reads as "free", which is the same absence-of-evidence-as-reassurance failure
+    the boolean gauge was: below-resolution is NOT zero.
+
+    So TOKENS are the per-task cost signal — they have resolution at task scale —
+    and the fuel delta is the coarse "am I draining the window" signal, reported
+    only when the gauge actually moved. Every field is `None` when unmeasured; a
+    measurable-but-sub-resolution delta is `null` with `fuel_resolution` set, never 0.
     """
     u = usage if isinstance(usage, dict) else {}
     # Codex has shipped both `input_tokens` and `prompt_tokens` spellings.
@@ -158,18 +164,30 @@ def summarize_cost(usage, gauge_before, gauge_after, elapsed_s=None):
         return _num_or_none(g.get("used_percent")) if isinstance(g, dict) else None
 
     b, a = _used(gauge_before), _used(gauge_after)
-    # Only a real before AND a real after yield a delta; a reset mid-run makes the
-    # difference negative and meaningless, so it is reported as unmeasured.
-    delta = None
+    spent = bool((total or 0) or (inp or 0) or (out or 0))
+    # A real before AND after yield a delta; a reset mid-run makes it negative and
+    # meaningless. And a zero delta while tokens were clearly spent means the task
+    # cost less than the gauge can resolve — that is `null`, not `0`.
+    delta, resolution = None, None
     if isinstance(b, (int, float)) and isinstance(a, (int, float)):
         d = round(a - b, 2)
-        delta = d if d >= 0 else None
+        if d < 0:
+            resolution = "window reset mid-run"
+        elif d == 0 and spent:
+            resolution = "below gauge resolution (<1% of the weekly window)"
+        else:
+            delta = d
     return {"input_tokens": inp, "cached_input_tokens": cached, "output_tokens": out,
             "total_tokens": total, "fuel_used_percent": delta,
-            "fuel_before_percent": b, "fuel_after_percent": a,
+            "fuel_resolution": resolution,
+            "fuel_used_before_percent": b, "fuel_used_after_percent": a,
             "elapsed_s": elapsed_s,
-            "note": ("fuel_used_percent is the authoritative cost; token counts are "
-                     "Codex-reported. null means not measured, never zero.")}
+            "note": ("token counts are the per-task cost (they have resolution at task "
+                     "scale); fuel_used_percent is the coarse window-drain signal and is "
+                     "null when the task cost less than the gauge can resolve — see "
+                     "fuel_resolution. Both are null when unmeasured, never zero. "
+                     "fuel_used_*_percent are USED percentages (opposite of the gauge's "
+                     "remaining_percent).")}
 
 
 def _git(args, cwd=None, timeout=60):
@@ -215,8 +233,74 @@ def cleanup_worktree(worktree, branch=None):
     return True
 
 
-MAX_INLINE_BYTES = 128 * 1024
-MAX_INLINE_FILE_BYTES = 64 * 1024
+def _worktree_has_work(path):
+    """True if a codex worktree holds work worth keeping — UNCOMMITTED changes OR
+    commits unique to its codex branch. Fails SAFE: on any doubt it returns True,
+    because the whole point is never to destroy salvageable work (the N2 lesson).
+
+    'no uncommitted changes' is NOT 'no work' — Codex or an operator can commit
+    inside the worktree. A tip that no non-codex branch contains is unique work.
+    """
+    st = _git(["status", "--porcelain"], cwd=path)
+    if st.returncode != 0 or (st.stdout or "").strip():
+        return True                        # uncommitted work, or can't tell -> keep
+    r = _git(["branch", "--contains", "HEAD", "--format=%(refname)"], cwd=path)
+    if r.returncode != 0:
+        return True                        # can't tell -> keep
+    containers = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    # If some NON-codex branch already contains this tip, the worktree added no
+    # unique commits. If only codex branches contain it (or none do), keep it.
+    return not any("refs/heads/codex/" not in c for c in containers)
+
+
+def gc_worktrees(dry_run=False):
+    """Sweep orphaned `codex/` worktrees. Field report #2, N3: an externally-killed
+    run left a worktree + branch behind with no cleanup path.
+
+    Blast-radius rules, inherited from cleanup_worktree: only `codex/` branches are
+    ever touched, and — the N2 lesson — a worktree that still holds work (uncommitted
+    OR committed-and-unique) is KEPT and reported, never auto-removed. Only worktrees
+    with genuinely nothing to salvage go.
+    """
+    _git(["worktree", "prune"])           # drop admin entries for already-deleted trees
+    r = _git(["worktree", "list", "--porcelain"])
+    entries, cur = [], {}
+    for ln in (r.stdout or "").splitlines():
+        if ln.startswith("worktree "):
+            if cur:
+                entries.append(cur)
+            cur = {"path": ln[len("worktree "):].strip()}
+        elif ln.startswith("branch "):
+            cur["branch"] = ln[len("branch "):].strip()
+    if cur:
+        entries.append(cur)
+
+    removed, kept = [], []
+    for e in entries:
+        ref = e.get("branch", "")
+        if "refs/heads/codex/" not in ref:
+            continue                       # never touch a non-codex worktree
+        path, branch = e["path"], ref.split("refs/heads/", 1)[-1]
+        # A missing dir means git still tracks a deleted tree; nothing to salvage.
+        has_work = _worktree_has_work(path) if os.path.isdir(path) else False
+        if has_work:
+            kept.append({"worktree": path, "branch": branch,
+                         "reason": "holds work (uncommitted or committed) — "
+                                   "salvage or remove manually"})
+        else:
+            if not dry_run:
+                cleanup_worktree(path, branch)
+            removed.append({"worktree": path, "branch": branch})
+    return {"ok": True, "removed": removed, "kept_with_work": kept, "dry_run": dry_run}
+
+
+# Field report #2, N1: the 64KB per-file cap sat below a real 90KB source file, and
+# was ASYMMETRIC with review.py's 256KB — a file could be reviewable but not scopable.
+# Since repo ingestion is the dominant cost, scoping is the ONLY lever on it, so it
+# must not fail on the files most worth scoping. Share review.py's caps so the two
+# paths can never drift apart again.
+MAX_INLINE_FILE_BYTES = rv.MAX_FILE_BYTES     # 256 KB, == --diff per-file
+MAX_INLINE_BYTES = rv.MAX_TOTAL_BYTES         # 512 KB, == --diff total
 MAX_INLINE_FILES = 64          # names are payload too: 50k names built an 839KB prompt
 
 
@@ -314,9 +398,29 @@ def assess_scope(declared, changed):
             "declared_untouched": untouched, "honored": not outside}
 
 
-def delegate_mutation(core, worktree, task, model, timeout_s=600):
+DEFAULT_MUTATE_TIMEOUT = 900   # up from 600: a mechanical sweep legitimately runs longer
+MAX_MUTATE_TIMEOUT = 3600
+
+
+def _usage_from(stdout):
+    usage = None
+    for ln in (stdout or "").splitlines():
+        try:
+            ev = json.loads(ln)
+            if isinstance(ev, dict) and ev.get("type") == "turn.completed":
+                usage = ev.get("usage")
+        except Exception:
+            pass
+    return usage
+
+
+def delegate_mutation(core, worktree, task, model, timeout_s=DEFAULT_MUTATE_TIMEOUT):
     """Run Codex with sandbox=workspace-write, confined to `worktree`. This is the
-    ONLY conductor path that enables writes; it never runs against the Owner's tree."""
+    ONLY conductor path that enables writes; it never runs against the Owner's tree.
+
+    On timeout, whatever Codex already wrote to the worktree is real work. The
+    result carries `partial: True` so the caller keeps the tree instead of deleting
+    it — discarding a timed-out sweep's 100 insertions is the failure this avoids."""
     if not cb._SAFE_MODEL.match(model or ""):
         return {"ok": False, "stage": "bad_model", "error": repr(model)}
     argv = [*cb._as_prefix(core), "exec", "--json", "--skip-git-repo-check",
@@ -324,19 +428,17 @@ def delegate_mutation(core, worktree, task, model, timeout_s=600):
     try:
         p = subprocess.run(argv, input=task, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "stage": "delegate_timeout"}
+    except subprocess.TimeoutExpired as e:
+        # capture_output populates .stdout/.stderr with what was captured before the
+        # kill, so a partial usage read and the salvage flag both survive.
+        return {"ok": False, "stage": "delegate_timeout", "partial": True,
+                "timeout_s": timeout_s, "usage": _usage_from(e.stdout),
+                "hint": (f"exceeded {timeout_s}s; re-run with --timeout up to "
+                         f"{MAX_MUTATE_TIMEOUT}, or scope the task"),
+                "stderr_tail": (e.stderr or "")[-400:]}
     except (OSError, ValueError) as e:
         return {"ok": False, "stage": "delegate_spawn", "error": str(e)}
-    usage = None
-    for ln in (p.stdout or "").splitlines():
-        try:
-            ev = json.loads(ln)
-            if isinstance(ev, dict) and ev.get("type") == "turn.completed":
-                usage = ev.get("usage")
-        except Exception:
-            pass
-    return {"ok": p.returncode == 0, "exit": p.returncode, "usage": usage,
+    return {"ok": p.returncode == 0, "exit": p.returncode, "usage": _usage_from(p.stdout),
             "stderr_tail": (p.stderr or "")[-400:]}
 
 
@@ -547,8 +649,14 @@ def assess_gate(files, test_result, diff_shape=None, scope=None):
             "reason": "code changed; tests fail", "advisories": advisories}
 
 
+def _clamp_timeout(t):
+    if t is None:
+        return DEFAULT_MUTATE_TIMEOUT
+    return max(60, min(MAX_MUTATE_TIMEOUT, int(t)))
+
+
 def mutate(task, base="HEAD", test_cmd=None, weight="heavy", model=None, keep=True,
-           files=None):
+           files=None, timeout=None):
     core = cb.discover_core()
     if not core:
         return {"ok": False, "stage": "discover"}
@@ -563,7 +671,7 @@ def mutate(task, base="HEAD", test_cmd=None, weight="heavy", model=None, keep=Tr
             cleanup_worktree(wt, branch)
             return {"ok": False, "stage": "scope_guard", "error": scope_err, "gauge": gauge}
         t0 = time.monotonic()
-        d = delegate_mutation(core, wt, prompt, model)
+        d = delegate_mutation(core, wt, prompt, model, timeout_s=_clamp_timeout(timeout))
         elapsed = round(time.monotonic() - t0, 1)
         # Re-read AFTER the run: the delta is what the account was actually charged.
         gauge_after = cb.summarize_gauge(cb.read_rate_limits(core))
@@ -573,16 +681,26 @@ def mutate(task, base="HEAD", test_cmd=None, weight="heavy", model=None, keep=Tr
         shape = describe_diff_shape(changed, diff)
         tests = run_tests(wt, test_cmd)
         gate = assess_gate(changed, tests, shape, scope)
+        # A timed-out run that already wrote files is salvageable, not garbage. It
+        # is INCOMPLETE, so it never clears the gate regardless of what tests say.
+        partial = bool(d.get("partial")) and bool(changed)
+        clears = gate["clears"] and not partial
         result = {"ok": True, "gauge": gauge, "gauge_after": gauge_after, "cost": cost,
                   "model": model, "worktree": wt, "branch": branch, "base": base,
                   "delegation": d, "files": changed, "diff": diff,
-                  "scope": scope, "diff_shape": shape,
-                  "tests": tests, "gate": gate, "clears_gate": gate["clears"],
+                  "scope": scope, "diff_shape": shape, "partial": partial,
+                  "tests": tests, "gate": gate, "clears_gate": clears,
                   "merged": False,
-                  "note": ("NOT merged. Review the diff, then merge deliberately. "
-                           "Clearing the gate is necessary, not sufficient — Claude "
-                           "must review scope/security/architecture before merge.")}
-        if not keep or not changed or not d.get("ok"):
+                  "note": (("INCOMPLETE — the delegation timed out; the diff below is "
+                            "partial work salvaged from the worktree. Do not merge as-is; "
+                            "re-run with --timeout to finish, or complete it by hand. ")
+                           if partial else
+                           ("NOT merged. Review the diff, then merge deliberately. "
+                            "Clearing the gate is necessary, not sufficient — Claude "
+                            "must review scope/security/architecture before merge."))}
+        # Keep the worktree when there is reviewable work — success OR a salvageable
+        # partial. Only clean up on no-changes or a hard failure with nothing to keep.
+        if not keep or not changed or (not d.get("ok") and not partial):
             cleanup_worktree(wt, branch)
             result["worktree"] = None
             result["cleaned_up"] = True
@@ -605,17 +723,28 @@ def main():
                          "starts here instead of crawling, may still edit elsewhere, and "
                          "any out-of-scope edit is reported. Best for a small coupled "
                          "change; omit it for a wide mechanical sweep.")
+    ap.add_argument("--timeout", type=int, default=None,
+                    help=f"delegation timeout in seconds (default {DEFAULT_MUTATE_TIMEOUT}, "
+                         f"max {MAX_MUTATE_TIMEOUT}). Raise it for a mechanical sweep over a "
+                         "large file; a timed-out run keeps its partial work.")
     ap.add_argument("--cleanup", nargs=2, metavar=("WORKTREE", "BRANCH"),
                     help="remove a worktree+branch from a prior run, then exit")
+    ap.add_argument("--gc", action="store_true",
+                    help="sweep orphaned codex/ worktrees (empty ones removed, ones holding "
+                         "work kept and reported), then exit")
+    ap.add_argument("--dry-run", action="store_true", help="with --gc: report, remove nothing")
     args = ap.parse_args()
+    if args.gc:
+        print(json.dumps(gc_worktrees(dry_run=args.dry_run), indent=2))
+        return 0
     if args.cleanup:
         cleanup_worktree(args.cleanup[0], args.cleanup[1])
         print(json.dumps({"ok": True, "cleaned_up": args.cleanup}))
         return 0
     if not args.task:
-        ap.error("task is required unless --cleanup is used")
+        ap.error("task is required unless --cleanup or --gc is used")
     out = mutate(args.task, args.base, args.test_cmd, args.weight, args.model,
-                 files=args.files)
+                 files=args.files, timeout=args.timeout)
     print(json.dumps(out, indent=2))
     return 0 if out.get("ok") else 1
 

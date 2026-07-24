@@ -42,14 +42,14 @@ def _mutate_in(repo, monkeypatch, writer, **kw):
 
 # ---- cost metering: measured, or null — never fabricated ----
 
-def test_cost_reports_tokens_and_authoritative_fuel_delta():
+def test_cost_reports_tokens_and_a_real_fuel_delta():
     c = mutate_mod.summarize_cost({"input_tokens": 500000, "output_tokens": 2000,
                                    "cached_input_tokens": 100},
                                   {"used_percent": 8}, {"used_percent": 11.5}, 42.0)
     assert c["input_tokens"] == 500000 and c["output_tokens"] == 2000
     assert c["total_tokens"] == 502000 and c["cached_input_tokens"] == 100
-    assert c["fuel_used_percent"] == 3.5          # the authoritative figure
-    assert c["elapsed_s"] == 42.0
+    assert c["fuel_used_percent"] == 3.5          # a genuine, above-resolution move
+    assert c["fuel_resolution"] is None and c["elapsed_s"] == 42.0
 
 
 def test_cost_accepts_the_alternate_usage_spelling():
@@ -63,7 +63,7 @@ def test_cost_is_null_not_zero_when_unmeasurable():
     c = mutate_mod.summarize_cost(None, None, None)
     assert c["input_tokens"] is None and c["total_tokens"] is None
     assert c["fuel_used_percent"] is None        # NOT 0
-    assert c["fuel_before_percent"] is None
+    assert c["fuel_used_before_percent"] is None
 
 
 def test_cost_delta_is_null_when_the_window_reset_mid_run():
@@ -77,7 +77,7 @@ def test_cost_never_does_arithmetic_on_a_boolean_gauge():
     unguarded gauge turned a boolean into an authoritative-looking number — and
     True/True produced literal 0, the one value the spec forbids."""
     c = mutate_mod.summarize_cost({}, {"used_percent": True}, {"used_percent": 5})
-    assert c["fuel_used_percent"] is None and c["fuel_before_percent"] is None
+    assert c["fuel_used_percent"] is None and c["fuel_used_before_percent"] is None
     c2 = mutate_mod.summarize_cost({}, {"used_percent": True}, {"used_percent": True})
     assert c2["fuel_used_percent"] is None        # NOT 0
     c3 = mutate_mod.summarize_cost({}, {"used_percent": "8"}, {"used_percent": 9})
@@ -234,13 +234,16 @@ def test_scoped_task_read_is_hard_capped_when_the_size_check_is_lied_to(tmp_path
 
 
 def test_scoped_task_budget_is_cumulative_across_many_small_files(tmp_path):
-    """The aggregate budget must not be bypassable by naming many small files."""
+    """The aggregate budget must not be bypassable by naming many small files.
+    Each file is well under the per-file cap; together they exceed the total."""
+    per = mutate_mod.MAX_INLINE_BYTES // 30 + 1     # 30 of these overflow the total
     names = []
     for i in range(40):
         n = "f%d.py" % i
         with open(os.path.join(str(tmp_path), n), "w") as f:
-            f.write("y" * 4000)
+            f.write("y" * per)
         names.append(n)
+    assert per < mutate_mod.MAX_INLINE_FILE_BYTES    # each individually fits
     prompt, err = mutate_mod.build_scoped_task("t", str(tmp_path), names)
     assert prompt is None and "inline budget" in err
 

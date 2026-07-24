@@ -154,3 +154,67 @@ The result SHALL describe the diff's **shape** — file count and a **measured**
 #### Scenario: Any diff-shape advisory is raised
 - **WHEN** any diff-shape advisory is raised
 - **THEN** `verdict` and `clears` are exactly what they would have been without it
+
+### Requirement: Cost is reported at the resolution it was actually measured
+The per-task cost SHALL treat **token counts as the primary signal** (they have resolution at task scale) and the **fuel-gauge delta as a coarse window-drain signal**. When the gauge did not move measurably but tokens were spent, `fuel_used_percent` SHALL be `null` with a stated reason — it SHALL NOT report `0`, which reads as "free." A genuine no-op (no tokens spent) is not a sub-resolution cost. Fuel fields SHALL be named so their polarity (used, not remaining) is unambiguous.
+
+#### Scenario: A task spends tokens but moves the weekly gauge by less than its r…
+- **WHEN** a task spends tokens but moves the weekly gauge by less than its resolution
+- **THEN** `fuel_used_percent` is `null` and `fuel_resolution` says "below gauge resolution" — never `0`
+
+#### Scenario: The quota window resets mid-run (after-reading below before-readin…
+- **WHEN** the quota window resets mid-run (after-reading below before-reading)
+- **THEN** `fuel_used_percent` is `null` and `fuel_resolution` says "window reset"
+
+#### Scenario: The run spent no tokens and the gauge did not move
+- **WHEN** the run spent no tokens and the gauge did not move
+- **THEN** this is a true no-op, not flagged as sub-resolution
+
+### Requirement: Scoping caps do not fall below real files, and do not drift from review
+The `--files` inline caps (per-file and total) SHALL equal the `--diff` review caps, so a file that is reviewable is also scopable and the two paths cannot diverge.
+
+#### Scenario: A named target is up to the shared per-file cap (e.g. a 90KB sourc…
+- **WHEN** a named target is up to the shared per-file cap (e.g. a 90KB source file)
+- **THEN** it is inlined, not refused
+
+#### Scenario: The review caps change
+- **WHEN** the review caps change
+- **THEN** the scoping caps change with them (one source of truth)
+
+### Requirement: A timed-out delegation is recoverable, never green
+On delegation timeout, any work already written to the worktree SHALL be preserved: the worktree is kept, the result is flagged `partial`, and a partial run SHALL NOT clear the gate regardless of test outcome, because incomplete work is not verified work. A timed-out run that produced no changes SHALL be cleaned up. The delegation timeout SHALL be operator-adjustable within a clamped range.
+
+#### Scenario: A delegation times out after Codex wrote changes
+- **WHEN** a delegation times out after Codex wrote changes
+- **THEN** the worktree is kept, `partial` is true, `clears_gate` is false, and the note says INCOMPLETE
+
+#### Scenario: A delegation times out having written nothing
+- **WHEN** a delegation times out having written nothing
+- **THEN** the empty worktree is cleaned up
+
+#### Scenario: The operator raises `--timeout`
+- **WHEN** the operator raises `--timeout`
+- **THEN** it is honored within a clamped range (a sweep over a large file gets the time it needs)
+
+### Requirement: Orphaned worktrees are recoverable, blast-radius-bounded
+A garbage-collection path SHALL remove orphaned `codex/` worktrees that hold no salvageable work, SHALL keep and report ones that hold work — **uncommitted changes OR commits unique to the codex branch** — and SHALL never touch a non-`codex/` worktree. Where the presence of work cannot be determined, it SHALL fail safe and keep.
+
+#### Scenario: An empty `codex/` worktree is orphaned (e.g. by an external kill)
+- **WHEN** an empty `codex/` worktree is orphaned (e.g. by an external kill)
+- **THEN** `--gc` removes it
+
+#### Scenario: A `codex/` worktree holds uncommitted work
+- **WHEN** a `codex/` worktree holds uncommitted work
+- **THEN** `--gc` keeps it and reports it — the salvage is not auto-destroyed
+
+#### Scenario: A `codex/` worktree holds committed work not present on any non-co…
+- **WHEN** a `codex/` worktree holds committed work not present on any non-codex branch
+- **THEN** `--gc` keeps it — "no uncommitted changes" is not "no work"
+
+#### Scenario: The work-check errors or is indeterminate
+- **WHEN** the work-check errors or is indeterminate
+- **THEN** `--gc` keeps the worktree rather than risk destroying salvage
+
+#### Scenario: A non-`codex/` worktree exists
+- **WHEN** a non-`codex/` worktree exists
+- **THEN** `--gc` never touches it, and `--dry-run` removes nothing
