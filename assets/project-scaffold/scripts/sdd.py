@@ -217,6 +217,89 @@ def verification_result_is_pending(text: str) -> bool:
     return False
 
 
+def delta_heading_issues(delta_file: Path) -> list[str]:
+    """Non-canonical requirement headings under `## ADDED Requirements`. The living
+    specs use `### Requirement: <name>`; a delta authored as `### R5 — <name>` is
+    NOT machine-verifiable — `delta_added_requirements` returns [] for it, so the
+    'is this delta synced?' gate passes VACUOUSLY and an unsynced delta can archive
+    clean. Surfacing these headings is what lets verify warn and the ready-prompt
+    refuse to claim READY on grammar it cannot confirm. Returns the offending lines."""
+    issues, in_added, in_code = [], False, False
+    for line in delta_file.read_text(encoding="utf-8-sig").splitlines():
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if re.match(r"^##(?!#)\s", line):
+            in_added = bool(re.match(r"^##\s+ADDED\s+Requirements\s*$", line, re.IGNORECASE))
+            continue
+        # a level-3 heading under ADDED that is not the canonical Requirement: form
+        if in_added and re.match(r"^###\s", line) and not re.match(
+                r"^###\s+Requirement:\s*\S", line, re.IGNORECASE):
+            issues.append(line.strip())
+    return issues
+
+
+def packet_unfilled(change_dir: Path) -> list[str]:
+    """Required files still carrying template placeholders or a pending Result."""
+    unfilled = []
+    for fname in REQUIRED_FILES:
+        f = change_dir / fname
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding="utf-8-sig")
+        if text_has_placeholder(text) or (
+            fname == "verification.md" and verification_result_is_pending(text)
+        ):
+            unfilled.append(fname)
+    return unfilled
+
+
+def archive_readiness(change_dir: Path, caps_dir: Path) -> list[tuple[str, str]]:
+    """The single, pure, read-only list of WAIVABLE blockers between a packet and
+    archive. cmd_archive enforces it and the ready-prompt reads it, so the prompt
+    can NEVER claim ready when archive would block — they consult one function.
+    Returns [(category, message), ...]; an empty list means archive-eligible.
+
+    Deliberately does not fabricate confidence: it reports what is provably wrong.
+    Grammar it cannot machine-verify is surfaced separately (delta_heading_issues)
+    so the ready-prompt fails toward 'needs sync' rather than a vacuous pass."""
+    blockers: list[tuple[str, str]] = []
+    unattributable = [f.name for f in delta_spec_files(change_dir)
+                      if not delta_capabilities_in_file(f)]
+    if unattributable:
+        blockers.append(("unattributable",
+                         "delta spec(s) with no valid 'Capability:' line: "
+                         + ", ".join(unattributable)))
+    unsynced = [cap for cap in delta_capabilities(change_dir)
+                if not (caps_dir / f"{cap}.md").is_file()]
+    if unsynced:
+        blockers.append(("unsynced-capability",
+                         "capabilities with no living spec yet: " + ", ".join(unsynced)))
+    missing_reqs = []
+    for delta_file in delta_spec_files(change_dir):
+        for cap in delta_capabilities_in_file(delta_file):
+            living = caps_dir / f"{cap}.md"
+            for req in delta_added_requirements(delta_file):
+                if not requirement_present(living, req):
+                    missing_reqs.append(f"{cap}: {req}")
+    if missing_reqs:
+        blockers.append(("missing-requirement",
+                         "delta requirements not present in the living spec "
+                         "(delta not synced?): " + "; ".join(missing_reqs)))
+    unfilled = packet_unfilled(change_dir)
+    _, pending = task_counts(change_dir / "tasks.md")
+    if unfilled or pending > 0:
+        detail = []
+        if pending > 0:
+            detail.append(f"{pending} pending task(s)")
+        if unfilled:
+            detail.append("unfilled placeholders in " + ", ".join(unfilled))
+        blockers.append(("incomplete", "; ".join(detail)))
+    return blockers
+
+
 def cmd_status() -> None:
     root = find_root()
     changes_root = root / "sdd-plus" / "changes"
@@ -231,7 +314,7 @@ def cmd_status() -> None:
         print(f"{change.name}: {complete} complete, {pending} pending{suffix}")
 
 
-def cmd_verify(name: str) -> int:
+def cmd_verify(name: str, show_ready_prompt: bool = True) -> int:
     assert_kebab(name)
     root = find_root()
     change_dir = root / "sdd-plus" / "changes" / name
@@ -246,14 +329,7 @@ def cmd_verify(name: str) -> int:
     if missing:
         sys.exit(f"error: missing required artifacts: {', '.join(missing)}")
 
-    unfilled = []
-    for fname in REQUIRED_FILES:
-        text = (change_dir / fname).read_text(encoding="utf-8-sig")
-        if text_has_placeholder(text) or (
-            fname == "verification.md" and verification_result_is_pending(text)
-        ):
-            unfilled.append(fname)
-
+    unfilled = packet_unfilled(change_dir)
     complete, pending = task_counts(change_dir / "tasks.md")
     print(f"Verified artifacts for {name}.")
     print(f"Tasks: {complete} complete, {pending} pending.")
@@ -261,6 +337,37 @@ def cmd_verify(name: str) -> int:
         print(f"warning: unfilled placeholder content (TBD) remains in: {', '.join(unfilled)}")
     if pending > 0:
         print("Pending tasks remain. Archive will require --force.")
+
+    # Delta grammar lint — surfaced every verify. Non-canonical headings make the
+    # sync gate unverifiable, so they are worth naming even when the packet is green.
+    heading_issues = [iss for f in delta_spec_files(change_dir)
+                      for iss in delta_heading_issues(f)]
+    if heading_issues:
+        print(f"warning: {len(heading_issues)} delta requirement heading(s) are not the "
+              "canonical '### Requirement: <name>' form (e.g. "
+              f"{heading_issues[0]!r}); sync cannot be machine-verified until they are "
+              "normalized. Run /drydock:sync.")
+
+    # Ready-to-archive prompt: the well-timed moment green is learned. It FAILS
+    # TOWARD 'needs sync' — READY prints only on positive confirmation, never from a
+    # merely empty blocker list, so a non-canonical or unsynced delta cannot read as
+    # ready. This closes the pre-existing vacuous-pass hole.
+    if show_ready_prompt and not unfilled and pending == 0:
+        caps_dir = root / "sdd-plus" / "specs" / "capabilities"
+        blockers = archive_readiness(change_dir, caps_dir)
+        if heading_issues:
+            print("Not archive-ready: delta grammar is not machine-verifiable — "
+                  "run /drydock:sync, then verify again.")
+        elif blockers:
+            sync_only = all(c in ("unsynced-capability", "missing-requirement")
+                            for c, _ in blockers)
+            if sync_only:
+                print("Nearly there: delta specs aren't synced into the living specs "
+                      "yet. Run /drydock:sync, then archive.")
+            else:
+                print("Not archive-ready: " + "; ".join(m for _, m in blockers))
+        else:
+            print(f"READY TO ARCHIVE — run: python scripts/sdd.py archive {name}")
     return 1 if unfilled else 0
 
 
@@ -281,56 +388,21 @@ def cmd_archive(name: str, force: bool, reason: str = "") -> None:
         sys.exit('error: --force requires --reason "<why>" so the override is auditable '
                  "(it is recorded to the packet's decision-log.md). "
                  f'e.g. archive {name} --force --reason "hotfix; tests tracked in #123".')
-    rc = cmd_verify(name)
+    cmd_verify(name, show_ready_prompt=False)  # prints status; hard-exits on missing artifacts
     root = find_root()
     change_dir = root / "sdd-plus" / "changes" / name
     caps_dir = root / "sdd-plus" / "specs" / "capabilities"
-    waived = []
-    unattributable = [f.name for f in delta_spec_files(change_dir)
-                      if not delta_capabilities_in_file(f)]
-    if unattributable:
-        if not force:
-            sys.exit(
-                "error: delta spec(s) with no valid 'Capability:' line: "
-                + ", ".join(unattributable)
-                + ". Add a kebab-case Capability line, or rerun with --force."
-            )
-        waived.append("unattributable delta specs (" + ", ".join(unattributable) + ")")
-    unsynced = [
-        cap for cap in delta_capabilities(change_dir)
-        if not (caps_dir / f"{cap}.md").is_file()
-    ]
-    if unsynced:
-        if not force:
-            sys.exit(
-                "error: delta specs reference capabilities with no living spec yet: "
-                + ", ".join(unsynced)
-                + ". Run the spec-sync skill (/drydock:sync) first, or rerun with --force."
-            )
-        waived.append("unsynced capabilities (" + ", ".join(unsynced) + ")")
-    missing_reqs = []
-    for delta_file in delta_spec_files(change_dir):
-        file_caps = delta_capabilities_in_file(delta_file)
-        for cap in file_caps:
-            living = caps_dir / f"{cap}.md"
-            for req in delta_added_requirements(delta_file):
-                if not requirement_present(living, req):
-                    missing_reqs.append(f"{cap}: {req}")
-    if missing_reqs:
-        if not force:
-            sys.exit(
-                "error: these delta requirements are not present in the living spec "
-                "(delta not synced?):\n  - "
-                + "\n  - ".join(missing_reqs)
-                + "\nRun /drydock:sync first, or rerun with --force."
-            )
-        waived.append("unsynced requirements (" + ", ".join(missing_reqs) + ")")
-    _, pending = task_counts(change_dir / "tasks.md")
-    if pending > 0 or rc != 0:
-        if not force:
-            sys.exit("error: cannot archive with pending tasks or unfilled placeholders. "
-                     "Complete the packet or rerun with --force.")
-        waived.append("pending tasks / unfilled placeholders")
+
+    # One shared readiness check — the same list the ready-prompt reads, so the
+    # prompt can never disagree with what archive enforces.
+    blockers = archive_readiness(change_dir, caps_dir)
+    waived = [msg for _, msg in blockers]
+    if blockers and not force:
+        lines = "\n".join(f"  - {msg}" for _, msg in blockers)
+        hint = ("Run /drydock:sync first" if any(
+            c in ("unsynced-capability", "missing-requirement") for c, _ in blockers)
+            else "Complete the packet")
+        sys.exit(f"error: not archive-ready:\n{lines}\n{hint}, or rerun with --force.")
     if force and waived:
         record_override(change_dir, waived, reason)
         print(f"OVERRIDE recorded in decision-log.md: waived {len(waived)} gate(s) — {reason}")

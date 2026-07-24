@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0 — the honest finish: a well-timed prompt, and a vacuous-pass hole closed
+
+The first slice of the archive-inversion — the field report's top-weighted finding, that Drydock has a strong start and a weak finish. Designed by a 3-lens adversarial panel before a line was written; this slice flattens and *makes honest* the finish without ever writing to a living spec. Twenty-third dogfooded packet.
+
+- **A ready line at the moment green is learned.** `verify` now ends with an actionable prompt: `READY TO ARCHIVE — run …` when the deltas are synced and canonical, `Nearly there — run /drydock:sync` when they aren't yet in the living specs, or a grammar warning when a delta heading isn't machine-verifiable. It's the well-timed nudge to finish, in output the operator is already reading — not the session-start guilt that decays into noise.
+- **It closes a real pre-existing bug: the vacuous-pass hole.** The archive gate asks "is every delta requirement present in the living spec?" via a parser that only recognizes the canonical `### Requirement: <name>` grammar. Deltas authored as `### R5 — <name>` (the habit across recent packets) returned empty, so the check passed **vacuously** — an unsynced delta could read as ready. A sync script normalizing the grammar out-of-band is the only reason it never bit. The ready prompt now **fails toward "needs sync"**: it prints READY only on positive confirmation the deltas are synced *and* canonical, never from a merely empty blocker list.
+- **One shared readiness check.** `verify`'s prompt and `archive`'s gate now read the same pure `archive_readiness()` function, so the prompt can never claim READY on a structural blocker archive would enforce. `cmd_archive`'s four inline gates were refactored onto it, behavior-preserving.
+- **A delta-grammar lint** warns (does not reject — non-breaking) when a requirement heading isn't canonical, pointing at `/drydock:sync`.
+- **The panel's discipline shows in what this does NOT do.** It never writes a living capability spec — the auto-sync writer, the one path that could corrupt the source of truth, is quarantined to a later packet behind a real-corpus property test. The adversarial review then caught an **overclaim**: the docs said the prompt and gate "can never disagree" and that the "archive clean" half of the hole was closed. Neither was literally true — verify's prompt is deliberately *stricter* on grammar than archive's gate (which warns but proceeds). Rather than quietly ship a claim the code didn't back, the framing was corrected, the asymmetry recorded as a deliberate deferral, and archive's warn-but-proceed behavior **pinned by a test**. Dogfooded end to end: the packet that built the feature was archived by following its own READY prompt. Suite 471.
+
 ## 0.11.1 — field report #2: the meter reads honestly, and the scoping lever fits the files
 
 The operator who filed the first field report used 0.11.0 for a day and filed a second. Every `mutate` finding in it, fixed. Twenty-second dogfooded packet.
