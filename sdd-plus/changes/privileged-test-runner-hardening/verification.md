@@ -9,10 +9,10 @@ privileged-test-runner-hardening
 - [x] Focused mutation/test-plan regressions on the peer-remediated code:
   `74 passed` in 15.25s.
 - [x] Complete legacy/Claude-host suite refreshed after the release-gate
-  edits: `548 passed, 6 skipped` in 77.63s.
+  edits: `548 passed, 6 skipped` in 79.66s.
   The skips are recorded as skips, not positive evidence.
 - [x] Complete Codex-adapter suite refreshed after the release-gate edits:
-  `94 passed, 2 skipped` in 94.03s.
+  `94 passed, 2 skipped` in 95.41s.
   Both skips require Windows symbolic-link privilege and are not counted as
   positive evidence.
 - [x] The two current complete suites total `642 passed, 8 skipped`. This is a
@@ -26,22 +26,19 @@ privileged-test-runner-hardening
 - [x] `python scripts/sdd.py verify privileged-test-runner-hardening`
   verified packet artifacts after the second peer verdict and reported
   `14 complete, 0 pending`. It mechanically reported the packet ready to
-  archive; no archive was attempted because LaunchGuardian's separate release
-  gate remains blocked.
+  archive; no archive was attempted because the Owner has not requested it and
+  the encompassing Codex-host packet still has peer/dogfood gates open.
 - [x] Strict LaunchGuardian framework scan on the peer-remediated code was
-  refreshed at `2026-07-25T14:03:54.497175Z` in forced UTF-8 mode with LGF
-  validation valid and all five scanner adapters reporting `ran`.
-  LaunchGuardian remains **BLOCKED** on 6 high and 0 medium findings. The prior
-  `shell=True` finding remains absent. A separately approved Codex-host
-  release-gate slice removed the mutable-action findings through verified
-  full-SHA pins and removed the non-executable WebSocket prose false positive
-  without changing its historical meaning. All six remaining findings are
-  Python-3.6 compatibility rules outside the declared Python-3.9+ floor. No
-  finding was waived or downgraded. Raw Semgrep output contains 20
-  fixpoint-timeout warnings across other files, so adapter execution is not
-  described as proof that every rule completed. The final normalized findings
-  contain no finding for `mutate.py`; that absence is not promoted into
-  scanner-completion proof.
+  refreshed through reviewed companion commit
+  `24abba5c9cd3eb723356e7ec0de640b7c8278680` at
+  `2026-07-25T15:16:29.577002Z`. LGF validation is valid and all five scanner
+  adapters report `ran`. The result is **APPROVED_WITH_DISPOSITIONS**: raw
+  Semgrep contains exactly 6 results and 0 errors; all six compatibility
+  findings remain High with original `blocks_launch: true`, while the two exact
+  Owner-reviewed rule dispositions set status `not_applicable` and leave 0
+  open blockers. The prior `shell=True`, mutable-action, and WebSocket prose
+  findings remain absent. No raw result is hidden or severity downgraded.
+  Installed/PyPI LaunchGuardian 0.2.0 does not yet support this mechanism.
 
 ## Manual Checks
 
@@ -136,7 +133,8 @@ privileged-test-runner-hardening
 
 ## Result
 
-**IMPLEMENTATION AND INDEPENDENT PEER PASS — RELEASE GATE BLOCKED.**
+**IMPLEMENTATION, INDEPENDENT PEER, AND SECURITY-SCAN PASS — ARCHIVE NOT YET
+AUTHORIZED.**
 
 The privileged implicit-shell path is removed, direct known shell selection is
 refused, and transitive execution is now disclosed rather than claimed
@@ -145,6 +143,7 @@ timeout cleanup is attempted and evidenced; ordinary results label
 write/network settings as requested configuration. The supported Windows
 machine retains point-in-time proof of outside-write and direct-socket denial
 while disproving read isolation. Deterministic tests and parity checks pass,
-and the second independent review converged with no blockers. LaunchGuardian
-remains BLOCKED on six high findings, so this packet is not archived and the
-Codex host is not release-ready.
+and the second independent review converged with no blockers. LaunchGuardian's
+reviewed source build reports 0 open blockers with all six disposed findings
+retained. This packet is not archived because archive was not requested; the
+encompassing Codex host still requires final peer convergence and dogfooding.

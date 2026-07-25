@@ -242,11 +242,11 @@ codex-host-mvp
   `61 passed` in 68.16 seconds.
 - [x] Post-hardening runner regression returned `47 passed` in 68.23 seconds.
 - [x] Complete Codex adapter suite was refreshed after the release-gate edits
-  and returned `94 passed, 2 skipped` in 94.03 seconds. The two Windows
+  and returned `94 passed, 2 skipped` in 95.41 seconds. The two Windows
   symbolic-link privilege skips are not counted
   as positive evidence.
 - [x] Complete legacy/Claude-host compatibility suite was refreshed after the
-  release-gate edits and returned `548 passed, 6 skipped` in 77.63 seconds.
+  release-gate edits and returned `548 passed, 6 skipped` in 79.66 seconds.
 - [x] Git-control poisoning regression — the fake worker appended
   repository-local `core.fsmonitor` and `core.hooksPath` values pointing at an
   executable sentinel. The direct control fingerprint changed, mutation
@@ -313,19 +313,23 @@ codex-host-mvp
   first-party authentication ready and requested model `claude-opus-5`; none
   reported Fable quota exhaustion or model unavailability. These outcomes are
   not agreement, rejection, or evidence about the code.
-- [ ] LaunchGuardian release gate — the latest UTF-8 strict framework scan at
-  `2026-07-25T14:03:54.497175Z` completed with all five scanners run and LGF
-  validation valid, but returned `BLOCKED`: 6 findings, all high/blocking.
-  The prior reachable legacy `shell=True` finding remains absent. The mutable
-  GitHub Action findings are absent after verified full-SHA pinning, and the
-  non-executable WebSocket prose finding is absent after a semantic-preserving
-  documentation rewrite. All six remaining findings are Python 3.6
-  compatibility rules against Popen `encoding`/`errors` despite the documented
-  Python 3.9+ floor. LaunchGuardian 0.2.0 has no reviewed per-finding
-  disposition or supported-runtime profile, so no override, suppression, or
-  downgrade is inferred. Raw Semgrep output contains 20 fixpoint-timeout
-  warnings, so scanner execution is not overstated as proof that every rule
-  completed.
+- [x] LaunchGuardian source-build gate — companion commit
+  `24abba5c9cd3eb723356e7ec0de640b7c8278680` produced the UTF-8 strict
+  framework scan at `2026-07-25T15:16:29.577002Z` with all five scanners
+  `ran`, LGF validation valid, and report schema `0.2.0`. It returned
+  `APPROVED_WITH_DISPOSITIONS`, not plain `APPROVED`: raw Semgrep contains
+  exactly 6 results from the two Owner-approved Python-3.6 compatibility rule
+  IDs and 0 errors. All six remain visible as High with original
+  `blocks_launch: true`; exact status `not_applicable` leaves 0 open blocking
+  findings. No wildcard, path exclusion, inline ignore, deletion, severity
+  downgrade, or Critical override is used. The companion commit returns 80
+  tests passed, builds wheel and sdist successfully, and completes its own
+  strict five-scanner scan. Installed/PyPI LaunchGuardian 0.2.0 does not yet
+  implement this report behavior, and approver metadata is not authenticated
+  identity proof.
+- [x] Final packet consistency refresh — `python scripts/sdd.py verify
+  codex-host-mvp` reports `32 complete, 2 pending`; the pending final peer and
+  dogfood gates remain explicit.
 
 ## Documentation Updates
 
@@ -340,13 +344,16 @@ codex-host-mvp
 
 ## Result
 
-**IMPLEMENTATION EVIDENCE PASS — RELEASE AND PEER GATES BLOCKED.**
+**IMPLEMENTATION AND SECURITY-SCAN EVIDENCE PASS — FINAL PEER AND DOGFOOD
+GATES OPEN.**
 
 The additive plugin, deterministic enforcement adapter, peer controller,
 mutation runner, and verifier pass their local suites and current-machine live
 probes. The latest Opus findings were implemented, but two bounded final-review
 attempts emitted no critique, so cross-model convergence remains unproven.
-LaunchGuardian remains BLOCKED on six high findings. Ordinary Codex hook
+LaunchGuardian's reviewed source build returns
+`APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
+findings; PyPI 0.2.0 cannot yet reproduce that result. Ordinary Codex hook
 enforcement also remains inactive until the Owner installs/trusts the plugin
-and starts a fresh task with current-revision liveness. No commit, push,
-publication, or release is authorized by this evidence.
+and starts a fresh task with current-revision liveness. No publication or
+release is authorized by this evidence.

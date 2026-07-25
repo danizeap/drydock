@@ -3,16 +3,16 @@
   "Trivy": {
     "Version": "0.71.1"
   },
-  "ReportID": "019f9996-f079-7cfe-be63-14ce6084aeb3",
-  "CreatedAt": "2026-07-25T09:03:53.8498515-05:00",
-  "ArtifactID": "sha256:c1a83f8f24192d51ca3439c039a0647ad20a6fc8efd24e4a8499791a515a18e1",
+  "ReportID": "019f99d9-649b-77f3-bce8-f867cb5a9102",
+  "CreatedAt": "2026-07-25T17:16:28.9555211+02:00",
+  "ArtifactID": "sha256:dfe9e952c186d7a14bddb33328ba6e9fe1d0303f7a2f57b0c34fe04d5b2ca90a",
   "ArtifactName": "C:/Users/Daniel Paez/drydock",
   "ArtifactType": "repository",
   "Metadata": {
     "RepoURL": "git@github-personal:danizeap/drydock.git",
-    "Branch": "main",
-    "Commit": "5f76f67eda90d92b4f0eea1908e66c7f45ca81f7",
-    "CommitMsg": "handoff: prepare the repo for a Codex port\n\nAdds docs/HANDOFF.md — the orientation map for an agent picking up Drydock\ncold: the four-tier thesis, which parts are the harness-agnostic brain vs the\nClaude-specific wrapping, what is proven vs assumed, a reading order, and the\nhouse rules that explain the paranoid-looking choices.\n\nAdds docs/CODEX_PORT_PROPOSAL.md — a proposal written FOR Codex to critique,\nwith every guess flagged as an assumption. Codex has already reviewed it and\nreturned five blocking concerns (recorded for the next round): plugin hooks are\nnon-managed so the tier-4 claim needs restating; the conductor is not shared\ncore; the five hooks are unproven on Codex tool names; the reverse Claude\nbridge is unauthenticated; and the execution/worktree ownership model is absent.\n\nAlso ships codex-coplan (two-brain plan negotiation, verified and archived) and\ntidies repo noise for the handoff. Suite 501.\n\nCo-Authored-By: Claude Opus 4.8 \u003cnoreply@anthropic.com\u003e",
+    "Branch": "codex/codex-host-mvp-checkpoint",
+    "Commit": "8515ed7bd279ba6ec979523f9f9c8cd64dafa1d1",
+    "CommitMsg": "Add Codex host MVP and hardened runner",
     "Author": "WeCollabify \u003cdanielp@wecollabify.com\u003e",
     "Committer": "WeCollabify \u003cdanielp@wecollabify.com\u003e"
   }

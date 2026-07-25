@@ -2,19 +2,21 @@
 
 Date: 2026-07-25
 Scan: `launchguardian scan --target . --framework-mode --strict-scanners`
-Observed verdict: **BLOCKED** — 6 high/blocking, 0 non-blocking
+Observed verdict: **APPROVED_WITH_DISPOSITIONS** — 6 High findings retained,
+0 open blocking findings
 
-This document classifies reachability; it does not waive, suppress, downgrade,
-or close any scanner finding. Launch remains blocked until remediation,
-launch-scope removal, or an Owner-approved exception is recorded through the
-LaunchGuardian process.
+This document classifies reachability and records the Owner-approved,
+evidence-backed disposition. It does not suppress, delete, or reduce the
+severity of any scanner finding. Each result retains `severity: high` and its
+original `blocks_launch: true`; exact reviewed status `not_applicable` makes it
+non-open. The result is deliberately not plain `APPROVED`.
 
 ## Findings
 
 | Findings | Triage | Evidence | Safe disposition |
 | --- | --- | --- | --- |
-| Four Python-3.6 compatibility findings in the new Codex `Popen` calls | Scanner-policy mismatch, not a reachable compatibility defect | Drydock's declared floor is Python 3.9+ in `PROJECT_CONTEXT.md`, `AGENTS.md`, and `README.md`; readiness blocks Python below 3.9; CI runs 3.9 and 3.12. The flagged `encoding`/`errors` parameters exist in every supported runtime. | Do not rewrite working subprocess I/O merely to support an excluded runtime. Resolve through a LaunchGuardian/Semgrep rule-profile fix or an explicit evidence-backed Owner disposition. Until then the scanner remains blocking. |
-| Two identical Python-3.6 compatibility findings in legacy `scripts/conductor/codex_bridge.py` | Same scanner-policy mismatch | Same Python 3.9+ floor; the current legacy suite returns 548 passed and 6 skips. | Same as above. This is also outside the additive Codex adapter boundary, so code churn would violate the protected-surface constraint without improving supported-runtime security. |
+| Four Python-3.6 compatibility findings in the new Codex `Popen` calls | Scanner-policy mismatch, not a reachable compatibility defect | Drydock's declared floor is Python 3.9+ in `PROJECT_CONTEXT.md`, `AGENTS.md`, and `README.md`; readiness blocks Python below 3.9; CI runs 3.9 and 3.12. The flagged `encoding`/`errors` parameters exist in every supported runtime. | Owner-approved `not_applicable` disposition for the two exact rule IDs. Findings remain visible and High; no wildcard, path exclusion, or inline scanner ignore is used. |
+| Two identical Python-3.6 compatibility findings in legacy `scripts/conductor/codex_bridge.py` | Same scanner-policy mismatch | Same Python 3.9+ floor; the current legacy suite returns 548 passed and 6 skips. | The same exact rule-level disposition applies. Code is not rewritten to emulate an excluded runtime or churn the protected legacy surface. |
 
 ## Resolved Since The Prior Scan
 
@@ -37,34 +39,31 @@ observation remains in the vision spec, but the non-executable prose no longer
 contains a scanner-triggering plain-scheme literal. The strict scan at
 `2026-07-25T14:03:54.497175Z` confirms all three findings are absent.
 
-## Scanner Configuration Limitation
+## Reviewed Disposition Mechanism
 
-The installed LaunchGuardian 0.2.0 discovers `launchguardian.yml` and reports
-configured exclusions, but its Semgrep adapter invokes:
+The companion `launchguardian-cli` commit
+`24abba5c9cd3eb723356e7ec0de640b7c8278680` on branch
+`codex/reviewed-finding-dispositions` implements exact Semgrep rule-ID
+matching. It requires `status: not_applicable`, non-placeholder reason and
+evidence, a named approver, and a non-future ISO approval date. Wildcards,
+duplicates, malformed records, and Critical matches fail closed. Unmatched
+entries remain visible as stale-review findings.
 
-```text
-semgrep scan --config auto --json --output <report> <target>
-```
-
-The adapter does not pass `LaunchGuardianConfig` exclusions to Semgrep or
-post-filter normalized Semgrep findings. Therefore adding
-`exclude.paths`/`exclude.globs` would make the report *look* configured without
-resolving these external-scanner findings. No such misleading configuration
-was added.
-
-Semgrep-specific ignores could hide entire files, including real findings, and
-are not an acceptable automatic response. A rule-level supported-runtime
-profile or reviewed finding-disposition mechanism belongs in
-`launchguardian-cli`.
+That source branch also pins external-scanner subprocess text and Python child
+environments to UTF-8. Its suite returns 80 passed, package build succeeds, and
+a strict self-scan completes. The Drydock strict scan at
+`2026-07-25T15:16:29.577002Z` reports all five scanners `ran`, 6 raw Semgrep
+results, 0 raw Semgrep errors, 6 applied dispositions, and 0 open blockers.
+Approver text is auditable repository evidence, not authenticated proof of
+identity.
 
 ## Owner Decisions Needed Before Release
 
-1. Decide whether to extend `launchguardian-cli` with a rule-level
-   supported-runtime profile or reviewed per-finding disposition mechanism
-   (recommended), or explicitly authorize repository-local suppression of the
-   six compatibility findings.
-2. Complete the Codex-host final independent review.
+1. Complete the Codex-host final independent review.
+2. Merge, version, and publish the reviewed LaunchGuardian change before
+   expecting installed `launchguardian` commands or CI to reproduce this
+   source-build result.
 
-Until those decisions and the final independent review are complete, the Codex
-host implementation may be tested locally but SHALL NOT be published as
+Until those steps and end-to-end dogfooding are complete, the Codex host
+implementation may be tested locally but SHALL NOT be published as
 release-ready.

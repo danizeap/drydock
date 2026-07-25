@@ -71,6 +71,12 @@ codex-host-mvp
   without changing the historical transport claim.
 - [x] Rerun strict LaunchGuardian and reconcile the exact remaining findings
   without suppression or waiver.
+- [x] Owner approves recording the two exact Semgrep Python-3.6 compatibility
+  rule IDs as `not_applicable` using the documented Python-3.9+ boundary.
+- [x] Add the exact reviewed dispositions without wildcard, path, or inline
+  scanner suppression.
+- [x] Rerun the strict five-scanner gate through the reviewed LaunchGuardian
+  source build and reconcile status, raw errors, and remaining findings.
 - [ ] Dogfood the end-to-end Codex-hosted workflow.
 - [x] Update user/operator documentation and project context.
 - [ ] Run full verification, independent review, and LaunchGuardian.
