@@ -11,6 +11,7 @@ Behaviour tweaks via FAKE_CODEX_MODE:
 """
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -79,6 +80,56 @@ def exec_cmd(argv):
             json.dump(RESULT, fh)
 
 
+def sandbox_cmd(argv):
+    """Model-free test double for `codex sandbox`.
+
+    The real security boundary is proven by the live platform spike. This fake
+    exists only so unit tests can assert that mutate routes through the boundary
+    instead of executing the test command directly.
+    """
+    if "--help" in argv or "-h" in argv:
+        print("fake codex sandbox")
+        return 0
+    cwd = None
+    index = 0
+    value_options = {
+        "-c",
+        "--config",
+        "-P",
+        "--permission-profile",
+        "-p",
+        "--profile",
+        "-C",
+        "--cd",
+        "--sandbox-state-json",
+        "--sandbox-state-readable-root",
+        "--enable",
+        "--disable",
+    }
+    flag_options = {
+        "--sandbox-state-disable-network",
+        "--include-managed-config",
+    }
+    while index < len(argv):
+        argument = argv[index]
+        if argument in value_options:
+            if index + 1 >= len(argv):
+                return 2
+            if argument in {"-C", "--cd"}:
+                cwd = argv[index + 1]
+            index += 2
+            continue
+        if argument in flag_options:
+            index += 1
+            continue
+        break
+    command = argv[index:]
+    if not command:
+        return 2
+    process = subprocess.run(command, cwd=cwd, shell=False)
+    return process.returncode
+
+
 def main():
     argv = sys.argv[1:]
     if not argv:
@@ -87,6 +138,8 @@ def main():
         app_server()
     elif argv[0] == "exec":
         exec_cmd(argv)
+    elif argv[0] == "sandbox":
+        raise SystemExit(sandbox_cmd(argv[1:]))
     else:
         sys.exit(2)
 

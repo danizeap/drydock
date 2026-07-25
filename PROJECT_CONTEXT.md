@@ -6,11 +6,22 @@ Drydock
 
 ## Short Description
 
-A free Claude Code plugin that makes AI-assisted coding safe enough to trust. Drydock implements SDD+ — spec-driven development plus a governance and security layer: governed skills with blocking rules, lifecycle commands, deterministic safety hooks, an independent verifier subagent, and the LaunchGuardian launch-readiness framework with its companion scanner (`launchguardian-cli`).
+A working governance framework that makes AI-assisted coding safe enough to
+trust. Drydock implements SDD+ — spec-driven development plus a governance and
+security layer: governed skills with blocking rules, lifecycle commands,
+deterministic safety hooks, independent verification, and the LaunchGuardian
+launch-readiness framework with its companion scanner
+(`launchguardian-cli`). It currently ships as a Claude Code plugin and is being
+planned for a Codex-hosted pilot.
 
 ## Audience / Users
 
-Developers building software with AI coding agents ("vibe coders" through professional engineers) who want their AI-generated changes governed, verified, and documented. Primary platform: Claude Code (plugin). Secondary: any coding agent, via the agent-agnostic project scaffold (`AGENTS.md`, `sdd-plus/`, `scripts/sdd.py`).
+Developers building software with AI coding agents ("vibe coders" through
+professional engineers) who want their AI-generated changes governed,
+verified, and documented. Current shipping platform: Claude Code plugin.
+Planned primary orchestration platform: Codex, with Claude/Fable retained as a
+cross-model planning and review peer. Any coding agent can already follow the
+agent-agnostic project scaffold (`AGENTS.md`, `sdd-plus/`, `scripts/sdd.py`).
 
 ## Core Problem
 
@@ -22,7 +33,9 @@ Every meaningful AI-assisted change is: specified before implementation (delta s
 
 ## First Useful Version
 
-Shipped: v0.1.0 (first public release) through v0.1.4. The plugin is installable from the marketplace (`danizeap/drydock`) and the full lifecycle works end to end.
+Shipped through v0.12.1. The Claude Code plugin is installable from the
+marketplace (`danizeap/drydock`), its full lifecycle works end to end, and the
+repository records 501 passing tests plus 25 dogfooded change packets.
 
 ## Stack And Tools
 
@@ -41,7 +54,15 @@ Avoid:
 
 - GitHub repo `danizeap/drydock` (MIT), distributed via the Claude Code plugin marketplace.
 - Companion scanner: `launchguardian-cli` (separate repo, PyPI: `pip install launchguardian`), orchestrating Gitleaks/Semgrep/Trivy plus native scanners.
-- No user data, no network calls, no telemetry — everything runs locally in the user's repo.
+- No Drydock telemetry, hosted database, or credential store. Lifecycle and
+  policy state stay local; configured Codex/Claude model calls may send guarded
+  task or review content through the Owner's provider CLIs.
+- Owner runtime plans: Claude Max plus Codex Pro. Fable has a weekly allowance
+  that was exhausted in two days during the measured workflow; the Owner
+  approved Opus 5 as the current Claude peer fallback, with Fable retained as
+  an optional escalation when available.
+- Kimi is not part of the current target fleet. `KimiExecutor` remains staged
+  historical/reference code and is not evidence of availability.
 
 ## Constraints
 
@@ -49,20 +70,42 @@ Avoid:
 - **Cross-platform:** must work on Windows (`python`), macOS/Linux (`python3`); no bash-isms in shipped tooling.
 - **Never overwrite** user files on `/drydock:init-project`.
 - **Deterministic enforcement is the product:** hooks and gates must fail closed and be testable; a silent no-op guardrail is worse than none.
+- **Preserve in-flight work:** never use `git restore`/checkout-style reversion
+  during a packet build. Work may be uncommitted; revert with a deliberate
+  inverse edit.
 - Assumption (Owner to confirm): solo-maintainer project, no release cadence commitments.
 
 ## Design / UX Preferences
 
-Proportional ceremony (framework-theater rule: artifacts only when they change a decision, preserve understanding, prove behavior, or reduce uncertainty). Plain-language explanations for Owners. Nautical naming (drydock, seaworthy, LaunchGuardian).
+Proportional ceremony (framework-theater rule: artifacts only when they change
+a decision, preserve understanding, prove behavior, or reduce uncertainty).
+Plain-language explanations for Owners. Nautical naming (drydock, seaworthy,
+LaunchGuardian).
+
+Flagship models coordinate, make architectural decisions, and cross-review;
+right-sized cheaper agents execute bounded typing. The primary task shapes are
+bimodal: 1–5 coupled tasks or 12+ mechanical tasks. Avoid handing the
+judgment-heavy middle to a cheap model; split it or keep it with a capable
+model. The Owner's fuel north star is roughly three useful coding hours as a
+pace reserve, not a hard spend budget.
 
 ## Definition Of Done
 
-For the current phase (v0.1.x hardening): the enforcement layer (hooks + sdd.py gates) has automated tests and CI, the known bypass classes from the 2026-07 six-dimension audit are closed, and Drydock's own repo dogfoods its lifecycle (this file, change packets, living capability specs).
+For the current phase (`codex-host-mvp`): Codex can host the full governed
+lifecycle without a Claude plugin install; mutating workers are isolated from
+the Owner checkout by separate fixed-root workspace-write processes rather than
+nested-agent convention; ordinary hook enforcement is described no more
+strongly than its tested trust/coverage mechanism; Claude/Fable can participate
+through a bounded authenticated peer adapter; verification is isolated in a
+separate read-only process and is not mislabeled as cross-model independence;
+the existing Claude plugin remains working and compatible.
 
 ## Open Questions
 
 - Should a read-only SDD+ MCP server ship so non-Claude agents consume specs/lifecycle over the protocol? (Explored 2026-06; deferred.)
 - Remaining sync-gate tiers (MODIFIED/REMOVED/RENAMED semantic verification) — Tier 2 design exists (2026-06 explore session), not yet scheduled.
+- What measured burn-rate forecast can honestly protect the Owner's target of
+  roughly three useful coding hours without turning it into a hard budget?
 
 ## Durable Decisions
 

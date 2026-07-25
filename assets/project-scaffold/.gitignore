@@ -33,3 +33,4 @@ tmp/
 temp/
 .DS_Store
 Thumbs.db
+.drydock-worktrees/

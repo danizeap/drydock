@@ -2,11 +2,19 @@
 
 **Where vibe code becomes seaworthy.**
 
-Drydock is a free Claude Code plugin that makes AI-assisted coding safe enough to trust. A drydock is where a vessel is inspected and certified before it launches — Drydock is where your AI-generated code lives before it ships: governed by explicit rules, gated by security checks, verified independently, and documented automatically.
+Drydock is a free governance framework for AI-assisted development. The
+proven Claude Code plugin remains supported, and the additive Codex host MVP
+lets Codex pilot the same SDD+ lifecycle while Claude/Opus participates as an
+optional architectural peer. A drydock is where a vessel is inspected and
+certified before it launches — Drydock is where your AI-generated code lives
+before it ships: governed by explicit rules, gated by security checks,
+verified independently, and documented automatically.
 
 Vibe coding has a known problem: the code works until it doesn't, and nobody can say what it's supposed to do, whether it's safe, or what changed. Drydock fixes the process, not the model — specs as the source of truth, safety rules that block dangerous moves deterministically, and verification that doesn't take the AI's word for it.
 
 ## Install (2 commands)
+
+### Claude Code
 
 ```
 /plugin marketplace add danizeap/drydock
@@ -28,9 +36,65 @@ Then, inside any project:
 /drydock:onboard         # learn by shipping one small real change (5–10 min)
 ```
 
+### Codex host MVP
+
+The Codex package is self-contained under `adapters/codex/drydock/`. For a
+local development install from this checkout:
+
+```powershell
+codex plugin marketplace add .
+codex plugin add drydock@drydock
+```
+
+Start a fresh Codex task after installation. Review the hook definition and
+trust it only if it matches the installed plugin revision, then ask Codex to
+“initialize Drydock in this repository.” Initialization is project setup, not
+a second host install: Codex previews create-only scaffold writes and waits for
+approval before applying them.
+
+Ask Codex to “report Drydock readiness” before relying on enforcement. Ordinary
+Codex plugin hooks are hash-trusted, non-managed, user-disableable, and proven
+only for canonical local `Bash` and `apply_patch` calls on the tested host.
+MCP, hosted, specialized, and other unmatched tool paths remain explicitly
+uncovered. Drydock therefore does **not** make a Tier-4 or “cannot be reasoned
+around” claim for ordinary Codex plugin hooks.
+
+For governed orchestration, Codex can negotiate with authenticated
+`claude-opus-5`, delegate mutation to a separate fixed-root Codex process in a
+dedicated worktree, and run a separate read-only verifier. The runner never
+merges, commits, pushes, or deploys on the worker’s authority. On the tested
+alpha build, Owner config remains part of the child process TCB because it
+carries repository trust; the runner reports this and pins integration,
+network, rules, environment, hook, and writable-root reductions. Provider,
+authentication/base-URL, model-instruction, and unpinned notification or
+telemetry settings remain explicit Owner-config trust dependencies. The
+runner validates linked-worktree Git control state, snapshots through
+temporary Git metadata, directly fingerprints executable Git config/control
+bytes before any post-worker Git command, and checks Owner state before
+extracting a diff. Git itself is invoked through an absolute executable pinned
+before delegation; local config includes and external Git filters are refused
+before worktree creation. A kill-on-close Windows Job Object proves descendant
+lifetime shutdown before review; filesystem confinement comes from the
+separately tested fixed-root sandbox, not from the Job Object itself.
+Junctions/reparse points, hardlinks, unsafe link counts, worker-modified Git
+attributes, and Git-control drift invalidate review. The mutation-only result
+never turns green: it waits for separate verification and deliberate
+integration. POSIX process-group cleanup is best-effort and cannot clear a
+hostile-descendant gate.
+Read-only verifier mode prevents writes but is not claimed to confine reads to
+`-C`; its echoed state binding is freshness/anti-replay evidence, not proof of
+model observation.
+
 ## What you get
 
-**A safety layer that can't be talked out of.** Deterministic hooks run as code, not polite suggestions the model might ignore. Agent edits to secrets files (`.env`, keys, credentials — including through shell redirection and PowerShell-native cmdlets like `Set-Content`) are blocked, and destructive git commands (`push --force`, `reset --hard`, `clean -f`, stash drops) are stopped before they execute — across both the Bash and PowerShell shell tools, on macOS, Linux, and Windows.
+**A deterministic safety floor on the paths the active host actually guards.**
+Hooks run as code, not polite suggestions the model might ignore. In the
+proven Claude host, agent edits to secrets files (`.env`, keys, credentials —
+including through shell redirection and PowerShell-native cmdlets like
+`Set-Content`) are blocked, and destructive git commands (`push --force`,
+`reset --hard`, `clean -f`, stash drops) are stopped before they execute —
+across both the Bash and PowerShell shell tools, on macOS, Linux, and Windows.
+The Codex host has the narrower, conditional coverage stated above.
 
 **It governs itself.** Three more hooks make the process self-driving, so non-experts stay safe without learning the machinery. Every session **orients itself** — project state, active changes, and a live self-test proving the guardrails still fire — and stays aware of it throughout. Ungoverned edits to narrow high-risk paths (new migrations, CI/CD configs, Dockerfiles) are **caught** with a one-line recovery path, while trivial edits flow free. And "done" is held to mean **verified done**: a change claimed complete with its verification still empty earns one nudge, never a silent pass. Every hook fails toward silence — it can slow a risky move, never break your session.
 
@@ -61,9 +125,14 @@ Then, inside any project:
 | `/drydock:init-project` | Scaffold Drydock into a repo |
 | `/drydock:onboard` | Guided first change |
 
-## Works with other agents too
+## Host model
 
-Claude Code gets the premium experience (auto-loading skills, hooks, the verifier, slash commands). The project scaffold (`AGENTS.md`, `sdd-plus/`, `scripts/sdd.py`) is agent-agnostic — Codex and other agents follow the same rules from project files. `/drydock:init-project` offers a portability option that copies the skill definitions into the repo for full non-plugin parity.
+Claude Code retains auto-loading skills, hooks, the verifier, and slash
+commands. Codex now has its own plugin skills, native hook adapter, readiness
+reporter, Claude peer adapter, isolated mutation runner, and separate
+read-only verifier. The project scaffold (`AGENTS.md`, `sdd-plus/`,
+`scripts/sdd.py`) remains agent-agnostic, so both hosts operate the same living
+specs and change packets instead of maintaining two governance installations.
 
 ## The methodology
 

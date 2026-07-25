@@ -8,12 +8,15 @@ VERSION: Drydock 0.12.1 | Scanner: launchguardian 0.2.0 (PyPI)
 
 ## 1. System model
 
-Drydock is a Claude Code plugin implementing SDD+ (spec-driven development plus a governance and security layer). It has four enforcement tiers, from weakest to strongest. Always know which tier a behavior lives in:
+Drydock is an SDD+ governance framework with a proven Claude Code host and an
+additive Codex host MVP. Enforcement claims are host- and mechanism-specific;
+never transfer a tier claim from one host to another by analogy. It has four
+conceptual tiers, from weakest to strongest:
 
 1. **Advisory prose** — skills and protocols the agent is instructed to follow. Probabilistic adherence.
 2. **Procedural commands** — `/drydock:*` slash commands; deterministic invocation of defined procedures.
 3. **Independent verification** — the `verifier` subagent and the `/drydock:verify` flow; checks claims against repository reality.
-4. **Deterministic enforcement** — Python hooks that block tool calls (via the JSON `permissionDecision: deny` protocol, exit 0 — never exit 2, which the `python3 X \|\| python X` wrapper swallows) and the `launchguardian` CLI with real exit codes. Cannot be reasoned around.
+4. **Deterministic enforcement** — Python hooks that block tool calls (via the JSON `permissionDecision: deny` protocol, exit 0 — never exit 2, which the `python3 X \|\| python X` wrapper swallows) and the `launchguardian` CLI with real exit codes. This claim applies only while the proven mechanism is active on the covered path. Ordinary Codex plugin hooks are non-managed, hash-trusted, user-disableable, and do not cover every tool path; they are a conditional deterministic floor, not a Tier-4 “cannot be reasoned around” boundary.
 
 When guiding a user toward trust-critical outcomes, prefer pushing the outcome to a higher tier rather than relying on a lower one.
 
@@ -30,6 +33,8 @@ When guiding a user toward trust-critical outcomes, prefer pushing the outcome t
 | Project scaffold | project root after `/drydock:init-project` | `AGENTS.md`, `CLAUDE.md`, `PROJECT_CONTEXT.template.md`, `sdd-plus/` tree |
 | LaunchGuardian Framework (LGF) | project `sdd-plus/specs/launchguardian-framework.md` + `sdd-plus/security/` | 22 launch gates, severity and skip rules |
 | LaunchGuardian CLI | system tool, `pip install launchguardian` | Local defensive scanner; validates LGF files; orchestrates Gitleaks/Semgrep/Trivy + native scanners |
+| Codex host plugin | `adapters/codex/drydock/` | Self-contained Codex skills, readiness/init scripts, native narrow hook adapter, Claude peer adapter, fixed-root mutation runner, and separate read-only verifier |
+| Codex marketplace descriptor | `.agents/plugins/marketplace.json` | Makes this repository installable as one local Codex marketplace; per-project init remains setup, not another plugin install |
 
 ### 1.2 Project file map (after init)
 
@@ -55,7 +60,7 @@ sdd-plus/
 
 Determine the user's state in this order and route accordingly:
 
-1. **Plugin installed?** `/plugin list` shows drydock, or `/drydock:` commands autocomplete. If not → Section 3 (Install).
+1. **Plugin installed for the active host?** In Claude Code, `/plugin list` shows drydock or `/drydock:` commands autocomplete. In Codex, `codex plugin list` shows `drydock` and a fresh task exposes the `drydock-*` skills. If not → Section 3.
 2. **Project initialized?** Project root contains `AGENTS.md` AND `sdd-plus/`. If not → run `/drydock:init-project`.
 3. **Context established?** `PROJECT_CONTEXT.md` exists and contains real answers (not template text, not TBD). If not → run the context interview before any meaningful change. NEVER let work proceed on invented context.
 4. **Scanner present?** `launchguardian --version` succeeds. If not, note it; required only for release reviews. One-liner: `pip install launchguardian`.
@@ -73,10 +78,64 @@ Determine the user's state in this order and route accordingly:
 ```
 Then per project: `/drydock:init-project`. First-time users: `/drydock:onboard` (guided ~10-minute first change). Updates: `/plugin marketplace update drydock`.
 
-### 3.2 Greenfield project
+### 3.2 Codex host MVP (local checkout)
+
+From the Drydock repository root:
+
+```powershell
+codex plugin marketplace add .
+codex plugin add drydock@drydock
+```
+
+Start a fresh Codex task. Review and trust the installed hook definition
+deliberately; installation alone does not prove trust, enablement, current-task
+liveness, or coverage. Ask Codex to “report Drydock readiness,” then ask it to
+“initialize Drydock in this repository.” The init skill previews create-only
+writes and requires explicit approval before apply. Do not translate these
+operations into `/drydock:*` slash commands: those are Claude-host commands.
+
+Readiness may call `claude auth status --json`, which spends no model quota.
+`auth_ready` proves only authentication; `operational_ready` requires a
+successful schema-validated live peer round. Claude is optional: its absence
+removes cross-model agreement, not Codex-hosted lifecycle governance.
+
+Codex hook coverage is currently narrow: canonical local `Bash` and
+`apply_patch` only. MCP, hosted, specialized, renamed, and other unmatched
+paths are uncovered. Mutation uses a separate ephemeral `workspace-write`
+process rooted at a dedicated worktree; verification uses a separate ephemeral
+`read-only` process. Neither is epistemically independent merely because it is
+a separate Codex process, and neither may merge, commit, push, or deploy on its
+own authority. On Codex CLI 0.146.0-alpha.3.1, repository trust requires loading
+Owner config; the runner therefore reports that TCB and fixes disabled
+integration/network/rules/root-expansion/hook features on the command line.
+Provider, authentication/base-URL, model-instruction, and unpinned
+notification or telemetry settings remain explicit Owner-config trust
+dependencies. Post-worker review validates the worktree Git control link,
+uses temporary index/object storage, directly fingerprints executable Git
+config/control bytes before any post-worker Git command, and checks Owner state
+before extracting a diff. Git is invoked by an absolute executable pinned
+before delegation; local config includes and external Git filters refuse
+mutation before worktree creation. The Windows Job Object proves descendant
+lifetime shutdown; the separately tested fixed-root sandbox is the filesystem
+boundary.
+Junctions/reparse points, hardlinks or invalid link counts, worker-modified Git
+attributes, and Git-control drift invalidate review. The mutation-only result
+is never green: applicable changes wait for separate verification and
+deliberate integration. If an unsafe alias blocks cleanup, remove only the
+exact listed alias without traversing it, then retry bounded cleanup. POSIX
+process-group cleanup is best-effort and cannot clear a hostile-descendant
+gate. A read-only verifier prevents writes but may read outside `-C`; do not
+describe its working root as read confinement or its echoed state binding as
+proof the model observed the state.
+
+### 3.3 Greenfield project
 Order: `/drydock:init-project` → context interview → `PROJECT_CONTEXT.md` → `architect` skill produces a Build Blueprint → `/drydock:init-standards` once the stack is decided → first change via `/drydock:new`.
 
-### 3.3 Brownfield project (existing codebase)
+On Codex, request the equivalent lifecycle operations in natural language; the
+`drydock-init-project` and `drydock-lifecycle` skills invoke the same
+project-local procedures.
+
+### 3.4 Brownfield project (existing codebase)
 Order: `/drydock:init-project` (it never overwrites existing files; it reports created vs kept) → context interview → `codebase-cartographer` skill for bounded maps of the affected area (NOT the whole repo) → `/drydock:init-standards` to capture the repo's ACTUAL conventions → first change small, in a mapped area.
 Rule: preserve existing behavior unless the task deliberately changes it. The dominant existing pattern wins over the agent's preferences.
 
@@ -218,6 +277,60 @@ The headline mode is **`--diff`**: review what you just changed — working tree
 **Use both reviewers, not one twice.** Measured on the `codex-review-diff` packet: the `verifier` subagent found spec violations while Codex found implementation gaps, with near-zero overlap across four rounds — a single vantage re-read its own blind spot identically each time. Run them in sequence, never concurrently: a verifier reviewing a tree you are still editing produces a verdict that reads authoritative and describes nothing.
 
 **Mutating delegation (`scripts/conductor/mutate.py`) — Codex writes, gated.** Codex implements a bounded task with sandbox `workspace-write` confined to an **isolated worktree** on a `codex/…` branch (never the Owner's branch). The diff clears an **applicability-first gate** (docs/config → N/A, never a false fail; code → green tests required; N/A is distinct from FAIL) and the tool **never merges** — it returns the diff + verdict for Claude to review and merge deliberately. Clearing the gate is necessary, not sufficient; Claude's diff review is the real door onto `main`. No `/drydock:` command yet — library + CLI (`mutate.py`).
+
+**Test plans never become an implicit shell.** The preferred CLI form is
+structured argv, for example
+`--test-argv-json '["python","-m","pytest","-q"]'`; several sequential steps
+use a JSON array of argv arrays. The compatibility `--test-cmd` form accepts
+only a simple command or an `&&` chain. Pipes, redirects, sequencing,
+backgrounding, `||`, command substitution, malformed quoting, directly
+selected known shell launchers, relative/absolute executable paths, and
+Windows `.cmd`/`.bat` shims are refused **before Codex discovery or worktree
+creation**. This is not a transitive no-shell boundary: an allowed executable
+such as `env`, Python, Node, or a project test runner can invoke a shell
+internally. Known indirection/interpreter launchers produce a `runner_note`;
+unrecognized internal delegation can still exist. Drydock pins the top-level
+executable and relies on the sandbox to bound effects rather than claiming it
+can prove what that executable runs.
+
+Each executable is resolved from an absolute parent PATH entry before
+delegation; a match beneath `TEMP`, `TMP`, `TMPDIR`, or the platform temporary
+root is refused because the mutating worker can write there. When a test plan
+is present, Drydock also prepares and pins the installed CLI's model-free
+`codex sandbox` command before the worker starts; readiness failure returns
+`stage: test_sandbox` and never falls back to controller execution. Each
+absolute argv then runs through a profile that requests writes only to the
+assigned worktree, requests direct-network denial, keeps Codex's default
+KEY/SECRET/TOKEN environment filtering, pins the elevated native-Windows
+backend, includes managed constraints, and invokes the step with
+`shell=False`. A live hostile project-config probe that requested both legacy
+and permission-profile danger-full-access still failed an out-of-worktree
+write; that is point-in-time evidence for the tested alpha build, not per-run
+verification. Results therefore use `requested_write_scope`,
+`requested_direct_network`, and `per_run_boundary_verification: not performed`
+rather than reporting requested settings as achieved facts. `&&` steps run
+sequentially and stop at the first failure under one total timeout.
+
+That boundary is deliberately described as **requested write/network
+containment with point-in-time probe evidence, not full host isolation**. A
+live native-Windows probe on the supported Owner machine denied
+out-of-worktree writes (including from a child process) and a direct socket,
+but still read the Owner checkout even with explicit read-deny rules. Every
+test result therefore reports `host_read_isolation: not established`. Do not
+place untracked secrets in readable project/host paths on the assumption that
+the test sandbox hides them; omit the test plan when that residual read trust
+is unacceptable.
+
+If a sandboxed test times out, Drydock attempts bounded process-tree
+termination using a POSIX process group or Windows `taskkill /T /F` and returns
+`timeout_cleanup` evidence. A process that deliberately escapes the OS grouping
+mechanism is not ruled out, and an unconfirmed cleanup can leave the worktree
+locked for later garbage collection. The pre-worker readiness probe uses the
+same grouped timeout path and names whether cleanup was confirmed in its
+structured refusal. Tests run after the review diff is extracted, so they
+cannot contaminate that diff; they can still leave unstaged artifacts in a
+retained worktree. The result reports that residual state, and the worktree
+must be inspected before any manual commit.
 
 Every run reports **what it cost** (`cost`). The **token counts are the per-task signal** — a delegation's input cost is dominated by a near-fixed repo-ingestion floor (~180k tokens on a real repo), so task size mostly drives output and elapsed, not input. The **fuel-gauge delta is the coarse window-drain signal**: the weekly gauge reads in integer percent, so a typical task moves it by less than 1%. When that happens `fuel_used_percent` is `null` with `fuel_resolution: "below gauge resolution"` — **never `0`**, because `0` reads as "free"; a genuine no-op (no tokens) is the only thing that reports a true zero. `fuel_used_before/after_percent` are *used* percentages (opposite the gauge's `remaining_percent`). A timed-out or reset measurement is `null`, never a fabricated number.
 

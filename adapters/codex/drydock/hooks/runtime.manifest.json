@@ -1,0 +1,11 @@
+{
+  "files": [
+    {
+      "path": "runtime.py",
+      "sha256": "86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe"
+    }
+  ],
+  "format": "plain-utf8-lf",
+  "schema_version": 1,
+  "source": "scripts/hook_runtime_source.py"
+}

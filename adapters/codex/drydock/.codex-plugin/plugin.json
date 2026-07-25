@@ -1,0 +1,32 @@
+{
+  "name": "drydock",
+  "version": "0.12.1",
+  "description": "Spec-driven governance for AI-assisted development, hosted by Codex.",
+  "author": {
+    "name": "Daniel Paez",
+    "url": "https://github.com/danizeap"
+  },
+  "homepage": "https://github.com/danizeap/drydock",
+  "license": "MIT",
+  "keywords": [
+    "sdd",
+    "spec-driven",
+    "governance",
+    "safety"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Drydock",
+    "shortDescription": "Govern AI-assisted development from Codex.",
+    "longDescription": "Drydock brings its SDD+ lifecycle, evidence-based readiness, bounded peer negotiation, isolated execution, and separate verification to Codex.",
+    "developerName": "Daniel Paez",
+    "category": "Productivity",
+    "capabilities": [
+      "Project initialization",
+      "SDD+ lifecycle",
+      "Readiness reporting",
+      "Governed orchestration"
+    ],
+    "defaultPrompt": "Use Drydock to orient this repository and report what is actually ready."
+  }
+}

@@ -33,5 +33,6 @@ tmp/
 temp/
 .DS_Store
 Thumbs.db
+.drydock-worktrees/
 .pytest_cache/
 .claude/

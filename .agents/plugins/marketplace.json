@@ -1,0 +1,20 @@
+{
+  "name": "drydock",
+  "interface": {
+    "displayName": "Drydock"
+  },
+  "plugins": [
+    {
+      "name": "drydock",
+      "source": {
+        "source": "local",
+        "path": "./adapters/codex/drydock"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

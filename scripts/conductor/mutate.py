@@ -12,6 +12,9 @@ import argparse
 import json
 import os
 import re
+import signal
+import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -39,21 +42,729 @@ def _is_code_file(path):
     return os.path.splitext(path)[1].lower() in _CODE_EXT
 
 
-_RUNNER_FIRST = {"make", "bash", "sh", "cmd", "powershell", "pwsh", "yarn", "pnpm"}
+MAX_TEST_STEPS = 8
+MAX_TEST_ARGS_PER_STEP = 128
+MAX_TEST_PLAN_CHARS = 32768
+MAX_TEST_ARG_CHARS = 8192
+TEST_PROCESS_CLEANUP_TIMEOUT_S = 5
+TEST_SANDBOX_PROFILE = "drydock_test_runner"
+_SHELL_LAUNCHERS = {
+    "bash", "sh", "zsh", "fish", "csh", "cmd", "command",
+    "powershell", "pwsh", "wsl",
+}
+_WINDOWS_BATCH_SUFFIXES = {".bat", ".cmd"}
+
+
+class TestPlanError(ValueError):
+    """The requested test plan cannot be compiled under the bounded contract."""
+
+
+class TestPlan:
+    """Immutable, pre-resolved test commands compiled before delegation."""
+
+    __slots__ = ("steps", "requested_steps", "source")
+
+    def __init__(self, steps, requested_steps, source):
+        self.steps = tuple(tuple(step) for step in steps)
+        self.requested_steps = tuple(tuple(step) for step in requested_steps)
+        self.source = source
+
+
+class TestSandbox:
+    """Pinned, locally-preflighted Codex sandbox command prefix."""
+
+    __slots__ = ("prefix",)
+
+    def __init__(self, prefix):
+        self.prefix = tuple(prefix)
+
+
+def _validate_sandbox_prefix(core):
+    """Return an immutable absolute CLI prefix or fail closed."""
+    try:
+        prefix = cb._as_prefix(core)
+    except (TypeError, ValueError) as exc:
+        raise TestPlanError(f"invalid Codex sandbox command: {exc}") from exc
+    if not prefix or not all(isinstance(argument, str) for argument in prefix):
+        raise TestPlanError("Codex sandbox command must be a non-empty argv vector")
+    if any(
+        not argument or "\0" in argument or "\r" in argument or "\n" in argument
+        for argument in prefix
+    ):
+        raise TestPlanError("Codex sandbox command contains an invalid argument")
+    executable = os.path.realpath(prefix[0])
+    try:
+        metadata = os.stat(executable)
+    except OSError as exc:
+        raise TestPlanError(
+            f"Codex sandbox executable is unavailable: {exc}"
+        ) from exc
+    if not os.path.isabs(executable) or not stat.S_ISREG(metadata.st_mode):
+        raise TestPlanError(
+            "Codex sandbox executable must resolve to an absolute regular file"
+        )
+    if os.name != "nt" and not os.access(executable, os.X_OK):
+        raise TestPlanError("Codex sandbox executable is not executable")
+    return (executable, *prefix[1:])
+
+
+def _toml_basic_string(value):
+    """Encode one dynamic config value without relying on shell quoting."""
+    return (
+        '"'
+        + value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\b", "\\b")
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\f", "\\f")
+        .replace("\r", "\\r")
+        + '"'
+    )
+
+
+def _sandbox_metadata(worktree):
+    return {
+        "mechanism": "codex sandbox permission profile",
+        "profile": TEST_SANDBOX_PROFILE,
+        "requested_write_scope": os.path.realpath(worktree),
+        "requested_direct_network": "disabled",
+        "per_run_boundary_verification": "not performed",
+        "host_read_isolation": "not established",
+        "trusted_configuration": "active Codex home plus managed configuration",
+        "platform": sys.platform,
+    }
+
+
+def _build_test_sandbox_argv(prefix, worktree, step):
+    """Build the model-free sandbox command for one already-validated step."""
+    root = os.path.realpath(worktree)
+    if not os.path.isabs(root) or not os.path.isdir(root):
+        raise TestPlanError("test worktree must be an existing absolute directory")
+    if len(root) > 4096:
+        raise TestPlanError("test worktree path exceeds its character bound")
+    root_value = _toml_basic_string(root)
+    temp_root = _toml_basic_string(root)
+    description = (
+        f"permissions.{TEST_SANDBOX_PROFILE}.description="
+        + _toml_basic_string("Drydock isolated test runner")
+    )
+    filesystem = (
+        f"permissions.{TEST_SANDBOX_PROFILE}.filesystem="
+        f'{{ ":minimal" = "read", {root_value} = "write" }}'
+    )
+    network = f"permissions.{TEST_SANDBOX_PROFILE}.network.enabled=false"
+    environment = "shell_environment_policy.inherit='core'"
+    environment_excludes = (
+        "shell_environment_policy.ignore_default_excludes=false"
+    )
+    environment_temp = (
+        "shell_environment_policy.set="
+        f"{{ TEMP = {temp_root}, TMP = {temp_root}, TMPDIR = {temp_root} }}"
+    )
+    platform_config = (
+        ["-c", "windows.sandbox='elevated'"] if os.name == "nt" else []
+    )
+    return [
+        *prefix,
+        "sandbox",
+        *platform_config,
+        "-c",
+        description,
+        "-c",
+        filesystem,
+        "-c",
+        network,
+        "-c",
+        environment,
+        "-c",
+        environment_excludes,
+        "-c",
+        environment_temp,
+        "-P",
+        TEST_SANDBOX_PROFILE,
+        "--include-managed-config",
+        "--sandbox-state-disable-network",
+        "-C",
+        root,
+        *step,
+    ]
+
+
+def prepare_test_sandbox(core, timeout_s=20):
+    """Pin and execute a model-free readiness probe before delegation."""
+    prefix = _validate_sandbox_prefix(core)
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="drydock-test-sandbox-readiness-"
+        ) as probe_root:
+            argv = _build_test_sandbox_argv(
+                prefix,
+                probe_root,
+                [sys.executable, "-c", "pass"],
+            )
+            process, timeout_output, timeout_cleanup = _run_test_step(
+                argv,
+                probe_root,
+                timeout_s,
+            )
+            if timeout_cleanup is not None:
+                cleanup_state = (
+                    "confirmed"
+                    if timeout_cleanup.get("confirmed")
+                    else "unconfirmed"
+                )
+                detail = (timeout_output or "")[-200:]
+                raise TestPlanError(
+                    f"Codex sandbox readiness probe exceeded {timeout_s}s; "
+                    f"process-tree cleanup {cleanup_state}"
+                    + (f": {detail}" if detail else "")
+                )
+    except (OSError, ValueError) as exc:
+        raise TestPlanError(
+            f"Codex sandbox readiness probe could not start: {exc}"
+        ) from exc
+    if process.returncode != 0:
+        detail = ((process.stderr or "") + (process.stdout or ""))[-400:]
+        raise TestPlanError(
+            "Codex sandbox readiness probe failed"
+            + (f": {detail}" if detail else "")
+        )
+    return TestSandbox(prefix)
+
+
+def _validate_test_sandbox(sandbox):
+    if not isinstance(sandbox, TestSandbox):
+        raise TestPlanError(
+            "a prepared Codex test sandbox is required; direct execution is refused"
+        )
+    prefix = _validate_sandbox_prefix(sandbox.prefix)
+    if prefix != sandbox.prefix:
+        raise TestPlanError("prepared Codex sandbox command changed after readiness")
+    return sandbox
+
+
+def _captured_text(value):
+    """Normalize TimeoutExpired output without assuming text-mode behavior."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _start_test_process(argv, worktree):
+    """Start one sandboxed test in an OS grouping suitable for timeout cleanup."""
+    kwargs = {
+        "cwd": worktree,
+        "shell": False,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(argv, **kwargs)
+
+
+def _windows_taskkill_path():
+    """Return the absolute system taskkill path without consulting PATH."""
+    system_root = os.environ.get("SystemRoot")
+    if not system_root or not os.path.isabs(system_root):
+        return None
+    candidate = os.path.realpath(
+        os.path.join(system_root, "System32", "taskkill.exe")
+    )
+    try:
+        metadata = os.stat(candidate)
+    except OSError:
+        return None
+    if not stat.S_ISREG(metadata.st_mode):
+        return None
+    return candidate
+
+
+def _posix_process_group_exists(group_id):
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _terminate_test_process_tree(process, timeout_s=TEST_PROCESS_CLEANUP_TIMEOUT_S):
+    """Attempt bounded tree cleanup and return evidence, never a silent success."""
+    mechanism = (
+        "taskkill /T /F"
+        if os.name == "nt"
+        else "POSIX process-group SIGTERM/SIGKILL"
+    )
+    evidence = {
+        "attempted": True,
+        "mechanism": mechanism,
+        "confirmed": False,
+        "direct_process_stopped": process.poll() is not None,
+        "escaped_descendants": "not ruled out",
+        "detail": None,
+    }
+    deadline = time.monotonic() + max(0.1, timeout_s)
+    if os.name == "nt":
+        taskkill = _windows_taskkill_path()
+        if taskkill is None:
+            evidence["detail"] = "absolute system taskkill executable unavailable"
+        else:
+            remaining = max(0.1, deadline - time.monotonic())
+            try:
+                killer = subprocess.run(
+                    [
+                        taskkill,
+                        "/PID",
+                        str(process.pid),
+                        "/T",
+                        "/F",
+                    ],
+                    shell=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=remaining,
+                )
+                evidence["detail"] = (
+                    f"taskkill exited {killer.returncode}: "
+                    + ((killer.stdout or "") + (killer.stderr or ""))[-300:]
+                ).strip()
+                evidence["confirmed"] = killer.returncode == 0
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                evidence["detail"] = f"taskkill failed: {exc}"
+    else:
+        group_id = process.pid
+        try:
+            os.killpg(group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            evidence["detail"] = f"process-group SIGTERM failed: {exc}"
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining:
+            try:
+                process.wait(timeout=min(0.5, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+        if _posix_process_group_exists(group_id):
+            try:
+                os.killpg(group_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as exc:
+                evidence["detail"] = f"process-group SIGKILL failed: {exc}"
+        evidence["confirmed"] = not _posix_process_group_exists(group_id)
+        if evidence["detail"] is None:
+            evidence["detail"] = "process-group termination completed"
+
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining:
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                pass
+    evidence["direct_process_stopped"] = process.poll() is not None
+    if os.name != "nt" and evidence["direct_process_stopped"]:
+        evidence["confirmed"] = not _posix_process_group_exists(process.pid)
+    evidence["confirmed"] = bool(
+        evidence["confirmed"] and evidence["direct_process_stopped"]
+    )
+    return evidence
+
+
+def _run_test_step(argv, worktree, timeout_s):
+    """Run one sandbox step and return (process, timeout_output, cleanup)."""
+    process = _start_test_process(argv, worktree)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        cleanup = _terminate_test_process_tree(process)
+        timeout_output = _captured_text(exc.stdout) + _captured_text(exc.stderr)
+        try:
+            stdout, stderr = process.communicate(timeout=1)
+        except subprocess.TimeoutExpired as final_exc:
+            cleanup["confirmed"] = False
+            cleanup["detail"] = (
+                (cleanup.get("detail") or "")
+                + "; output pipes remained open after tree cleanup"
+            ).strip("; ")
+            timeout_output += _captured_text(
+                final_exc.stdout
+            ) + _captured_text(final_exc.stderr)
+            for stream in (process.stdout, process.stderr):
+                try:
+                    if stream is not None:
+                        stream.close()
+                except OSError:
+                    pass
+        else:
+            timeout_output = _captured_text(stdout) + _captured_text(stderr)
+        return None, timeout_output, cleanup
+    return (
+        subprocess.CompletedProcess(
+            argv, process.returncode, stdout=stdout, stderr=stderr
+        ),
+        None,
+        None,
+    )
+
+
+def decode_test_argv_json(raw):
+    """Decode one argv vector or a list of argv vectors from the CLI."""
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise TestPlanError(f"--test-argv-json is not valid JSON: {exc}") from exc
+    if not isinstance(value, list) or not value:
+        raise TestPlanError(
+            "--test-argv-json must be a non-empty argv array or array of argv arrays"
+        )
+    if all(isinstance(item, str) for item in value):
+        return value
+    if all(
+        isinstance(item, list)
+        and item
+        and all(isinstance(argument, str) for argument in item)
+        for item in value
+    ):
+        return value
+    raise TestPlanError(
+        "--test-argv-json must contain only strings in one argv array "
+        "or non-empty argv arrays"
+    )
+
+
+def _windows_split_arguments(command):
+    """Apply Windows' native command-line quoting rules without invoking cmd."""
+    import ctypes
+    from ctypes import wintypes
+
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    shell32.CommandLineToArgvW.argtypes = [
+        wintypes.LPCWSTR,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(wintypes.LPWSTR)
+    kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
+    kernel32.LocalFree.restype = wintypes.HLOCAL
+    count = ctypes.c_int()
+    values = shell32.CommandLineToArgvW(command, ctypes.byref(count))
+    if not values:
+        raise TestPlanError(
+            f"Windows could not parse the legacy test command: {ctypes.get_last_error()}"
+        )
+    try:
+        return [values[index] for index in range(count.value)]
+    finally:
+        kernel32.LocalFree(values)
+
+
+def _split_legacy_test_steps(command):
+    """Accept only simple commands and `&&`, never general shell grammar."""
+    if not isinstance(command, str) or not command.strip():
+        raise TestPlanError("legacy test command must be a non-empty string")
+    if len(command) > MAX_TEST_PLAN_CHARS:
+        raise TestPlanError("test plan exceeds its character bound")
+    posix = os.name != "nt"
+    in_single = False
+    in_double = False
+    current = []
+    steps = []
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if character in "\r\n\0":
+            raise TestPlanError("newlines and NUL bytes are not allowed in a test plan")
+        if character == "`" or (
+            character == "$"
+            and index + 1 < len(command)
+            and command[index + 1] == "("
+        ):
+            raise TestPlanError(
+                "command substitution is not allowed in a test plan"
+            )
+        if posix and character == "\\" and not in_single:
+            if index + 1 >= len(command):
+                raise TestPlanError("legacy test command ends with an escape")
+            current.extend((character, command[index + 1]))
+            index += 2
+            continue
+        if character == "'" and posix and not in_double:
+            in_single = not in_single
+            current.append(character)
+            index += 1
+            continue
+        if character == '"' and not in_single:
+            if posix:
+                in_double = not in_double
+            else:
+                slash_count = 0
+                cursor = index - 1
+                while cursor >= 0 and command[cursor] == "\\":
+                    slash_count += 1
+                    cursor -= 1
+                if slash_count % 2 == 0:
+                    in_double = not in_double
+            current.append(character)
+            index += 1
+            continue
+        if not in_single and not in_double:
+            if character == "&":
+                if index + 1 < len(command) and command[index + 1] == "&":
+                    step = "".join(current).strip()
+                    if not step:
+                        raise TestPlanError("empty command before or after &&")
+                    steps.append(step)
+                    current = []
+                    index += 2
+                    continue
+                raise TestPlanError(
+                    "bare '&' and background/sequencing operators are not allowed"
+                )
+            if character == "|":
+                raise TestPlanError("pipes and '||' are not allowed in a test plan")
+            if character in ";<>":
+                raise TestPlanError(
+                    "shell sequencing and redirects are not allowed in a test plan"
+                )
+        current.append(character)
+        index += 1
+    if in_single or in_double:
+        raise TestPlanError("legacy test command contains an unterminated quote")
+    final = "".join(current).strip()
+    if not final:
+        raise TestPlanError("empty command before or after &&")
+    steps.append(final)
+    parsed = []
+    for step in steps:
+        try:
+            arguments = (
+                shlex.split(step, posix=True)
+                if posix
+                else _windows_split_arguments(step)
+            )
+        except ValueError as exc:
+            raise TestPlanError(
+                f"legacy test command could not be parsed: {exc}"
+            ) from exc
+        if not arguments:
+            raise TestPlanError("test step has no executable")
+        parsed.append(arguments)
+    return parsed
+
+
+def _resolve_test_executable(name):
+    """Resolve a bare executable from absolute parent PATH entries only."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or os.path.isabs(name)
+        or os.path.basename(name) != name
+        or "/" in name
+        or "\\" in name
+        or name in (".", "..")
+    ):
+        raise TestPlanError(
+            "each test step must name a bare executable from the parent PATH"
+        )
+    if os.name == "nt":
+        _, suffix = os.path.splitext(name)
+        if suffix:
+            names = [name]
+        else:
+            extensions = [
+                value.lower()
+                for value in os.environ.get(
+                    "PATHEXT", ".COM;.EXE;.BAT;.CMD"
+                ).split(os.pathsep)
+                if value
+            ]
+            names = [name + extension for extension in extensions]
+    else:
+        names = [name]
+    for raw_directory in os.environ.get("PATH", "").split(os.pathsep):
+        value = raw_directory.strip().strip('"')
+        if not value or not os.path.isabs(value):
+            continue
+        directory = os.path.abspath(value)
+        for candidate_name in names:
+            candidate = os.path.join(directory, candidate_name)
+            try:
+                resolved = os.path.realpath(candidate)
+                metadata = os.stat(resolved)
+            except OSError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                continue
+            if os.name != "nt" and not os.access(resolved, os.X_OK):
+                continue
+            writable_roots = {
+                os.path.realpath(value)
+                for value in (
+                    tempfile.gettempdir(),
+                    os.environ.get("TEMP"),
+                    os.environ.get("TMP"),
+                    os.environ.get("TMPDIR"),
+                )
+                if value and os.path.isabs(value)
+            }
+            try:
+                in_worker_writable_root = any(
+                    os.path.commonpath((resolved, root)) == root
+                    for root in writable_roots
+                )
+            except (OSError, ValueError):
+                in_worker_writable_root = True
+            if in_worker_writable_root:
+                raise TestPlanError(
+                    f"test executable {name!r} resolves inside a temporary "
+                    "directory writable by the mutating worker"
+                )
+            return resolved
+    raise TestPlanError(
+        f"test executable {name!r} was not found in an absolute parent PATH entry"
+    )
+
+
+def compile_test_plan(specification):
+    """Validate and pin an optional test plan before the worker can write."""
+    if specification is None or specification == "":
+        return None
+    if isinstance(specification, TestPlan):
+        if specification.source not in {"legacy-string", "structured-argv"}:
+            raise TestPlanError("compiled test plan has an invalid source")
+        try:
+            requested_copy = [
+                list(step) for step in specification.requested_steps
+            ]
+        except (TypeError, ValueError) as exc:
+            raise TestPlanError("compiled test plan has an invalid shape") from exc
+        recompiled = compile_test_plan(requested_copy)
+        if recompiled.steps != specification.steps:
+            raise TestPlanError(
+                "compiled test plan does not match its validated absolute argv"
+            )
+        return specification
+    if isinstance(specification, str):
+        requested = _split_legacy_test_steps(specification)
+        source = "legacy-string"
+    elif isinstance(specification, (list, tuple)) and specification:
+        if all(isinstance(item, str) for item in specification):
+            requested = [list(specification)]
+        elif all(
+            isinstance(item, (list, tuple))
+            and item
+            and all(isinstance(argument, str) for argument in item)
+            for item in specification
+        ):
+            requested = [list(item) for item in specification]
+        else:
+            raise TestPlanError(
+                "structured test plan must be one argv vector or a list of argv vectors"
+            )
+        source = "structured-argv"
+    else:
+        raise TestPlanError(
+            "test plan must be a legacy string, argv vector, or list of argv vectors"
+        )
+    if len(requested) > MAX_TEST_STEPS:
+        raise TestPlanError(f"test plan exceeds {MAX_TEST_STEPS} steps")
+    total_characters = 0
+    resolved_steps = []
+    for step in requested:
+        if not step or len(step) > MAX_TEST_ARGS_PER_STEP:
+            raise TestPlanError(
+                f"each test step must contain 1-{MAX_TEST_ARGS_PER_STEP} arguments"
+            )
+        for argument in step:
+            if "\0" in argument or "\r" in argument or "\n" in argument:
+                raise TestPlanError(
+                    "structured test arguments cannot contain NUL or newline bytes"
+                )
+            if len(argument) > MAX_TEST_ARG_CHARS:
+                raise TestPlanError("one test argument exceeds its character bound")
+            total_characters += len(argument)
+            if total_characters > MAX_TEST_PLAN_CHARS:
+                raise TestPlanError("test plan exceeds its character bound")
+        requested_name = step[0]
+        normalized_name = os.path.splitext(
+            os.path.basename(requested_name)
+        )[0].lower()
+        if normalized_name in _SHELL_LAUNCHERS:
+            raise TestPlanError(
+                f"shell launcher {requested_name!r} is not allowed in a test plan"
+            )
+        executable = _resolve_test_executable(requested_name)
+        if os.path.splitext(executable)[1].lower() in _WINDOWS_BATCH_SUFFIXES:
+            raise TestPlanError(
+                "Windows batch/command shims are not allowed because the OS may "
+                "dispatch them through a shell"
+            )
+        resolved_steps.append([executable, *step[1:]])
+    return TestPlan(resolved_steps, requested, source)
+
+
+_RUNNER_FIRST = {
+    "make",
+    "bash",
+    "sh",
+    "cmd",
+    "powershell",
+    "pwsh",
+    "yarn",
+    "pnpm",
+    "env",
+    "xargs",
+    "nice",
+    "timeout",
+    "nohup",
+    "stdbuf",
+    "setsid",
+    "script",
+    "busybox",
+    "doskey",
+    "perl",
+    "python",
+    "python3",
+    "py",
+    "node",
+    "nodejs",
+    "ruby",
+    "php",
+}
 
 
 def _delegates_to_runner(cmd):
     """Name the script-runner a command delegates to, if any.
 
-    The allow-list can only judge the SHAPE of the top-level command. If that
+    This matcher can only judge the SHAPE of the top-level command. If that
     command hands off to a runner (`npm run ci`, `make test`, `bash -c '…'`), any
     masking inside that script is invisible to us — `bash -c "false; true"` is a
     genuinely simple command that exits 0. We cannot detect it, so we DISCLOSE it.
     """
-    toks = (cmd or "").split()
+    toks = list(cmd) if isinstance(cmd, (list, tuple)) else (cmd or "").split()
     if not toks:
         return None
-    first = os.path.basename(toks[0]).lower()
+    first = os.path.splitext(os.path.basename(toks[0]))[0].lower()
     if first in _RUNNER_FIRST:
         return first
     if first == "npm" and len(toks) >= 2 and toks[1].lower() in ("run", "test"):
@@ -78,49 +789,12 @@ def _looks_like_test(path):
 
 
 def _has_shell_masking(cmd):
-    """True unless the command is a SIMPLE command, optionally `&&`-chained.
-
-    ALLOW-LIST by design: anything that can decouple the shell's exit status from
-    the test's status makes the code untrustworthy, and an unrecognised construct
-    is treated as untrusted rather than assumed safe. Masking forms include a pipe
-    (`a | b` -> b's status), `;`/`&` sequencing, `||` (runs b when a fails), a
-    newline (same as `;`), and subshells/backticks.
-
-    `&&` is the one safe chain: it short-circuits, so a failure propagates.
-    `2>&1` is a redirect, not a separator, and stays trusted.
-
-    Quoting is platform-aware: cmd.exe does NOT treat `'` as a quote (a naive
-    POSIX scanner walks straight past a real `'a|b'` pipeline on Windows), and
-    POSIX backslash escapes are honoured.
-    """
-    s = cmd or ""
-    posix = os.name != "nt"
-    in_s = in_d = False
-    i = 0
-    while i < len(s):
-        ch = s[i]
-        if posix and ch == "\\" and i + 1 < len(s):
-            i += 2                      # escaped char is never a delimiter
-            continue
-        if ch == '"' and not in_s:
-            in_d = not in_d
-        elif ch == "'" and posix and not in_d:
-            in_s = not in_s
-        elif not in_s and not in_d:
-            if ch == "&":
-                if i + 1 < len(s) and s[i + 1] == "&":
-                    i += 2              # `&&` — safe, failure propagates
-                    continue
-                if i > 0 and s[i - 1] == ">":
-                    i += 1              # `2>&1` — a redirect, not a separator
-                    continue
-                return True             # bare `&` sequences/backgrounds
-            if ch in ("|", ";", "\n", "\r", "`"):
-                return True
-            if ch == "$" and i + 1 < len(s) and s[i + 1] == "(":
-                return True             # command substitution
-        i += 1
-    return False
+    """Compatibility predicate backed by the fail-closed legacy parser."""
+    try:
+        _split_legacy_test_steps(cmd)
+        return False
+    except TestPlanError:
+        return True
 
 
 def _int_or_none(v):
@@ -451,20 +1125,47 @@ def extract_changes(worktree, base):
     return files, diff
 
 
-def run_tests(worktree, test_cmd, timeout_s=300):
-    """Run the caller's test command in the worktree, reporting not just pass/fail
-    but whether the result can be TRUSTED (exit code meaningful, deps present)."""
+def _runner_note(steps):
+    runners = []
+    for step in steps or []:
+        runner = _delegates_to_runner(step)
+        if runner and runner not in runners:
+            runners.append(runner)
+    if not runners:
+        return None
+    return (
+        "test plan delegates to "
+        + ", ".join(repr(runner) for runner in runners)
+        + " — Drydock pins and invokes the top-level executable without a shell, "
+        "but cannot prove what that project runner executes internally"
+    )
+
+
+def run_tests(worktree, test_cmd, timeout_s=300, sandbox=None):
+    """Run a pre-resolved argv plan through Codex sandbox under one deadline."""
     if not test_cmd:
         return None
-    trusted = not _has_shell_masking(test_cmd)
-    trust_reason = None if trusted else (
-        "the command is not a simple or '&&'-chained command (it contains a pipe, ';', "
-        "'&', '||', a newline, or a subshell), so the shell's exit code may not be the tests'")
-    runner = _delegates_to_runner(test_cmd)
-    runner_note = None if not runner else (
-        f"test command delegates to '{runner}' — the gate can only judge the top-level "
-        "command's shape, not what that script does; make sure it does not mask failures "
-        "(e.g. an internal pipe)")
+    try:
+        plan = compile_test_plan(test_cmd)
+        prepared_sandbox = _validate_test_sandbox(sandbox)
+    except TestPlanError as exc:
+        return {
+            "ran": False,
+            "error": str(exc),
+            "exit_code_trusted": False,
+            "trust_reason": (
+                "the test plan was refused before execution: " + str(exc)
+            ),
+            "runner_note": None,
+            "env_warning": None,
+            "sandbox": None,
+        }
+    sandbox_evidence = _sandbox_metadata(worktree)
+    runner_note = _runner_note(plan.requested_steps)
+    post_test_worktree = (
+        "tests run after review diff extraction; test-created files may remain "
+        "unstaged in the retained worktree and were not part of that diff"
+    )
     env_warning = None
     try:
         if (os.path.isfile(os.path.join(worktree, "package.json"))
@@ -473,19 +1174,101 @@ def run_tests(worktree, test_cmd, timeout_s=300):
                            "resolve dependencies here, so the result is not meaningful")
     except OSError:
         pass
-    try:
-        p = subprocess.run(test_cmd, cwd=worktree, shell=True, capture_output=True,
-                           text=True, timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        return {"ran": True, "pass": False, "output_tail": "test run timed out",
-                "exit_code_trusted": trusted, "trust_reason": trust_reason,
-                "runner_note": runner_note, "env_warning": env_warning}
-    except Exception as e:  # noqa: BLE001
-        return {"ran": False, "error": str(e)}
-    return {"ran": True, "pass": p.returncode == 0,
-            "output_tail": ((p.stdout or "") + (p.stderr or ""))[-800:],
-            "exit_code_trusted": trusted, "trust_reason": trust_reason,
-            "runner_note": runner_note, "env_warning": env_warning}
+    deadline = time.monotonic() + timeout_s
+    output = []
+    completed = 0
+    return_code = 0
+    for step in plan.steps:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "ran": True,
+                "pass": False,
+                "output_tail": ("".join(output) + "test run timed out")[-800:],
+                "exit_code_trusted": True,
+                "trust_reason": None,
+                "runner_note": runner_note,
+                "env_warning": env_warning,
+                "steps_completed": completed,
+                "steps_total": len(plan.steps),
+                "plan_source": plan.source,
+                "sandbox": sandbox_evidence,
+                "timeout_cleanup": {
+                    "attempted": False,
+                    "mechanism": None,
+                    "confirmed": None,
+                    "escaped_descendants": "not applicable; no step was started",
+                    "detail": "the shared deadline expired before the next step",
+                },
+                "post_test_worktree": post_test_worktree,
+            }
+        try:
+            argv = _build_test_sandbox_argv(
+                prepared_sandbox.prefix,
+                worktree,
+                step,
+            )
+            process, timeout_output, timeout_cleanup = _run_test_step(
+                argv,
+                worktree,
+                remaining,
+            )
+            if timeout_cleanup is not None:
+                return {
+                    "ran": True,
+                    "pass": False,
+                    "output_tail": (
+                        "".join(output)
+                        + (timeout_output or "")
+                        + "test run timed out"
+                    )[-800:],
+                    "exit_code_trusted": True,
+                    "trust_reason": None,
+                    "runner_note": runner_note,
+                    "env_warning": env_warning,
+                    "steps_completed": completed,
+                    "steps_total": len(plan.steps),
+                    "plan_source": plan.source,
+                    "sandbox": sandbox_evidence,
+                    "timeout_cleanup": timeout_cleanup,
+                    "post_test_worktree": post_test_worktree,
+                }
+        except (OSError, ValueError) as exc:
+            return {
+                "ran": False,
+                "error": str(exc),
+                "exit_code_trusted": False,
+                "trust_reason": (
+                    "the Codex sandbox could not execute the test plan: "
+                    + str(exc)
+                ),
+                "runner_note": runner_note,
+                "env_warning": env_warning,
+                "steps_completed": completed,
+                "steps_total": len(plan.steps),
+                "plan_source": plan.source,
+                "sandbox": sandbox_evidence,
+                "post_test_worktree": post_test_worktree,
+            }
+        completed += 1
+        return_code = process.returncode
+        output.append((process.stdout or "") + (process.stderr or ""))
+        if return_code != 0:
+            break
+    return {
+        "ran": True,
+        "pass": return_code == 0 and completed == len(plan.steps),
+        "output_tail": "".join(output)[-800:],
+        "exit_code_trusted": True,
+        "trust_reason": None,
+        "runner_note": runner_note,
+        "env_warning": env_warning,
+        "steps_completed": completed,
+        "steps_total": len(plan.steps),
+        "plan_source": plan.source,
+        "sandbox": sandbox_evidence,
+        "post_test_worktree": post_test_worktree,
+    }
 
 
 # PROVISIONAL, and advisory-only until calibrated against real diffs. They decide
@@ -657,9 +1440,19 @@ def _clamp_timeout(t):
 
 def mutate(task, base="HEAD", test_cmd=None, weight="heavy", model=None, keep=True,
            files=None, timeout=None):
+    try:
+        test_plan = compile_test_plan(test_cmd)
+    except TestPlanError as exc:
+        return {"ok": False, "stage": "test_plan", "error": str(exc)}
     core = cb.discover_core()
     if not core:
         return {"ok": False, "stage": "discover"}
+    try:
+        test_sandbox = (
+            prepare_test_sandbox(core) if test_plan is not None else None
+        )
+    except TestPlanError as exc:
+        return {"ok": False, "stage": "test_sandbox", "error": str(exc)}
     gauge = cb.summarize_gauge(cb.read_rate_limits(core))
     model = model or cb.route(weight, gauge)["model"]
     wt, branch, err = create_worktree(base, task)
@@ -679,7 +1472,7 @@ def mutate(task, base="HEAD", test_cmd=None, weight="heavy", model=None, keep=Tr
         changed, diff = extract_changes(wt, base)
         scope = assess_scope(files, changed)
         shape = describe_diff_shape(changed, diff)
-        tests = run_tests(wt, test_cmd)
+        tests = run_tests(wt, test_plan, sandbox=test_sandbox)
         gate = assess_gate(changed, tests, shape, scope)
         # A timed-out run that already wrote files is salvageable, not garbage. It
         # is INCOMPLETE, so it never clears the gate regardless of what tests say.
@@ -715,7 +1508,24 @@ def main():
         description="Delegate a MUTATING task to Codex in an isolated worktree (no auto-merge).")
     ap.add_argument("task", nargs="?", help="the implementation task for Codex")
     ap.add_argument("--base", default="HEAD", help="branch/commit to branch from")
-    ap.add_argument("--test-cmd", default=None, help="test command to run in the worktree, e.g. 'pytest -q'")
+    test_group = ap.add_mutually_exclusive_group()
+    test_group.add_argument(
+        "--test-cmd",
+        default=None,
+        help=(
+            "compatibility form for one simple command or an && chain; shell "
+            "operators/redirects and direct known shell launchers are refused "
+            "before delegation"
+        ),
+    )
+    test_group.add_argument(
+        "--test-argv-json",
+        default=None,
+        help=(
+            "preferred unambiguous test plan: a JSON argv array or array of argv "
+            "arrays, e.g. '[\"python\",\"-m\",\"pytest\",\"-q\"]'"
+        ),
+    )
     ap.add_argument("--weight", choices=["heavy", "light"], default="heavy")
     ap.add_argument("--model", default=None)
     ap.add_argument("--files", nargs="+", metavar="PATH", default=None,
@@ -743,7 +1553,19 @@ def main():
         return 0
     if not args.task:
         ap.error("task is required unless --cleanup or --gc is used")
-    out = mutate(args.task, args.base, args.test_cmd, args.weight, args.model,
+    try:
+        test_specification = (
+            decode_test_argv_json(args.test_argv_json)
+            if args.test_argv_json is not None
+            else args.test_cmd
+        )
+    except TestPlanError as exc:
+        print(json.dumps(
+            {"ok": False, "stage": "test_plan", "error": str(exc)},
+            indent=2,
+        ))
+        return 1
+    out = mutate(args.task, args.base, test_specification, args.weight, args.model,
                  files=args.files, timeout=args.timeout)
     print(json.dumps(out, indent=2))
     return 0 if out.get("ok") else 1

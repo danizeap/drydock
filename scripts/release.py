@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Drydock release helper: keep the version in lockstep and gate on the tests.
 
-The project version is declared in four hand-editable places, which drift:
+The project version is declared in five hand-editable places, which drift:
   - .claude-plugin/plugin.json         "version": "X"
   - .claude-plugin/marketplace.json    plugins[].version "X"
+  - adapters/codex/drydock/.codex-plugin/plugin.json "version": "X"
   - docs/AI_OPERATOR_GUIDE.md           VERSION: Drydock X | ...
   - CHANGELOG.md                        ## X   (heading must already exist)
 
@@ -43,6 +44,8 @@ LOCATIONS = [
     ("plugin.json", ".claude-plugin/plugin.json",
      re.compile(r'("version"\s*:\s*")(\d+\.\d+\.\d+)(")')),
     ("marketplace.json", ".claude-plugin/marketplace.json",
+     re.compile(r'("version"\s*:\s*")(\d+\.\d+\.\d+)(")')),
+    ("codex-plugin.json", "adapters/codex/drydock/.codex-plugin/plugin.json",
      re.compile(r'("version"\s*:\s*")(\d+\.\d+\.\d+)(")')),
     ("operator-guide", "docs/AI_OPERATOR_GUIDE.md",
      re.compile(r'(VERSION:\s*Drydock\s+)(\d+\.\d+\.\d+)(\s*\|)')),
@@ -129,12 +132,47 @@ def cmd_bump(new_version, dry_run):
             print(f"bumped {rel}: {current} -> {new_version}")
 
     if dry_run:
-        print("[dry-run] would now run: pytest, check_sync.py")
+        print(
+            "[dry-run] would now run: both pytest suites, check_sync.py, "
+            "Codex scaffold-bundle check, Codex hook-bundle check"
+        )
         return 0
 
-    # preflight: tests + sync guard must pass on the bumped tree
-    for label, argv in (("pytest", [sys.executable, "-m", "pytest", "tests/", "-q"]),
-                        ("check_sync", [sys.executable, "scripts/check_sync.py"])):
+    # Preflight: both host suites and every deterministic generated artifact
+    # must match its source on the bumped tree.
+    preflight = (
+        ("pytest", [sys.executable, "-m", "pytest", "tests/", "-q"]),
+        (
+            "codex_adapter_pytest",
+            [sys.executable, "-m", "pytest", "adapters/codex/tests/", "-q"],
+        ),
+        ("check_sync", [sys.executable, "scripts/check_sync.py"]),
+        (
+            "codex_scaffold_bundle",
+            [
+                sys.executable,
+                "adapters/codex/drydock/scripts/scaffold_bundle.py",
+                "--source",
+                "assets/project-scaffold",
+                "--output",
+                "adapters/codex/drydock/assets/project-scaffold.bundle.json",
+                "--check",
+            ],
+        ),
+        (
+            "codex_hook_bundle",
+            [
+                sys.executable,
+                "adapters/codex/drydock/scripts/build_hooks.py",
+                "--source",
+                "adapters/codex/drydock/scripts/hook_runtime_source.py",
+                "--output",
+                "adapters/codex/drydock/hooks",
+                "--check",
+            ],
+        ),
+    )
+    for label, argv in preflight:
         print(f"\n=== preflight: {label} ===")
         rc = subprocess.run(argv, cwd=REPO_ROOT).returncode
         if rc != 0:
