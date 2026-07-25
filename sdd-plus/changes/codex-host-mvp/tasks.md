@@ -82,4 +82,4 @@ codex-host-mvp
   its clean-source strict self-scan.
 - [ ] Dogfood the end-to-end Codex-hosted workflow.
 - [x] Update user/operator documentation and project context.
-- [ ] Run full verification, independent review, and LaunchGuardian.
+- [x] Run full verification, independent review, and LaunchGuardian.
