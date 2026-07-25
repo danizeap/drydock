@@ -327,8 +327,18 @@ codex-host-mvp
   strict five-scanner scan. Installed/PyPI LaunchGuardian 0.2.0 does not yet
   implement this report behavior, and approver metadata is not authenticated
   identity proof.
+- [x] LaunchGuardian companion release hardening — descendant commit
+  `c754062dc1c35dce06cfc6f7946909287f1ce1fc` pins all 16 repository and
+  distributed-template GitHub Action references to verified 40-character
+  commits and adds a regression that rejects mutable refs. Its suite returns
+  81 passed. After generated package-build residue was moved outside the
+  source checkout, the strict self-scan at `2026-07-25T15:27:56.088651Z`
+  ran all five scanners and returned point-in-time `APPROVED`, 0 normalized
+  findings, and 0 raw Semgrep errors. The earlier scan of the generated copy
+  produced findings and was not reported as a pass or hidden with an
+  exclusion.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `32 complete, 2 pending`; the pending final peer and
+  codex-host-mvp` reports `33 complete, 2 pending`; the pending final peer and
   dogfood gates remain explicit.
 
 ## Documentation Updates
@@ -353,7 +363,8 @@ probes. The latest Opus findings were implemented, but two bounded final-review
 attempts emitted no critique, so cross-model convergence remains unproven.
 LaunchGuardian's reviewed source build returns
 `APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
-findings; PyPI 0.2.0 cannot yet reproduce that result. Ordinary Codex hook
+findings, and its action-pinned descendant passes a clean-source self-scan;
+PyPI 0.2.0 cannot yet reproduce that result. Ordinary Codex hook
 enforcement also remains inactive until the Owner installs/trusts the plugin
 and starts a fresh task with current-revision liveness. No publication or
 release is authorized by this evidence.

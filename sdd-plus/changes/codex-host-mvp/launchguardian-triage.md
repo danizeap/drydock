@@ -57,6 +57,17 @@ results, 0 raw Semgrep errors, 6 applied dispositions, and 0 open blockers.
 Approver text is auditable repository evidence, not authenticated proof of
 identity.
 
+Descendant commit `c754062dc1c35dce06cfc6f7946909287f1ce1fc` additionally
+pins all 16 GitHub Action references in LaunchGuardian's own workflows and
+distributed templates to verified full commit SHAs. Its suite returns 81
+passed. An initial self-scan found five findings in an ignored `build/`
+package copy left by the earlier packaging check; that generated directory was
+moved outside the checkout rather than excluded. The identical strict scan at
+`2026-07-25T15:27:56.088651Z` then ran all five scanners and returned
+point-in-time `APPROVED`, 0 normalized findings, and 0 raw Semgrep errors.
+This companion self-scan does not replace the Drydock
+`APPROVED_WITH_DISPOSITIONS` evidence above.
+
 ## Owner Decisions Needed Before Release
 
 1. Complete the Codex-host final independent review.

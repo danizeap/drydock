@@ -77,6 +77,9 @@ codex-host-mvp
   scanner suppression.
 - [x] Rerun the strict five-scanner gate through the reviewed LaunchGuardian
   source build and reconcile status, raw errors, and remaining findings.
+- [x] Pin the LaunchGuardian companion repository and distributed-template
+  Action refs to verified full SHAs, add a mutable-ref regression, and rerun
+  its clean-source strict self-scan.
 - [ ] Dogfood the end-to-end Codex-hosted workflow.
 - [x] Update user/operator documentation and project context.
 - [ ] Run full verification, independent review, and LaunchGuardian.
