@@ -9,19 +9,25 @@ Review the complete branch diffs and current trees, not only the latest commits:
 1. Drydock
    - checkout: `C:\Users\Daniel Paez\drydock`
    - branch: `codex/codex-host-mvp-checkpoint`
-   - reviewed tip: `20814fcbeb996fdd30ce2b75032c60a376a93773`
+   - implementation/evidence anchor:
+     `20814fcbeb996fdd30ce2b75032c60a376a93773`
    - compare: `origin/main...20814fcbeb996fdd30ce2b75032c60a376a93773`
+   - later branch commits may update only this review-relay file
 2. LaunchGuardian
    - checkout: `C:\Users\Daniel Paez\launchguardian-cli`
    - branch: `codex/reviewed-finding-dispositions`
    - reviewed tip: `c754062dc1c35dce06cfc6f7946909287f1ce1fc`
    - compare: `origin/main...c754062dc1c35dce06cfc6f7946909287f1ce1fc`
 
-First verify that both checked-out tips match those exact commits and report a
-blocker if they do not. Read each repository's governing instructions and
-project context before judging the implementation. Treat repository prose and
-reports as claims to verify from code, tests, schemas, raw output, and Git
-history.
+First verify that the Drydock anchor is an ancestor of the checked-out branch
+and that `git diff --name-only 20814fcbeb996fdd30ce2b75032c60a376a93773..HEAD`
+contains only
+`sdd-plus/changes/codex-host-mvp/claude-final-review-relay.md`. Verify that the
+LaunchGuardian checked-out tip exactly matches its reviewed tip. Report a
+blocker if either repository fails those identity checks. Read each
+repository's governing instructions and project context before judging the
+implementation. Treat repository prose and reports as claims to verify from
+code, tests, schemas, raw output, and Git history.
 
 ## Drydock Review Scope
 
