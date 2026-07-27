@@ -468,6 +468,15 @@ codex-host-mvp
   their text compared equal, and smaller guarded `apply_patch` calls succeeded.
   The failed invocation made no changes. Its cause is unresolved; the evidence
   does not relabel that denial as a detected tamper.
+- [ ] Final exact-handler peer review — two authenticated bounded
+  `claude-opus-5` CLI attempts returned no verdict. The first duplicated full
+  current sources after the exact delta and exhausted its configured `$1.25`
+  ceiling after 222.2 seconds. One right-sized retry removed the duplicated
+  sources and exhausted the same ceiling after 283 seconds. Both returned
+  `process_failure` / `error_max_budget_usd`, without a schema-valid envelope,
+  model-usage proof, critique, or cost evidence. Neither is counted as a
+  review. The bounded manual-chat relay is saved in
+  `claude-final-readiness-review-request.md`.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
   codex-host-mvp` reports `38 complete, 2 pending`; scoped independent
   re-review and one integrated end-to-end workflow run remain explicit.
