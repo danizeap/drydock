@@ -349,7 +349,7 @@ codex-host-mvp
   findings, and 0 raw Semgrep errors. The earlier scan of the generated copy
   produced findings and was not reported as a pass or hidden with an
   exclusion.
-- [ ] Fresh Desktop readiness dogfood — after CLI review/trust, a new Desktop
+- [x] Fresh Desktop readiness dogfood — after CLI review/trust, a new Desktop
   task executed SessionStart and wrote a liveness record for task
   `019fa333-1ff4-76d0-901d-2d392973f80b`, repository
   `C:\Users\Daniel Paez\drydock`, model `gpt-5.6-sol`, and runtime digest
@@ -366,12 +366,30 @@ codex-host-mvp
   explicit-argument precedence, repository-mismatch rejection, and ambiguous
   root refusal. Codex adapter tests return 98 passed, 2 skipped; legacy tests
   return 548 passed, 6 skipped; sync 11/11, scaffold bundle, unchanged hook
-  bundle, version parity, and compilation all pass. Installed-cache and fresh
-  post-reinstall task evidence remain pending.
+  bundle, version parity, and compilation all pass. The refreshed installed
+  cache contains the same 15 files with 0 byte differences. Rerunning the
+  ordinary readiness skill in that same fresh task returned
+  `current_revision_observed`, exact repository/runtime/task evidence,
+  `session_id_source: CODEX_THREAD_ID`, and
+  `plugin_data_source: codex_home_plugin_data` with both resolution errors
+  null. It correctly retained `active: false`, `trusted: unknown`, and
+  `ready_for_enforcement: false`; PreToolUse interception is recorded
+  separately below rather than inferred from SessionStart.
+- [x] Fresh Desktop PreToolUse dogfood — in that same current-revision task,
+  canonical `Bash` denied the exact inert command
+  `Set-Content -WhatIf -LiteralPath
+  '.env.drydock-live-probe-7f1c9e42' -Value 'probe'`, and canonical
+  `apply_patch` denied an Update File patch targeting the same guaranteed-
+  absent path. Both returned the exact Drydock secrets-guardrail reason. A
+  final `Test-Path` returned exit 0 and `False`. The shell probe could not
+  write because of `-WhatIf`; the patch probe could not create the absent file
+  because it used Update File. This is point-in-time interception evidence for
+  the two defined contracts on the tested build, not evidence for uncovered
+  MCP, other local, hosted, or specialized paths and not a managed or Tier 4
+  claim.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `36 complete, 3 pending`; reinstall/fresh-task proof,
-  scoped independent re-review, and the overarching dogfood gate remain
-  explicit.
+  codex-host-mvp` reports `37 complete, 2 pending`; scoped independent
+  re-review and one integrated end-to-end workflow run remain explicit.
 
 ## Documentation Updates
 
@@ -386,8 +404,8 @@ codex-host-mvp
 
 ## Result
 
-**IMPLEMENTATION, SECURITY-SCAN, AND FINAL PEER EVIDENCE PASS — DOGFOOD
-GATE OPEN.**
+**IMPLEMENTATION, SECURITY-SCAN, AND FINAL PEER EVIDENCE PASS — INTEGRATED
+DOGFOOD GATE OPEN.**
 
 The additive plugin, deterministic enforcement adapter, peer controller,
 mutation runner, and verifier pass their local suites and current-machine live
@@ -398,7 +416,11 @@ than cross-family epistemic diversity.
 LaunchGuardian's reviewed source build returns
 `APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
 findings, and its action-pinned descendant passes a clean-source self-scan;
-PyPI 0.2.0 cannot yet reproduce that result. Ordinary Codex hook
-enforcement also remains inactive until the Owner installs/trusts the plugin
-and starts a fresh task with current-revision liveness. No publication or
-release is authorized by this evidence.
+PyPI 0.2.0 cannot yet reproduce that result. The Owner installed and trusted
+the ordinary Codex hooks, and a fresh task observed the current revision plus
+live denials on the two narrow guarded tool contracts. Readiness still reports
+`active: false`, `trusted: unknown`, and `ready_for_enforcement: false`; these
+non-managed, user-disableable hooks remain explicitly incomplete for other
+tool paths. One integrated hosted workflow run and a scoped independent review
+of the readiness correction and live evidence remain pending. No publication
+or release is authorized by this evidence.

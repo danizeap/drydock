@@ -86,10 +86,13 @@ codex-host-mvp
 - [x] Make readiness resolve the exact current Desktop task and unique plugin
   data record automatically while failing non-positively on missing,
   mismatched, or ambiguous evidence.
-- [ ] Reinstall the corrected local plugin and repeat the fresh-task readiness
+- [x] Reinstall the corrected local plugin and repeat the fresh-task readiness
   dogfood.
 - [ ] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
-- [ ] Dogfood the end-to-end Codex-hosted workflow.
+- [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
+  agreement, isolated mutation, cross-review, separate verification, and push.
+  Component-level runner, verifier, readiness, and live-hook probes do not
+  complete this task by themselves.
 - [x] Update user/operator documentation and project context.
 - [x] Run full verification, independent review, and LaunchGuardian.
