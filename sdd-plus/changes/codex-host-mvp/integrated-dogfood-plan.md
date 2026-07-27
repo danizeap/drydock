@@ -137,6 +137,14 @@ runner releases its lease, Codex schedules no second writer and checks the
 captured worktree fingerprint again before review and verification; this is
 detection rather than continuing exclusive prevention.
 
+The live mutation child later emitted a failed `DELETE` cleanup attempt for a
+Render MCP session despite the empty-MCP and disabled-feature argv contract.
+The request failed with a closed channel and is not evidence that a remote
+resource changed, but it is positive evidence that the tested host can still
+attempt MCP-related transport outside the intended empty configuration. This
+run therefore claims only the requested argv boundary; it does not claim zero
+MCP transport, zero network attempts, or non-contact with personal Codex state.
+
 The separate verifier is a new ephemeral Codex process with `read-only`
 sandbox; hooks, plugins, apps, browser, computer-use, MCP, web search, and
 repository rules are disabled. It does not depend on the inline hook verifier
@@ -151,10 +159,18 @@ here. Ignored artifacts are separately required absent immediately before and
 after verification because they are not part of that fingerprint.
 
 `verify()` does not itself call `_assert_safe_local_git_configuration()`.
-Immediately before invoking it, Codex therefore calls that control-plane
-precheck and revalidates the linked `.git` pointer plus the captured Git-control
-fingerprint. The first verifier is invoked against the retained mutation
-worktree, never the Owner checkout, with the exact shape:
+`mutate()` called that precheck immediately before creating the linked
+worktree. Calling it again after creation is not a valid mechanism in this
+repository: Git rejects `config --worktree` when multiple worktrees exist and
+`extensions.worktreeConfig` is not enabled. Before verification, Codex instead
+revalidates the linked `.git` pointer, requires the captured Git-control
+fingerprint to equal the value recorded before worker launch, and directly
+parses each existing local/worktree config file named by `GitControlBoundary`
+with `git config --file <exact-path> --no-includes --name-only --list`. Any
+`include.*`, `includeIf.*`, or `filter.*.(clean|smudge|process)` key aborts.
+That preserves the pre-launch safe-config result without claiming an unusable
+post-creation helper call. The first verifier is invoked against the retained
+mutation worktree, never the Owner checkout, with the exact shape:
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -218,7 +234,10 @@ program probe recognition, and Windows tokenization remain follow-ups.
 6. A separate read-only verifier returns PASS with freshness/anti-replay state
    binding to the exact retained mutation worktree. Immediately before and
    after it, Codex requires no ignored artifacts, no `.git` pointer or
-   Git-control drift, and no worktree-fingerprint mismatch.
+   Git-control drift, no unsafe key in the directly parsed config files, and no
+   worktree-fingerprint mismatch. The unusable post-creation
+   `_assert_safe_local_git_configuration()` call is not reported as a passing
+   check.
 7. Codex deliberately integrates only the reviewed documentation diff, verifies
    that the exact 1,256-byte insertion and normalized Git blob equal the
    verified worktree versions, records the Owner checkout's raw representation

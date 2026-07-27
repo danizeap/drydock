@@ -174,3 +174,26 @@ This does not authorize release, archive, merge, publication, deployment, or
 personal plugin changes, and it does not make either model an independent
 verifier. Mutation remains gated on the pre-mutation deterministic checks and
 on committing the frozen plan/note evidence into the runner's base.
+
+## Post-worker mechanism correction
+
+After the one-file worker completed, Codex attempted the plan's stated
+pre-verifier `_assert_safe_local_git_configuration()` call. It did not pass:
+Git refuses `config --worktree` after a linked worktree exists unless
+`extensions.worktreeConfig` is enabled. No verifier, integration, or additional
+worker was started from that failed check.
+
+The runner had already executed the same safe-config precheck before worktree
+creation, and its `GitControlBoundary` fingerprint was unchanged across worker
+execution and extraction. Codex directly parsed the existing config files named
+by that boundary with `git config --file <exact-path> --no-includes
+--name-only --list`; no include or external filter key was present. The plan
+was amended to use that actual carry-forward mechanism rather than report an
+unusable helper call as passing.
+
+The worker stderr also contained a failed `DELETE` cleanup attempt for a Render
+MCP session despite the requested empty-MCP/disabled-feature contract. The
+channel was closed, so the output does not establish a remote state change. It
+does establish that zero MCP transport was not proven. The amended plan records
+that residual and retains the exact mutation for cross-review; this correction
+does not widen worker scope or outward authority.
