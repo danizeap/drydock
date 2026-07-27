@@ -4,16 +4,35 @@ Capability: claude-usage-signal
 
 ## ADDED Requirements
 
-### Requirement: Usage providers expose only a sanitized snapshot
+### Requirement: Capacity awareness is automatic and dual-provider
 
-Drydock SHALL accept Claude capacity evidence only through a strict,
-versioned, provider-neutral snapshot containing source, status, sampled time,
-freshness, shared-account attribution, named utilization/reset windows, and
-limitations. It SHALL reject unknown fields, non-finite or out-of-range
-values, implausible timestamps, and any credential, authorization header,
-account identifier, raw response, or prompt field.
+Before producing a delegation allocation, Drydock SHALL automatically obtain
+fresh Claude and Codex capacity snapshots without requiring the Owner to enter
+usage values. Manual snapshots MAY exist for tests and diagnostics but SHALL
+NOT satisfy production readiness for capacity-aware routing.
 
-#### Scenario: Provider returns a bearer token beside valid usage
+#### Scenario: Both providers have current telemetry
+
+- **WHEN** the pilot prepares a task split
+- **THEN** the routing decision uses current normalized Claude and Codex
+  windows, not a fixed provider ratio
+
+#### Scenario: Only manual values are available
+
+- **WHEN** no automatic provider has produced a fresh snapshot
+- **THEN** readiness reports automatic capacity routing unavailable
+
+### Requirement: Usage providers expose only sanitized snapshots
+
+The core scheduler SHALL accept capacity evidence only through a strict,
+versioned, provider-neutral snapshot containing provider, source, status,
+sampled time, freshness, shared-account attribution, named utilization/reset
+windows, and limitations. It SHALL reject unknown fields, non-finite or
+out-of-range values, implausible timestamps, and any credential,
+authorization header, account identifier, raw response, prompt, or repository
+field.
+
+#### Scenario: Broker returns a bearer token beside valid usage
 
 - **WHEN** a provider response contains otherwise valid windows plus a token
 - **THEN** the entire response is rejected and no portion is cached
@@ -22,58 +41,102 @@ account identifier, raw response, or prompt field.
 
 - **WHEN** all fields match the contract and the sample is within the freshness
   window
-- **THEN** Drydock may expose its remaining/reset values as advisory evidence
+- **THEN** Drydock may use its remaining/reset values as scheduling evidence
 
-### Requirement: Drydock does not own Claude credentials
+### Requirement: Claude credentials are confined to a dedicated broker
 
-Drydock SHALL NOT discover, read, receive, copy, refresh, store, or log Claude
-credentials. The first useful version SHALL use manual input or an external
-local broker that owns its own authentication and emits only the sanitized
-snapshot. Direct use of a private OAuth endpoint requires a separate,
-Owner-approved credential-boundary change.
+The Claude broker SHALL be the only credential-owning Drydock component. The
+pilot, scheduler, logs, cache, packets, hooks, workers, and verifier SHALL NOT
+receive, copy, store, or log Claude credentials or raw usage responses. The
+broker SHALL expose a fixed bounded usage operation rather than arbitrary
+network or credential access. Until a documented structured Claude source
+exists, use of the observed private OAuth mechanism requires explicit Owner
+approval and a security-reviewed implementation.
 
-#### Scenario: No official structured usage command exists
+#### Scenario: Core asks for Claude capacity
 
-- **WHEN** official feature detection finds no supported structured command
-  and no approved external snapshot is available
-- **THEN** usage status is `unavailable` rather than inferred from
-  authentication, recent calls, or a private endpoint
+- **WHEN** the scheduler invokes the broker
+- **THEN** the broker receives no prompt, task, packet, or repository content
+  and emits only the sanitized snapshot
 
-#### Scenario: External broker owns a credential
+#### Scenario: Broker cannot establish its credential boundary
 
-- **WHEN** an Owner-approved broker returns a valid sanitized snapshot
-- **THEN** Drydock may consume the snapshot without receiving or locating the
-  broker's credential
+- **WHEN** credential access, redaction, or the fixed request cannot be proven
+- **THEN** Claude telemetry is `unavailable` and no token or partial response
+  is returned
 
-### Requirement: Usage evidence is freshness-bounded and advisory
+### Requirement: Routing protects every overlapping window
 
-Missing, stale, malformed, future-dated, or provider-failed evidence SHALL be
-reported as `unavailable`. A last-good snapshot MAY be displayed only with an
-explicit stale status and age. Usage evidence SHALL NOT authorize tools,
-waive packet or release gates, establish peer convergence, or prove
-Drydock-specific/model-specific consumption.
+The scheduler SHALL evaluate every current provider-defined window and SHALL
+use the lowest reserve-adjusted projected margin as that provider's binding
+window. It SHALL account for remaining capacity, time to reset, recent burn,
+estimated task cost, estimate confidence, and explicit capacity reserved for
+required planning and cross-review. It SHALL NOT compare providers using one
+raw headline percentage alone.
 
-#### Scenario: Cached usage exceeds its freshness window
+#### Scenario: Claude weekly capacity is high but five-hour capacity is low
 
-- **WHEN** the last valid snapshot is older than its permitted freshness
-- **THEN** routing does not treat its capacity as current or healthy
+- **WHEN** the five-hour projected margin binds before the weekly window
+- **THEN** the scheduler limits Claude allocation according to the five-hour
+  window and shifts suitable work to Codex
 
-#### Scenario: Shared account changes between samples
+#### Scenario: Codex has twice Claude's usable runway
 
-- **WHEN** utilization rises between two valid samples
-- **THEN** the delta may be described only as shared-account burn and not
-  attributed to Drydock, Codex, Claude, Opus, Fable, or a particular chat
+- **WHEN** normalized reserve-adjusted margins show materially more Codex
+  runway for the proposed task class
+- **THEN** the recommendation allocates more suitable execution work to Codex
+  while retaining Claude capacity required for peer review
 
-### Requirement: Provider execution and polling are bounded
+#### Scenario: Capacity will reset before the coding horizon
 
-External provider execution SHALL use bounded input, output, runtime, cleanup,
-and response size. Polling SHALL occur at routing decision points with caching
-and backoff, and SHALL respect a broker-reported retry interval. Deterministic
-tests SHALL use fake providers and SHALL NOT read real credentials or call
-Anthropic.
+- **WHEN** a provider window resets sooner than the Owner's target horizon
+- **THEN** projected burn uses the shorter reset horizon and the decision names
+  that reset
 
-#### Scenario: Broker hangs or emits oversized output
+### Requirement: Burn and task-cost learning remain evidence-bounded
 
-- **WHEN** the provider exceeds its time or size limit
-- **THEN** Drydock terminates the supported process boundary, records
-  `unavailable`, and does not parse a partial snapshot as evidence
+Drydock MAY estimate provider/window burn from normalized snapshot deltas and
+MAY estimate task cost from actual per-call usage grouped by provider, model,
+and task class. Every estimate SHALL carry sample count/confidence. Shared
+Claude account deltas SHALL NOT be represented as Drydock-specific,
+model-specific, or chat-specific consumption unless separately proven. Cold
+start and low confidence SHALL use conservative upper estimates.
+
+#### Scenario: Other Claude clients consume capacity
+
+- **WHEN** account utilization rises between Drydock calls
+- **THEN** the scheduler treats the rise as shared-account burn for runway
+  protection but does not attribute it to a Drydock task
+
+#### Scenario: Task class has insufficient history
+
+- **WHEN** fewer than the required samples exist
+- **THEN** routing uses a conservative default cost and reports low confidence
+
+### Requirement: Telemetry and scheduling are bounded and non-authoritative
+
+Collection SHALL occur automatically at routing decision points, after
+material batches, and before review gates, with bounded execution, response
+size, cleanup, cache freshness, backoff, and circuit breaking. Missing, stale,
+malformed, future-dated, or failed evidence SHALL NOT become positive
+headroom. Usage state SHALL NOT authorize tools, waive packet/release gates,
+or establish peer convergence.
+
+#### Scenario: Provider hangs or emits oversized output
+
+- **WHEN** collection exceeds its time or size limit
+- **THEN** Drydock terminates the supported process boundary, records the
+  provider as unavailable, and does not parse a partial snapshot
+
+#### Scenario: One provider is exhausted
+
+- **WHEN** one provider has no allocatable reserve-adjusted capacity and the
+  other has current usable capacity
+- **THEN** governed work may continue on the available provider while the
+  result states the lost peer/diversity evidence
+
+#### Scenario: Telemetry is stale
+
+- **WHEN** the last valid snapshot exceeds its freshness window
+- **THEN** it may be displayed only as stale and contributes no positive
+  routing headroom

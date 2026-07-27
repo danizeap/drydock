@@ -6,36 +6,54 @@ claude-usage-signal
 
 ## Approach
 
-This is a design checkpoint, not implementation authorization. The Build
-Blueprint is in `build-blueprint.md`.
+This revision freezes the automatic scheduling architecture. It does not
+authorize credential access or runtime implementation. The full design is in
+`build-blueprint.md`.
 
-1. Freeze a small sanitized snapshot contract independent of Anthropic's raw
-   response schema.
-2. Make the first provider an Owner-supplied or external local broker that
-   writes or emits only that sanitized contract. Drydock does not receive,
-   refresh, or locate credentials.
-3. Add an explicit manual snapshot path so routing can use honest Owner-provided
-   values before automation exists.
-4. Feature-detect a future official Claude structured usage command rather
-   than assuming one. Absence is `unavailable`.
-5. Validate schema, numeric ranges, timestamps, freshness, future skew, and
-   supported attribution. Reject unknown fields and never preserve a raw
-   provider response.
-6. Cache only the sanitized snapshot with a short TTL. Respect provider
-   backoff/`Retry-After` through the broker contract and poll at decision
-   points, not continuously.
-7. Feed valid remaining/reset evidence into pace forecasting. Keep measured
-   burn separate: two snapshots can estimate shared-account burn, but cannot
-   attribute consumption to Drydock, Codex, a model, or a particular chat.
-8. Add fixtures and fake brokers only. No CI or unit test may read credentials
-   or call Anthropic.
-9. Before implementation, obtain the Owner's provider choice and a Claude peer
-   review. If the choice involves credentials, create a separate explicit
-   credential-boundary packet.
+1. Port the existing Codex `account/rateLimits/read` capability behind a
+   normalized `CapacityProvider` interface.
+2. Ship a dedicated Claude usage broker as part of the one-place Drydock
+   installation. The broker is a separate least-privilege process and is the
+   only Drydock component allowed to access Claude authentication. It emits
+   one sanitized snapshot; tokens and raw responses never cross its stdout
+   boundary.
+3. Prefer a future documented Claude structured usage command when available.
+   Until then, the broker may use the observed private OAuth mechanism only
+   after the Owner approves its exact credential-store access and the
+   implementation passes security review.
+4. Normalize both providers into named windows with utilization, reset time,
+   freshness, source, and attribution. Preserve unknown provider-defined
+   windows by safe name; never invent Fable/Opus semantics.
+5. Sample automatically before plan negotiation/delegation, after a material
+   execution batch, and before cross-review/verification. Cache briefly,
+   respect `Retry-After`, and use exponential backoff/circuit breaking rather
+   than frequent polling.
+6. Maintain a non-sensitive rolling history of normalized utilization deltas
+   and actual per-call usage metadata. Estimate:
+   - account-wide burn per provider/window;
+   - task cost by provider, model, and task class;
+   - confidence/sample count for each estimate.
+7. For every provider window compute remaining headroom after configured
+   reserves and projected burn until the earlier of the target coding horizon
+   or reset. The lowest margin is that provider's binding window.
+8. Allocate a proposed task graph to maximize useful work while keeping every
+   known binding window non-negative and preserving flagship capacity for
+   required plan negotiation and cross-review. Prefer the provider with more
+   normalized runway, not merely the larger raw percentage.
+9. Return an auditable routing decision containing snapshots, binding windows,
+   reserves, task-cost estimates, confidence, allocation, and rejected
+   alternatives. The pilot reviews it before dispatch.
+10. Treat stale or absent evidence conservatively. The scheduler may run a
+    bounded operational probe, but SHALL NOT translate unknown capacity into
+    positive headroom. If one provider is exhausted, continue governed work on
+    the other; if telemetry is unavailable, report degraded routing rather
+    than pretend optimization.
+11. Test only with fake providers and recorded sanitized fixtures. No CI test
+    reads credentials or calls Anthropic.
 
 ## Files Expected To Change
 
-Design-only packet:
+Design packet:
 
 - `sdd-plus/changes/claude-usage-signal/brief.md`
 - `sdd-plus/changes/claude-usage-signal/build-blueprint.md`
@@ -43,30 +61,38 @@ Design-only packet:
 - `sdd-plus/changes/claude-usage-signal/specs/claude-usage-signal.md`
 - packet task, decision, and verification records
 
-No runtime source file changes are authorized.
+Future implementation packet:
+
+- a dedicated Claude broker module/process;
+- normalized capacity-provider and snapshot types;
+- automatic sampling/cache/history;
+- cross-provider routing policy and CLI/readiness output;
+- fake-provider and scheduler test suites.
 
 ## Risks
 
-- Treating a private endpoint as a product contract would create silent drift.
-- Reading Claude credentials would contradict the current blueprint and widen
-  Drydock's trusted computing base.
-- A writable local broker snapshot can be forged or replayed. It is advisory,
-  never an enforcement or authorization signal.
-- Usage is account-wide. Deltas include other Claude surfaces and cannot prove
-  Drydock-specific burn.
-- Polling too often can itself trigger rate limiting; stale last-good numbers
-  can look current unless freshness is explicit.
-- A displayed Opus window does not establish a Fable-specific window.
-- Remaining/reset data does not by itself establish a stable burn rate.
+- The private Claude endpoint and credential storage can change without notice.
+- A bundled credential broker expands Drydock's trusted computing base even
+  when tokens never reach the core scheduler.
+- Shared-account Claude deltas include other chats and clients; they estimate
+  available runway but cannot prove Drydock-specific consumption.
+- Raw percentages are not comparable when window lengths and resets differ.
+- Cold-start task-cost estimates can create false precision; defaults and
+  confidence must remain visible.
+- Polling can trigger rate limits; stale last-good data can misroute work.
+- An automatic scheduler can overfit cost and underweight epistemic value.
+  Required peer/review reserves remain policy, not an optimization suggestion.
 
 ## Stop Conditions
 
-Stop before implementation if it requires Drydock to read or receive a token,
-if the provider contract includes raw responses, if stale data can appear
-current, if advisory capacity can skip governance, or if an undocumented
-endpoint is described as supported.
+Stop before implementation if tokens can reach the pilot or logs, if manual
+input is presented as automatic telemetry, if unknown capacity becomes
+positive headroom, if overlapping windows are collapsed into one percentage,
+if the scheduler can waive governance, or if an undocumented endpoint is
+described as supported.
 
 ## Rollback
 
-This packet creates no runtime behavior or external state. It can be abandoned
-without migration or credential cleanup.
+This packet changes design only. A future implementation must make the broker
+and automatic scheduler feature-gated so they can fail closed to degraded
+routing without disabling Drydock lifecycle governance.

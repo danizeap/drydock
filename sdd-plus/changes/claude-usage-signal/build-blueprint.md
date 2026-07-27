@@ -1,65 +1,76 @@
-# Build Blueprint: Claude Usage Signal
+# Build Blueprint: Automatic Cross-Provider Capacity Scheduler
 
 ## 1. Product Goal
 
-Give the Codex-hosted pilot an honest, low-trust signal about remaining Claude
-capacity and reset timing so it can protect the Owner's useful coding pace.
+Make the Codex-hosted pilot automatically aware of Claude and Codex capacity
+so every task split protects useful coding time across five-hour and weekly
+windows. This is an orchestration input, not a display feature.
 
 ## 2. Users
 
-The Owner operating Drydock across repositories. The consumer is the Codex
-pilot; the data may also be shown to the Owner.
+The Owner operating Drydock across repositories. The direct consumer is the
+Codex pilot that plans and delegates work.
 
 ## 3. Core Workflows
 
-1. At a routing decision, request one sanitized usage snapshot.
-2. Validate its schema, freshness, ranges, and attribution.
-3. Combine valid remaining/reset evidence with separately measured burn.
-4. Return `healthy`, `at_risk`, or `unavailable`.
-5. Use the result to advise model/peer choice without changing tool authority
-   or governance gates.
+1. Before dividing work, automatically collect Claude and Codex snapshots.
+2. Validate and normalize every provider-defined window.
+3. Update recent burn and task-cost estimates from sanitized history.
+4. Reserve flagship capacity for negotiation and cross-review.
+5. Score candidate task allocations against every overlapping window.
+6. Select an auditable allocation that preserves the configured coding horizon.
+7. Re-sample after material batches and revise the remaining allocation.
+8. Continue on the available provider when the other is exhausted without
+   claiming missing peer convergence.
 
 ## 4. MVP Scope
 
-- A local provider protocol over stdin/stdout or a bounded local file.
-- A manual provider for Owner-entered capacity/reset values.
-- An external-broker provider for a credential-owning tool that returns only
-  sanitized JSON.
-- Feature detection for a future official Claude structured usage command.
-- Strict validation, short freshness, explicit source/attribution/limitations,
-  and no raw-response persistence.
-- Fake-provider deterministic tests.
+- Automatic Codex collection through `account/rateLimits/read`.
+- An automatically invoked Claude usage broker in the Drydock installation.
+- One normalized schema for all named capacity windows and reset times.
+- Short-lived caching, backoff, freshness, and circuit breaking.
+- Conservative account-burn estimates and task-cost defaults.
+- Configurable reserves for flagship planning and review.
+- An automatic allocation recommendation before each delegation batch.
+- Degraded routing when telemetry is unavailable.
+- Fake-provider deterministic tests; no real credentials in CI.
 
-The external broker is not bundled and is not trusted as enforcement evidence.
-The current public macOS widget is research evidence, not the MVP dependency.
+Manual snapshots are test/diagnostic fixtures only. They do not satisfy the
+MVP and cannot be presented as automatic awareness.
 
 ## 5. Non-Goals
 
-- Credential discovery, token refresh, or direct Anthropic requests.
-- Screen scraping the interactive `/usage` UI.
-- Drydock-specific or model-specific attribution from account-wide data.
-- Fable quota claims without evidence.
-- Automatic permission, release, or governance decisions.
-- Hosted telemetry or a Drydock usage database.
+- Showing a menu-bar dashboard.
+- Exposing tokens or raw usage responses outside the broker.
+- Exact Drydock-only attribution from shared-account Claude usage.
+- Assuming an Opus, Fable, or other model-specific window from its name alone.
+- Optimizing away required peer critique or independent verification.
+- Hosted telemetry or a Drydock cloud credential store.
 
 ## 6. System Components
 
-- `UsageProvider`: obtains one sanitized snapshot from an approved local
-  source.
-- `SnapshotValidator`: strict schema/range/time validation.
-- `SanitizedCache`: stores only the validated snapshot and fetch time.
-- `PaceForecaster`: consumes remaining/reset plus independently measured burn.
-- `RoutingAdvisor`: recommends whether to spend a peer round; it owns no tools.
+- `CodexCapacityProvider`: reads Codex app-server rate limits.
+- `ClaudeUsageBroker`: the only credential-owning component; returns sanitized
+  Claude windows over a bounded local protocol.
+- `SnapshotNormalizer`: strict schema/range/time/source validation.
+- `CapacityCache`: short-lived current and explicitly stale snapshots.
+- `BurnEstimator`: rolling provider/window utilization deltas.
+- `TaskCostEstimator`: actual usage grouped by provider, model, and task class,
+  plus confidence/sample count.
+- `ReservePolicy`: protects planning, cross-review, and Owner-configured runway.
+- `AllocationEngine`: scores task/provider assignments across all windows.
+- `RoutingAdvisor`: returns the selected allocation and evidence to the pilot.
 
 ## 7. Data Model Sketch
 
 ```json
 {
   "schema_version": 1,
-  "source": "manual|external_broker|official_cli",
+  "provider": "claude|codex",
+  "source": "claude_broker|codex_app_server",
   "status": "current|stale|unavailable",
   "sampled_at": "ISO-8601 UTC",
-  "freshness_seconds": 42,
+  "freshness_seconds": 12,
   "attribution": "shared_account",
   "windows": [
     {
@@ -68,99 +79,148 @@ The current public macOS widget is research evidence, not the MVP dependency.
       "resets_at": "ISO-8601 UTC or null"
     }
   ],
-  "limitations": ["account-wide; not Drydock-attributable"]
+  "limitations": ["account-wide; not task-attributable"]
 }
 ```
 
-Unknown fields are rejected. Tokens, account identifiers, subscription
-secrets, request headers, raw bodies, and prompts are forbidden.
+The routing result additionally records the target horizon, reserve per
+provider/window, projected burn, binding window, task-cost estimate and
+confidence, selected allocation, and rejected alternatives.
+
+Unknown fields are rejected at the broker boundary. Tokens, account
+identifiers, request headers, raw bodies, prompts, and repository content are
+forbidden outside the credential-owning broker.
 
 ## 8. Data Flow
 
-Approved provider -> bounded local transport -> strict validator -> sanitized
-short-lived cache -> pace forecast -> routing advice -> Owner-visible evidence.
+Codex app-server -> Codex provider -> normalization.
 
-Provider stderr is diagnostic only and must be scrubbed or omitted; it never
-becomes usage evidence. Invalid or stale input terminates at `unavailable`.
+Claude credential store -> isolated broker -> private/official usage source ->
+sanitization -> normalization.
+
+Normalized snapshots + rolling sanitized history + proposed task graph ->
+reserve policy -> allocation engine -> auditable recommendation -> pilot ->
+bounded workers. Actual call usage then updates task-cost history.
 
 ## 9. API / Interface Boundaries
 
-The provider is a separate local executable or manually supplied snapshot. It
-receives no prompt, packet content, repository content, or Drydock credential.
-It returns exactly one JSON document matching the snapshot contract.
+The Claude broker is a separate least-privilege process shipped by the same
+Drydock installation. It receives no prompt, packet, task, or repository
+content. It emits exactly one size-bounded JSON snapshot on stdout. It must
+never emit tokens or raw responses; stderr is fixed diagnostic codes, not
+provider text.
 
-A future official CLI provider may run only a documented, non-interactive,
-structured usage command. The command is feature-detected; Drydock does not
-infer support from version numbers or TUI text.
+The core scheduler has no credential-store access and cannot ask the broker to
+make arbitrary network calls. Provider endpoint, method, header, credential
+lookup, token refresh, response parsing, and redaction are fixed inside the
+broker.
 
 ## 10. Auth & Permissions Assumptions
 
-Drydock has no Claude credential permission. An external broker, if the Owner
-installs one, owns its own authentication and is outside Drydock's trust
-boundary. Its output is unsigned advisory input and can be forged by the local
-user or compromised broker.
+Automatic Claude telemetry requires a credential-owning trusted component
+until an official structured command exists. That component is part of
+Drydock's trusted computing base and must be named honestly. Process isolation
+prevents accidental token flow into the model-facing core; it is not a claim
+that bundled broker code is outside Drydock as a product.
+
+The first real credential-store probe requires explicit Owner approval after
+the exact path/store, fields, access mode, logging, and network request are
+shown. The broker requests no repository or tool-execution authority.
 
 ## 11. External Services / Integrations
 
-The MVP has no required network service. A separate broker may talk to its own
-provider, but Drydock neither knows nor receives its bearer token.
+- Codex app-server `account/rateLimits/read`.
+- Claude Code's local credential store, exact Windows mechanism still to be
+  probed with approval.
+- Preferred future source: a documented Claude structured usage command.
+- Current observed fallback candidate:
+  `GET https://api.anthropic.com/api/oauth/usage` with
+  `anthropic-beta: oauth-2025-04-20`.
 
-The observed private OAuth mechanism is deliberately not an integration:
-`GET https://api.anthropic.com/api/oauth/usage` with the
-`anthropic-beta: oauth-2025-04-20` header. The public widget reads Claude Code
-credentials, can refresh and rewrite tokens, and maps `five_hour` and
-`seven_day` usage windows. Those facts explain feasibility and risk; they do
-not establish a supported Anthropic contract.
+The public widget proves the fallback mechanism can expose `five_hour`,
+`seven_day`, and optional weekly Opus data. It also refreshes credentials,
+which is why the broker requires a dedicated security review rather than being
+copied into the pilot.
 
-## 12. Risks & Tradeoffs
+## 12. Scheduling Model
 
-- Credential separation sacrifices turnkey automatic setup but preserves the
-  current security boundary.
-- Manual values are less convenient but are honest and immediately portable.
-- An external broker can lie; therefore its signal stays advisory.
-- Shared-account utilization includes other Claude clients and conversations.
-- Two snapshots estimate account burn, not Drydock burn.
-- Provider windows may appear, disappear, or change semantics.
-- Cache improves resilience but requires visible freshness to avoid false
-  confidence.
+For each provider window:
 
-## 13. Implementation Phases
+- `remaining = 100 - utilization`
+- `allocatable = max(0, remaining - reserve)`
+- `horizon = min(owner_target_hours, hours_until_reset)` when reset is known
+- `projected_burn = burn_rate * horizon`
+- `margin = allocatable - projected_burn`
 
-1. Owner and Claude approve the provider boundary and schema.
-2. Implement strict snapshot types, validation, manual provider, and fixtures.
-3. Implement bounded external-broker execution and sanitized cache.
-4. Wire valid snapshots into `pace_forecast` and advisory routing.
-5. Add an official CLI provider only when a documented command exists.
-6. Consider a credential-owning helper only in a new explicit packet.
+The provider's binding window is its lowest margin. A task allocation is
+eligible only when projected task cost keeps all known margins non-negative.
+Scores then consider:
 
-## 14. Testing Strategy
+- relative binding-window margin across Claude and Codex;
+- task/model suitability and epistemic value;
+- learned task cost and confidence;
+- reserve needed for mandatory peer planning/review;
+- cost of losing cross-model diversity;
+- reset proximity, so capacity expiring soon may be spent before scarcer
+  long-window capacity when quality is comparable.
 
-- Table tests for unknown fields, non-finite/out-of-range utilization, missing
-  timestamps, future skew, stale samples, duplicate/unknown windows, and
-  forbidden sensitive keys.
-- Fake broker tests for timeout, non-zero exit, malformed/oversized JSON,
-  stderr leakage, backoff, and last-good-but-stale reporting.
-- Pace tests proving unavailable inputs never become healthy.
-- Static tests forbidding token/header/raw-response fields in persisted data.
-- No test calls Anthropic or reads a real credential store.
+Cold start uses conservative task bands rather than invented precision. Low
+confidence widens estimated cost upward. Shared-account Claude burn includes
+human and other-client activity, which is appropriate for protecting capacity
+even though it cannot attribute a particular task.
 
-## 15. LaunchGuardian Handoff
+## 13. Failure and Degraded Modes
 
-Before a credential-owning helper or private endpoint ships, apply secrets and
-config hygiene, third-party integration, dependency/supply-chain, privacy,
-logging, failure-mode, and AI-agent security gates. The credential-free manual
-provider has a smaller surface but still needs command execution, input
-validation, and safe logging review.
+- Claude exhausted, Codex available: Codex continues in `single_pilot`, with
+  peer convergence not established.
+- Codex constrained, Claude available: preserve Codex pilot/control capacity
+  and shift suitable bounded work to Claude.
+- One telemetry source stale/unavailable: do not infer headroom; protect the
+  unknown provider, run a bounded operational probe if useful, and route with
+  a visible degraded-confidence result.
+- Both telemetry sources unavailable: continue governance but do not claim
+  quota-optimized delegation.
+- Broker schema/credential/endpoint failure: circuit-break the broker, retain
+  only explicitly stale last-good display evidence, and never fail open.
 
-## 16. Next Skill Recommendation
+## 14. Implementation Phases
 
-After Owner and peer approval: `backend` for the provider/validator/cache,
-`mcp-ranger` for the privileged external broker boundary, and `testing` for
-negative evidence cases. Run `launchguardian` before release if a
-credential-bearing helper enters scope.
+1. Claude peer review and Owner-approved Windows credential-store probe.
+2. Strict normalized snapshot types and fake providers.
+3. Codex provider using the existing app-server mechanism.
+4. Least-privilege Claude broker with private endpoint behind a feature flag
+   and an official-command replacement seam.
+5. Cache, history, backoff, and burn/task-cost estimators.
+6. Reserve policy and allocation engine in recommendation-only mode.
+7. Dogfood shadow decisions against human task splits.
+8. Enable automatic allocation after accuracy and reserve preservation are
+   verified; retain pilot audit before side effects.
+
+## 15. Testing Strategy
+
+- Snapshot tests for unknown/forbidden fields, timestamps, ranges, duplicates,
+  stale/future samples, and provider-defined windows.
+- Broker tests for credential redaction, fixed requests, timeout, response-size
+  bounds, 401 refresh behavior, 429 `Retry-After`, backoff, and circuit break.
+- Scheduler table/property tests over conflicting five-hour/weekly margins,
+  asymmetric resets, exhausted providers, unknown windows, and reserves.
+- Tests proving low-confidence costs are conservative and required peer
+  reserves cannot be allocated to workers.
+- Replay tests comparing proposed allocation with recorded sanitized dogfood
+  sessions.
+- No CI test reads credentials, calls Anthropic, or spends model quota.
+
+## 16. LaunchGuardian Handoff and Next Skills
+
+Before the broker ships, apply secrets/config hygiene, third-party integration,
+dependency/supply-chain, privacy, logging, failure-mode, and AI-agent security
+gates. Use `backend` for providers/scheduler, `mcp-ranger` for the credential
+and app-server boundaries, and `testing` for adversarial broker and allocation
+proof.
 
 ## Architecture Result
 
-PASS WITH OPEN QUESTIONS. A useful credential-free MVP is defined.
-Implementation remains BLOCKED until the Owner chooses the provider boundary
-and Claude performs architectural peer review.
+PASS WITH OPEN QUESTIONS. Automatic dual-provider awareness and smart
+delegation are now mandatory MVP behavior. Implementation remains BLOCKED
+until Claude peer review and explicit approval of the first real Windows
+credential-store probe.
