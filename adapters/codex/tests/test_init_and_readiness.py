@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -25,7 +28,11 @@ def _write_liveness(
     repository: Path,
     *,
     project_root: Path | None = None,
+    write_activity: bool = True,
+    activity_age_ns: int = 0,
 ) -> None:
+    resolved_root = (project_root or repository).resolve()
+    revision = _runtime_revision()
     path = plugin_data / "liveness" / f"{session_id}.json"
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -33,14 +40,49 @@ def _write_liveness(
             {
                 "schema_version": 1,
                 "session_id": session_id,
-                "runtime_sha256": _runtime_revision(),
-                "project_root": str((project_root or repository).resolve()),
+                "runtime_sha256": revision,
+                "project_root": str(resolved_root),
                 "model": "gpt-test",
                 "permission_mode": "default",
             }
         ),
         encoding="utf-8",
     )
+    if write_activity:
+        activity_path = plugin_data / "activity" / f"{session_id}.json"
+        activity_path.parent.mkdir(parents=True)
+        activity_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "runtime_sha256": revision,
+                    "project_root": str(resolved_root),
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "Bash",
+                    "probe_kind": "readiness_cli",
+                    "observed_unix_ns": time.time_ns() - activity_age_ns,
+                    "freshness_window_ns": (
+                        drydock_codex.ACTIVITY_FRESHNESS_WINDOW_NS
+                    ),
+                    "future_skew_ns": drydock_codex.ACTIVITY_FUTURE_SKEW_NS,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
+def _make_windows_junction(link: Path, target: Path) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows junction regression")
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/s", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip("junction creation is unavailable on this Windows installation")
 
 
 def test_init_preview_does_not_write(tmp_path: Path) -> None:
@@ -140,7 +182,9 @@ def test_readiness_reports_positive_evidence_and_unknowns(
         encoding="utf-8",
     )
 
-    report = drydock_codex.readiness(repository)
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
     assert report["plugin"]["status"] == "valid"
     assert report["bundle"]["status"] == "valid"
     assert report["repository"]["initialized"] is True
@@ -173,7 +217,9 @@ def test_readiness_discovers_current_desktop_liveness(
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
 
-    report = drydock_codex.readiness(repository)
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
 
     enforcement = report["enforcement"]
     assert enforcement["active_task_liveness"] == "current_revision_observed"
@@ -181,14 +227,241 @@ def test_readiness_discovers_current_desktop_liveness(
     assert enforcement["liveness_evidence"]["project_root"] == str(
         repository.resolve()
     )
+    assert enforcement["liveness_evidence"]["activity_event"] == "PreToolUse"
+    assert enforcement["liveness_evidence"]["activity_tool"] == "Bash"
+    assert (
+        enforcement["liveness_evidence"]["authentication"]
+        == "none_unsigned_user_writable_plugin_data"
+    )
     assert enforcement["liveness_resolution"] == {
         "session_id_source": "CODEX_THREAD_ID",
         "plugin_data_source": "codex_home_plugin_data",
         "session_error": None,
         "plugin_data_error": None,
+        "probe_requested": True,
+        "probe_error": None,
     }
     assert enforcement["active"] is False
     assert report["ready_for_enforcement"] is False
+
+
+def test_readiness_refuses_positive_without_explicit_hook_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "probe-required-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    _write_liveness(plugin_data, session_id, repository)
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(repository)
+
+    enforcement = report["enforcement"]
+    assert enforcement["active_task_liveness"] == "unavailable"
+    assert enforcement["liveness_evidence"] is None
+    assert enforcement["liveness_resolution"]["probe_requested"] is False
+    assert (
+        enforcement["liveness_resolution"]["probe_error"]
+        == "readiness did not request the supported hook liveness probe"
+    )
+
+
+def test_readiness_rejects_session_record_without_current_activity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "resumed-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    _write_liveness(
+        plugin_data,
+        session_id,
+        repository,
+        write_activity=False,
+    )
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "stale_or_mismatched"
+    )
+    assert report["enforcement"]["liveness_evidence"] is None
+
+
+def test_readiness_rejects_replayed_activity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "replayed-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    _write_liveness(
+        plugin_data,
+        session_id,
+        repository,
+        activity_age_ns=drydock_codex.ACTIVITY_FRESHNESS_WINDOW_NS + 1,
+    )
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "stale_or_mismatched"
+    )
+    assert report["enforcement"]["liveness_evidence"] is None
+
+
+def test_readiness_rejects_activity_beyond_future_clock_skew(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "future-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    _write_liveness(
+        plugin_data,
+        session_id,
+        repository,
+        activity_age_ns=-(
+            drydock_codex.ACTIVITY_FUTURE_SKEW_NS + 1_000_000_000
+        ),
+    )
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "stale_or_mismatched"
+    )
+    assert report["enforcement"]["liveness_evidence"] is None
+
+
+def test_readiness_canonicalizes_the_repository_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "canonical-root-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    _write_liveness(plugin_data, session_id, repository)
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository / ".." / "repository", hook_liveness_probe=True
+    )
+
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "current_revision_observed"
+    )
+    assert report["repository"]["root"] == str(repository.resolve())
+
+
+def test_readiness_rejects_empty_ambient_thread_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    monkeypatch.setenv("CODEX_THREAD_ID", "")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    resolution = report["enforcement"]["liveness_resolution"]
+    assert report["enforcement"]["active_task_liveness"] == "unavailable"
+    assert resolution["session_id_source"] == "unavailable"
+    assert resolution["session_error"] == "current task identifier is unavailable"
+
+
+def test_readiness_rejects_junctioned_candidate_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "junction-root-task"
+    codex_home = tmp_path / "codex-home"
+    data_parent = codex_home / "plugins" / "data"
+    data_parent.mkdir(parents=True)
+    outside = tmp_path / "outside-plugin-data"
+    _write_liveness(outside, session_id, repository)
+    _make_windows_junction(data_parent / "drydock-linked", outside)
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    assert report["enforcement"]["active_task_liveness"] == "not_observed"
+    assert (
+        report["enforcement"]["liveness_resolution"]["plugin_data_source"]
+        == "not_found"
+    )
+
+
+def test_readiness_rejects_junctioned_record_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "junction-record-task"
+    codex_home = tmp_path / "codex-home"
+    plugin_data = codex_home / "plugins" / "data" / "drydock-drydock"
+    plugin_data.mkdir(parents=True)
+    outside = tmp_path / "outside-records"
+    _write_liveness(outside, session_id, repository)
+    _make_windows_junction(plugin_data / "liveness", outside / "liveness")
+    monkeypatch.setenv("CODEX_THREAD_ID", session_id)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
+
+    assert report["enforcement"]["active_task_liveness"] == "not_observed"
+    assert (
+        report["enforcement"]["liveness_resolution"]["plugin_data_source"]
+        == "not_found"
+    )
 
 
 def test_readiness_rejects_repository_mismatched_liveness(
@@ -212,7 +485,9 @@ def test_readiness_rejects_repository_mismatched_liveness(
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
 
-    report = drydock_codex.readiness(repository)
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
 
     assert (
         report["enforcement"]["active_task_liveness"]
@@ -239,7 +514,9 @@ def test_readiness_refuses_ambiguous_plugin_data_roots(
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
 
-    report = drydock_codex.readiness(repository)
+    report = drydock_codex.readiness(
+        repository, hook_liveness_probe=True
+    )
 
     enforcement = report["enforcement"]
     assert enforcement["active_task_liveness"] == "unavailable"
@@ -268,12 +545,45 @@ def test_explicit_liveness_arguments_override_environment_discovery(
         repository,
         session_id=explicit_session,
         plugin_data=explicit_data,
+        hook_liveness_probe=True,
     )
 
     enforcement = report["enforcement"]
     assert enforcement["active_task_liveness"] == "current_revision_observed"
     assert enforcement["liveness_resolution"]["session_id_source"] == "argument"
     assert enforcement["liveness_resolution"]["plugin_data_source"] == "argument"
+
+
+def test_readiness_cli_passes_the_explicit_hook_probe(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repository = tmp_path / "repository"
+    drydock_codex.initialize(repository, apply=True)
+    session_id = "cli-probe-task"
+    plugin_data = tmp_path / "plugin-data"
+    _write_liveness(plugin_data, session_id, repository)
+
+    exit_code = drydock_codex.main(
+        [
+            "readiness",
+            "--root",
+            str(repository),
+            "--session-id",
+            session_id,
+            "--plugin-data",
+            str(plugin_data),
+            "--hook-liveness-probe",
+        ]
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "current_revision_observed"
+    )
+    assert report["enforcement"]["liveness_resolution"]["probe_requested"] is True
 
 
 def test_readiness_does_not_treat_template_context_as_ready(tmp_path: Path) -> None:

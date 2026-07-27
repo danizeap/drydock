@@ -18,11 +18,15 @@ import os
 import re
 import shlex
 import sys
+import time
 from pathlib import Path
 
 
 MAX_INPUT_BYTES = 1024 * 1024
 MAX_TARGETS = 32
+ACTIVITY_FRESHNESS_WINDOW_NS = 10_000_000_000
+ACTIVITY_FUTURE_SKEW_NS = 2_000_000_000
+READINESS_PROBE_FLAG = "--hook-liveness-probe"
 SECRET_ALLOW = {".env.example", ".env.template", ".env.sample"}
 SECRET_PATTERN = re.compile(
     r"""^(
@@ -378,7 +382,7 @@ def packet_guard(payload: dict[str, object], targets: list[str]) -> str | None:
     return None
 
 
-def _state_path(session_id: object) -> Path | None:
+def _data_path(session_id: object, directory: str) -> Path | None:
     if not isinstance(session_id, str) or not re.fullmatch(
         r"[A-Za-z0-9_-]{1,128}", session_id
     ):
@@ -386,7 +390,15 @@ def _state_path(session_id: object) -> Path | None:
     data_root = os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA")
     if not data_root or not os.path.isabs(data_root):
         return None
-    return Path(data_root) / "liveness" / f"{session_id}.json"
+    return Path(data_root) / directory / f"{session_id}.json"
+
+
+def _state_path(session_id: object) -> Path | None:
+    return _data_path(session_id, "liveness")
+
+
+def _activity_path(session_id: object) -> Path | None:
+    return _data_path(session_id, "activity")
 
 
 def _packet_fingerprints(root: Path) -> dict[str, str]:
@@ -424,6 +436,50 @@ def _write_liveness(payload: dict[str, object]) -> bool:
         "model": payload.get("model"),
         "project_root": str(root) if root else None,
         "packet_fingerprints": _packet_fingerprints(root) if root else {},
+    }
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(
+            json.dumps(document, separators=(",", ":"), sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+        return True
+    except OSError:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def _write_activity(payload: dict[str, object]) -> bool:
+    path = _activity_path(payload.get("session_id"))
+    root = _find_project(payload.get("cwd", ""))
+    tool_name = payload.get("tool_name")
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if (
+        path is None
+        or root is None
+        or tool_name != "Bash"
+        or not isinstance(command, str)
+        or READINESS_PROBE_FLAG not in command
+        or not re.search(r"(?<!\S)readiness(?!\S)", command)
+    ):
+        return False
+    document = {
+        "schema_version": 1,
+        "session_id": payload["session_id"],
+        "runtime_sha256": DRYDOCK_RUNTIME_SHA256,
+        "project_root": str(root),
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "probe_kind": "readiness_cli",
+        "observed_unix_ns": time.time_ns(),
+        "freshness_window_ns": ACTIVITY_FRESHNESS_WINDOW_NS,
+        "future_skew_ns": ACTIVITY_FUTURE_SKEW_NS,
     }
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
@@ -560,6 +616,7 @@ def _pre_tool(payload: dict[str, object]) -> None:
             f"guarded matcher: {tool_name!r}."
         )
         return
+    _write_activity(payload)
     for target in targets:
         if path_is_secret(target):
             deny(

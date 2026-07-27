@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -279,15 +280,73 @@ def test_session_liveness_is_revision_bound_and_readiness_stays_inactive(
     )
     assert "hook_liveness=recorded" in result.stdout
 
-    report = drydock_codex.readiness(root, "session-123", data)
+    session_record = data / "liveness" / "session-123.json"
+    baseline = session_record.read_bytes()
+    report = drydock_codex.readiness(
+        root, "session-123", data, hook_liveness_probe=True
+    )
+    assert (
+        report["enforcement"]["active_task_liveness"]
+        == "stale_or_mismatched"
+    )
+
+    ordinary = _run(
+        PLUGIN_ROOT,
+        _pretool("Bash", {"command": "git status"}, root, "session-123"),
+        plugin_data=data,
+    )
+    assert ordinary.returncode == 0
+    assert ordinary.stdout == ""
+    assert not (data / "activity" / "session-123.json").exists()
+    assert session_record.read_bytes() == baseline
+
+    probe_command = (
+        f'python "{PLUGIN_ROOT / "scripts" / "drydock_codex.py"}" '
+        f'readiness --root "{root}" --hook-liveness-probe'
+    )
+    activity = _run(
+        PLUGIN_ROOT,
+        _pretool(
+            "Bash",
+            {"command": probe_command},
+            root,
+            "session-123",
+        ),
+        plugin_data=data,
+    )
+    assert activity.returncode == 0
+    assert activity.stdout == ""
+
+    report = drydock_codex.readiness(
+        root, "session-123", data, hook_liveness_probe=True
+    )
     assert (
         report["enforcement"]["active_task_liveness"]
         == "current_revision_observed"
     )
     assert report["enforcement"]["liveness_evidence"]["model"] == "gpt-test"
+    assert report["enforcement"]["liveness_evidence"]["activity_tool"] == "Bash"
+    assert (
+        report["enforcement"]["liveness_evidence"]["authentication"]
+        == "none_unsigned_user_writable_plugin_data"
+    )
     assert report["enforcement"]["active"] is False
     assert report["ready_for_enforcement"] is False
     assert report["enforcement"]["trusted"] == "unknown"
+
+    activity_path = data / "activity" / "session-123.json"
+    activity_record = json.loads(activity_path.read_text(encoding="utf-8"))
+    activity_record["observed_unix_ns"] = (
+        time.time_ns() - drydock_codex.ACTIVITY_FRESHNESS_WINDOW_NS - 1
+    )
+    activity_path.write_text(json.dumps(activity_record), encoding="utf-8")
+    replayed = drydock_codex.readiness(
+        root, "session-123", data, hook_liveness_probe=True
+    )
+    assert (
+        replayed["enforcement"]["active_task_liveness"]
+        == "stale_or_mismatched"
+    )
 
 
 def test_stop_gate_uses_session_baseline_and_pending_verification(

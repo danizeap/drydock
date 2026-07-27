@@ -13,6 +13,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Iterator
@@ -32,6 +33,9 @@ REPOSITORY_MARKERS = (
 LOCK_NAME = ".drydock-init.lock"
 SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
 MAX_PLUGIN_DATA_ENTRIES = 256
+ACTIVITY_FRESHNESS_WINDOW_NS = 10_000_000_000
+ACTIVITY_FUTURE_SKEW_NS = 2_000_000_000
+WINDOWS_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
 
 
 def _sha256(content: bytes) -> str:
@@ -121,9 +125,9 @@ def _resolve_session_id(value: str | None) -> tuple[str | None, str, str | None]
         source = "argument"
     else:
         value = os.environ.get("CODEX_THREAD_ID")
-        source = "CODEX_THREAD_ID" if value else "unavailable"
-    if value is None:
-        return None, source, "current task identifier is unavailable"
+        source = "CODEX_THREAD_ID"
+        if not value:
+            return None, "unavailable", "current task identifier is unavailable"
     if not SESSION_ID_PATTERN.fullmatch(value):
         return None, f"{source}_invalid", "current task identifier is invalid"
     return value, source, None
@@ -143,6 +147,41 @@ def _codex_plugin_data_parent() -> tuple[Path | None, str | None]:
     return codex_home / "plugins" / "data", None
 
 
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    return bool(
+        WINDOWS_REPARSE_POINT
+        and getattr(metadata, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT
+    )
+
+
+def _plain_directory(path: Path) -> bool:
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISDIR(metadata.st_mode) and not _is_reparse_point(metadata)
+
+
+def _plain_regular_file(path: Path) -> bool:
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISREG(metadata.st_mode) and not _is_reparse_point(metadata)
+
+
+def _record_path(
+    plugin_data: Path, directory: str, session_id: str
+) -> Path | None:
+    if not _plain_directory(plugin_data):
+        return None
+    record_directory = plugin_data / directory
+    if not _plain_directory(record_directory):
+        return None
+    candidate = record_directory / f"{session_id}.json"
+    return candidate if _plain_regular_file(candidate) else None
+
+
 def _discover_plugin_data(
     session_id: str,
 ) -> tuple[Path | None, str, str | None]:
@@ -159,17 +198,16 @@ def _discover_plugin_data(
                         "scan_limit_exceeded",
                         "plugin-data directory exceeds the bounded entry limit",
                     )
-                if not entry.is_dir(follow_symlinks=False):
+                plugin_data = Path(entry.path)
+                if _record_path(plugin_data, "liveness", session_id) is None:
                     continue
-                state_path = Path(entry.path) / "liveness" / f"{session_id}.json"
-                try:
-                    metadata = os.stat(state_path, follow_symlinks=False)
-                except OSError:
-                    continue
-                if stat.S_ISREG(metadata.st_mode):
-                    candidates.append(Path(entry.path))
-    except OSError:
-        return None, "not_found", "plugin-data directory is unavailable"
+                candidates.append(plugin_data)
+    except FileNotFoundError:
+        return None, "not_found", "plugin-data directory was not found"
+    except PermissionError:
+        return None, "unavailable", "plugin-data directory is not readable"
+    except OSError as exc:
+        return None, "unavailable", f"plugin-data directory scan failed: {exc}"
     if not candidates:
         return None, "not_found", "current task liveness record was not found"
     if len(candidates) != 1:
@@ -213,6 +251,7 @@ def _enforcement_evidence(
     repository_root: Path,
     session_id: str | None,
     plugin_data: Path | None,
+    hook_liveness_probe: bool,
 ) -> dict[str, object]:
     hook_definition = PLUGIN_ROOT / "hooks" / "hooks.json"
     manifest_path = PLUGIN_ROOT / "hooks" / "runtime.manifest.json"
@@ -252,18 +291,65 @@ def _enforcement_evidence(
     )
     liveness = "unavailable"
     liveness_evidence: dict[str, object] | None = None
-    if resolved_session_id and resolved_plugin_data is not None:
-        state_path = (
-            resolved_plugin_data / "liveness" / f"{resolved_session_id}.json"
+    probe_error = (
+        None
+        if hook_liveness_probe
+        else "readiness did not request the supported hook liveness probe"
+    )
+    if (
+        hook_liveness_probe
+        and resolved_session_id
+        and resolved_plugin_data is not None
+    ):
+        state_path = _record_path(
+            resolved_plugin_data, "liveness", resolved_session_id
+        )
+        activity_path = _record_path(
+            resolved_plugin_data, "activity", resolved_session_id
         )
         try:
+            if state_path is None:
+                raise OSError("SessionStart liveness record is unavailable")
             state = json.loads(state_path.read_text(encoding="utf-8"))
-            if (
+            activity = (
+                json.loads(activity_path.read_text(encoding="utf-8"))
+                if activity_path is not None
+                else {}
+            )
+            observed_unix_ns = activity.get("observed_unix_ns")
+            activity_age_ns = (
+                time.time_ns() - observed_unix_ns
+                if isinstance(observed_unix_ns, int)
+                and not isinstance(observed_unix_ns, bool)
+                else ACTIVITY_FRESHNESS_WINDOW_NS + 1
+            )
+            state_matches = (
                 state.get("session_id") == resolved_session_id
                 and revision
                 and state.get("runtime_sha256") == revision
                 and _same_repository(state.get("project_root"), repository_root)
-            ):
+            )
+            activity_matches = (
+                activity.get("schema_version") == 1
+                and activity.get("session_id") == resolved_session_id
+                and revision
+                and activity.get("runtime_sha256") == revision
+                and _same_repository(
+                    activity.get("project_root"), repository_root
+                )
+                and activity.get("hook_event_name") == "PreToolUse"
+                and activity.get("tool_name") == "Bash"
+                and activity.get("probe_kind") == "readiness_cli"
+                and activity.get("freshness_window_ns")
+                == ACTIVITY_FRESHNESS_WINDOW_NS
+                and activity.get("future_skew_ns") == ACTIVITY_FUTURE_SKEW_NS
+                and (
+                    -ACTIVITY_FUTURE_SKEW_NS
+                    <= activity_age_ns
+                    <= ACTIVITY_FRESHNESS_WINDOW_NS
+                )
+            )
+            if state_matches and activity_matches:
                 liveness = "current_revision_observed"
                 liveness_evidence = {
                     "session_id": resolved_session_id,
@@ -271,6 +357,18 @@ def _enforcement_evidence(
                     "project_root": str(repository_root),
                     "model": state.get("model"),
                     "permission_mode": state.get("permission_mode"),
+                    "activity_event": activity["hook_event_name"],
+                    "activity_tool": activity["tool_name"],
+                    "activity_age_ms": activity_age_ns // 1_000_000,
+                    "freshness_window_ms": (
+                        ACTIVITY_FRESHNESS_WINDOW_NS // 1_000_000
+                    ),
+                    "future_skew_ms": ACTIVITY_FUTURE_SKEW_NS // 1_000_000,
+                    "replay_window_ms": (
+                        ACTIVITY_FRESHNESS_WINDOW_NS // 1_000_000
+                    ),
+                    "clock": "system_utc_wall_clock",
+                    "authentication": "none_unsigned_user_writable_plugin_data",
                 }
             else:
                 liveness = "stale_or_mismatched"
@@ -290,11 +388,19 @@ def _enforcement_evidence(
         "managed": "unknown",
         "active_task_liveness": liveness,
         "liveness_evidence": liveness_evidence,
+        "liveness_evidence_limitations": [
+            "plugin-data records are unsigned and user-writable",
+            "freshness is a bounded cooperative signal, not hostile-agent attestation",
+            "freshness depends on the operating-system wall clock",
+            "a marker may replay within the 10-second freshness window",
+        ],
         "liveness_resolution": {
             "session_id_source": session_id_source,
             "plugin_data_source": plugin_data_source,
             "session_error": session_error,
             "plugin_data_error": plugin_data_error,
+            "probe_requested": hook_liveness_probe,
+            "probe_error": probe_error,
         },
         "handler_revision": revision,
         "active": False,
@@ -326,6 +432,7 @@ def readiness(
     session_id: str | None = None,
     plugin_data: Path | None = None,
     check_peer: bool = False,
+    hook_liveness_probe: bool = False,
 ) -> dict[str, object]:
     root = root.resolve(strict=False)
     plugin = _manifest_evidence()
@@ -344,7 +451,9 @@ def readiness(
     missing = [marker for marker in REPOSITORY_MARKERS if not (root / marker).is_file()]
     initialized = not missing
     context = _context_status(root)
-    enforcement = _enforcement_evidence(root, session_id, plugin_data)
+    enforcement = _enforcement_evidence(
+        root, session_id, plugin_data, hook_liveness_probe
+    )
 
     blockers: list[str] = []
     if plugin.get("status") != "valid":
@@ -588,6 +697,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run the no-quota Claude authentication status check",
     )
+    readiness_parser.add_argument(
+        "--hook-liveness-probe",
+        action="store_true",
+        help="require a fresh marker from this command's supported Bash hook",
+    )
 
     init_parser = subparsers.add_parser("init")
     init_parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -605,6 +719,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.session_id,
                 args.plugin_data,
                 args.check_peer,
+                args.hook_liveness_probe,
             )
         else:
             result = initialize(args.root, args.apply)

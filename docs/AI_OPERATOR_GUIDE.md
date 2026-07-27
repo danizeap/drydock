@@ -100,14 +100,30 @@ The init skill previews create-only writes and requires explicit approval
 before apply. Do not translate these operations into `/drydock:*` slash
 commands: those are Claude-host commands.
 
-On the currently tested Desktop build, readiness binds current-task liveness
-from `CODEX_THREAD_ID` only when one direct child of the current Codex
-plugin-data directory contains a record whose task ID, runtime digest, and
-repository root all match. The variable is observed host behavior rather than
-a stable public environment contract; if it disappears or discovery is
-missing/ambiguous, readiness stays non-positive and reports its resolution
-evidence. Explicit `--session-id` and `--plugin-data` flags are diagnostic
-overrides, not normal installation steps.
+On the currently tested Desktop build, the readiness skill includes
+`--hook-liveness-probe`. The command's own supported Bash `PreToolUse` hook
+recognizes that readiness probe and writes an atomic activity marker
+immediately before the Python process starts. Readiness binds current-task liveness from
+`CODEX_THREAD_ID` only when one direct child of the current Codex plugin-data
+directory contains plain, non-linked SessionStart and activity record paths
+whose task ID, runtime digest, and repository root all match. The activity
+marker must be no more than 10 seconds old or 2 seconds future-skewed on the
+operating-system wall clock. This rejects a SessionStart record replayed after
+hooks are disabled and the same thread is resumed. The variable is observed
+host behavior rather than a stable public environment contract; if it
+disappears or discovery is missing, replayed, linked, or ambiguous, readiness
+stays non-positive and reports its resolution evidence. Explicit
+`--session-id` and `--plugin-data` flags are diagnostic overrides, not normal
+installation steps, and do not bypass the activity requirement.
+
+These plugin-data records are unsigned and user-writable. A
+`current_revision_observed` result is bounded cooperative evidence that the
+supported readiness-probe path ran immediately before readiness. A marker can
+replay within the documented 10-second window; it is not cryptographic
+provenance, proof against a hostile agent, host-reported trust/enablement, or
+coverage beyond the named path. The JSON keeps `active: false`,
+`trusted: unknown`, empty covered paths, and `ready_for_enforcement: false` in
+the Phase 1 shell.
 
 Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a

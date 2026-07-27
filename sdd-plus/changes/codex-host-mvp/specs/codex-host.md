@@ -40,12 +40,27 @@ installed file or successful unit probe alone.
 
 #### Scenario: Readiness resolves current Desktop task evidence
 - **WHEN** Codex exposes the current task identifier to a readiness subprocess
-  and a trusted SessionStart hook wrote exactly one matching record beneath
-  the current Codex plugin-data root
-- **THEN** readiness binds only that task identifier, current runtime digest,
-  and current repository root and reports `current_revision_observed`
-- **AND** an absent, malformed, stale, repository-mismatched, or ambiguous
-  record is never reported as current-task liveness
+  and exactly one candidate plugin-data root contains both a matching
+  SessionStart record and a recent supported Bash `PreToolUse` activity marker
+  for the explicit readiness CLI hook-probe flag
+- **THEN** readiness binds the task identifier, current runtime digest,
+  resolved repository root, guarded tool contract, and a system-wall-clock age
+  inside the documented freshness and future-skew bounds before it reports
+  `current_revision_observed`
+- **AND** an absent, malformed, replayed, future-dated, repository-mismatched,
+  runtime-mismatched, or ambiguous record is never reported as current-task
+  liveness
+- **AND** readiness discloses that plugin-data records are unsigned,
+  user-writable cooperative evidence rather than proof against a hostile
+  agent, that freshness trusts the operating-system wall clock, and that the
+  marker may replay inside the documented freshness window
+
+#### Scenario: Thread resumes without current hook activity
+- **WHEN** the current thread identifier has a matching record from an earlier
+  startup or resume but the readiness invocation is not preceded by a fresh
+  supported readiness-probe `PreToolUse` activity marker
+- **THEN** readiness reports non-positive liveness and SHALL NOT replay the
+  earlier record as `current_revision_observed`
 
 #### Scenario: Hosted and opted-out paths
 - **WHEN** readiness describes tool coverage

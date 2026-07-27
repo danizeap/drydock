@@ -86,8 +86,12 @@ codex-host-mvp
 - [x] Make readiness resolve the exact current Desktop task and unique plugin
   data record automatically while failing non-positively on missing,
   mismatched, or ambiguous evidence.
-- [x] Reinstall the corrected local plugin and repeat the fresh-task readiness
-  dogfood.
+- [ ] Reinstall the current corrected local plugin and repeat fresh-task
+  readiness plus selective allow/deny dogfood against its exact handler
+  revision.
+- [x] Bind readiness to an explicit CLI hook probe and bounded recent supported
+  `PreToolUse` activity marker; reject out-of-window resume replay and linked
+  candidate paths; disclose unsigned plugin-data evidence and in-window replay.
 - [ ] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
 - [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer

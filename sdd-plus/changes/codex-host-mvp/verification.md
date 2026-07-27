@@ -349,7 +349,9 @@ codex-host-mvp
   findings, and 0 raw Semgrep errors. The earlier scan of the generated copy
   produced findings and was not reported as a pass or hidden with an
   exclusion.
-- [x] Fresh Desktop readiness dogfood — after CLI review/trust, a new Desktop
+- [x] Historical Desktop readiness dogfood for handler
+  `86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`
+  — after CLI review/trust, a new Desktop
   task executed SessionStart and wrote a liveness record for task
   `019fa333-1ff4-76d0-901d-2d392973f80b`, repository
   `C:\Users\Daniel Paez\drydock`, model `gpt-5.6-sol`, and runtime digest
@@ -375,7 +377,9 @@ codex-host-mvp
   null. It correctly retained `active: false`, `trusted: unknown`, and
   `ready_for_enforcement: false`; PreToolUse interception is recorded
   separately below rather than inferred from SessionStart.
-- [x] Fresh Desktop PreToolUse dogfood — in that same current-revision task,
+- [x] Historical Desktop PreToolUse dogfood for handler
+  `86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`
+  — in that same current-revision task,
   canonical `Bash` denied the exact inert command
   `Set-Content -WhatIf -LiteralPath
   '.env.drydock-live-probe-7f1c9e42' -Value 'probe'`, and canonical
@@ -387,9 +391,44 @@ codex-host-mvp
   the two defined contracts on the tested build, not evidence for uncovered
   MCP, other local, hosted, or specialized paths and not a managed or Tier 4
   claim.
+- [x] Scoped post-convergence Opus review — the exact requested
+  `claude-opus-5` reviewed `07d2be3..40adbf5` through the bounded controller
+  and returned `converged: false` with one blocker after 201.3 seconds. The
+  thread-keyed record carried no time, nonce, or per-invocation marker, so a
+  stale resume could return `current_revision_observed`. Repository inspection
+  reproduced the defect: the record had no freshness field and the positive
+  regression hand-wrote its evidence. The first output wrapper lost its pipe
+  and was not counted as a verdict. The clean retry cost `$0.6880055` against
+  a `$1.25` ceiling. Exact scope and residual gaps are recorded in
+  `claude-readiness-review-result.md`.
+- [x] Hook-probe freshness correction — only a supported Bash command
+  containing the readiness subcommand and explicit `--hook-liveness-probe`
+  writes a separate atomic activity record; the readiness process also
+  confirms the probe flag was requested. SessionStart's packet baseline remains
+  unchanged. Readiness requires the same task, runtime digest, resolved
+  repository, event/tool/probe kind, a 10-second maximum system-clock age, and
+  a 2-second future-skew bound. It rejects missing, expired, materially future,
+  repository-mismatched, linked/junctioned, or ambiguous evidence and reports
+  the record as unsigned/user-writable cooperative evidence. An attempted
+  cross-process monotonic design failed on this machine because hook Python
+  3.14 and readiness Python 3.11 differed by about 43.7 seconds while their
+  wall clocks differed by about 67 milliseconds; the failed test was retained
+  until the mechanism changed. An unsigned marker may still replay inside the
+  disclosed 10-second window.
+- [x] Freshness correction verification — focused hook/readiness tests return
+  `35 passed, 1 skipped`; the full Codex adapter returns `107 passed, 2
+  skipped`; the full legacy/Claude-host suite remains `548 passed, 6 skipped`.
+  The two Codex skips are the pre-existing Windows symlink-privilege tests;
+  both new Windows junction regressions ran. Sync remains 11/11, scaffold and
+  generated-hook rebuild comparisons pass, compilation passes, and
+  `python scripts/release.py --check` reports all five version locations at
+  `0.12.1`. The corrected handler revision is
+  `44a45c06c92e8e850a7895f5a0f478e26c6876230c8d0576590abd0442618760`;
+  it is not yet installed, trusted, or observed in a fresh task.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `37 complete, 2 pending`; scoped independent
-  re-review and one integrated end-to-end workflow run remain explicit.
+  codex-host-mvp` reports `37 complete, 3 pending`; current-revision install
+  and live proof, scoped independent re-review, and one integrated end-to-end
+  workflow run remain explicit.
 
 ## Documentation Updates
 
@@ -398,29 +437,37 @@ codex-host-mvp
 - [x] Delta specs added for Codex host behavior, orchestration, and enforcement.
 - [x] Cross-model blocking review reconciled into the blueprint and packet.
 - [x] A bounded re-review prompt is saved as `claude-rereview-request.md`.
+- [x] The scoped readiness re-review result is saved as
+  `claude-readiness-review-result.md`.
 - [x] README/operator guide updated during implementation.
 - [x] Project context updated for the Codex-host phase and current release
   facts.
 
 ## Result
 
-**IMPLEMENTATION, SECURITY-SCAN, AND FINAL PEER EVIDENCE PASS — INTEGRATED
-DOGFOOD GATE OPEN.**
+**IMPLEMENTATION AND SECURITY-SCAN EVIDENCE PASS — CURRENT-REVISION LIVE,
+PEER, AND INTEGRATED DOGFOOD GATES OPEN.**
 
 The additive plugin, deterministic enforcement adapter, peer controller,
 mutation runner, and verifier pass their local suites and current-machine live
-probes. The final Owner-relayed Opus review reproduced the deterministic
-evidence and returned `converged: true` with no blockers; its residual gaps and
-risks remain recorded, and this is independent process/context review rather
-than cross-family epistemic diversity.
+probes. The final Owner-relayed Opus architecture/code review reproduced the
+then-current deterministic evidence and returned `converged: true` with no
+blockers. A later scoped Opus review found the readiness resume-replay blocker;
+the reproduced correction now passes local verification but has not yet
+received the required clean re-review. This is independent process/context
+review rather than cross-family epistemic diversity.
 LaunchGuardian's reviewed source build returns
 `APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
 findings, and its action-pinned descendant passes a clean-source self-scan;
 PyPI 0.2.0 cannot yet reproduce that result. The Owner installed and trusted
-the ordinary Codex hooks, and a fresh task observed the current revision plus
-live denials on the two narrow guarded tool contracts. Readiness still reports
-`active: false`, `trusted: unknown`, and `ready_for_enforcement: false`; these
-non-managed, user-disableable hooks remain explicitly incomplete for other
-tool paths. One integrated hosted workflow run and a scoped independent review
-of the readiness correction and live evidence remain pending. No publication
-or release is authorized by this evidence.
+handler
+`86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`;
+a fresh task observed that revision plus live denials on the two narrow
+guarded tool contracts. The source-corrected handler
+`44a45c06c92e8e850a7895f5a0f478e26c6876230c8d0576590abd0442618760`
+is not yet installed, trusted, or observed in a fresh task. Readiness still
+reports `active: false`, `trusted: unknown`, and
+`ready_for_enforcement: false`; these non-managed, user-disableable hooks
+remain explicitly incomplete for other tool paths. Current-revision live
+proof, a scoped independent re-review, and one integrated hosted workflow run
+remain pending. No publication or release is authorized by this evidence.
