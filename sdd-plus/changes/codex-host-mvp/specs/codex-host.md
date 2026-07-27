@@ -38,6 +38,15 @@ installed file or successful unit probe alone.
   revision
 - **THEN** readiness reports that a fresh task is required
 
+#### Scenario: Readiness resolves current Desktop task evidence
+- **WHEN** Codex exposes the current task identifier to a readiness subprocess
+  and a trusted SessionStart hook wrote exactly one matching record beneath
+  the current Codex plugin-data root
+- **THEN** readiness binds only that task identifier, current runtime digest,
+  and current repository root and reports `current_revision_observed`
+- **AND** an absent, malformed, stale, repository-mismatched, or ambiguous
+  record is never reported as current-task liveness
+
 #### Scenario: Hosted and opted-out paths
 - **WHEN** readiness describes tool coverage
 - **THEN** it explicitly marks hosted tools and specialized opted-out paths as

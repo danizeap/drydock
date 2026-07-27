@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -29,6 +30,8 @@ REPOSITORY_MARKERS = (
     "sdd-plus/protocols/framework-usage.md",
 )
 LOCK_NAME = ".drydock-init.lock"
+SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
+MAX_PLUGIN_DATA_ENTRIES = 256
 
 
 def _sha256(content: bytes) -> str:
@@ -113,8 +116,103 @@ def _codex_evidence() -> dict[str, object]:
     return {"status": "reported", "executable": executable, "version": output}
 
 
+def _resolve_session_id(value: str | None) -> tuple[str | None, str, str | None]:
+    if value is not None:
+        source = "argument"
+    else:
+        value = os.environ.get("CODEX_THREAD_ID")
+        source = "CODEX_THREAD_ID" if value else "unavailable"
+    if value is None:
+        return None, source, "current task identifier is unavailable"
+    if not SESSION_ID_PATTERN.fullmatch(value):
+        return None, f"{source}_invalid", "current task identifier is invalid"
+    return value, source, None
+
+
+def _codex_plugin_data_parent() -> tuple[Path | None, str | None]:
+    configured = os.environ.get("CODEX_HOME")
+    if configured:
+        if not os.path.isabs(configured):
+            return None, "CODEX_HOME is not absolute"
+        codex_home = Path(configured)
+    else:
+        try:
+            codex_home = Path.home() / ".codex"
+        except RuntimeError:
+            return None, "Codex home is unavailable"
+    return codex_home / "plugins" / "data", None
+
+
+def _discover_plugin_data(
+    session_id: str,
+) -> tuple[Path | None, str, str | None]:
+    parent, error = _codex_plugin_data_parent()
+    if parent is None:
+        return None, "unavailable", error
+    candidates: list[Path] = []
+    try:
+        with os.scandir(parent) as entries:
+            for index, entry in enumerate(entries, start=1):
+                if index > MAX_PLUGIN_DATA_ENTRIES:
+                    return (
+                        None,
+                        "scan_limit_exceeded",
+                        "plugin-data directory exceeds the bounded entry limit",
+                    )
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                state_path = Path(entry.path) / "liveness" / f"{session_id}.json"
+                try:
+                    metadata = os.stat(state_path, follow_symlinks=False)
+                except OSError:
+                    continue
+                if stat.S_ISREG(metadata.st_mode):
+                    candidates.append(Path(entry.path))
+    except OSError:
+        return None, "not_found", "plugin-data directory is unavailable"
+    if not candidates:
+        return None, "not_found", "current task liveness record was not found"
+    if len(candidates) != 1:
+        return (
+            None,
+            "ambiguous",
+            "current task liveness record exists in multiple plugin-data roots",
+        )
+    return candidates[0], "codex_home_plugin_data", None
+
+
+def _resolve_plugin_data(
+    value: Path | None, session_id: str | None
+) -> tuple[Path | None, str, str | None]:
+    if value is not None:
+        if not value.is_absolute():
+            return None, "argument_invalid", "plugin-data argument is not absolute"
+        return value, "argument", None
+    for variable in ("PLUGIN_DATA", "CLAUDE_PLUGIN_DATA"):
+        configured = os.environ.get(variable)
+        if configured:
+            if not os.path.isabs(configured):
+                return None, f"{variable}_invalid", f"{variable} is not absolute"
+            return Path(configured), variable, None
+    if session_id is None:
+        return None, "unavailable", "plugin-data discovery requires a task identifier"
+    return _discover_plugin_data(session_id)
+
+
+def _same_repository(value: object, expected: Path) -> bool:
+    if not isinstance(value, str) or not value or not os.path.isabs(value):
+        return False
+    try:
+        observed = Path(value).resolve(strict=False)
+    except OSError:
+        return False
+    return os.path.normcase(str(observed)) == os.path.normcase(str(expected))
+
+
 def _enforcement_evidence(
-    session_id: str | None, plugin_data: Path | None
+    repository_root: Path,
+    session_id: str | None,
+    plugin_data: Path | None,
 ) -> dict[str, object]:
     hook_definition = PLUGIN_ROOT / "hooks" / "hooks.json"
     manifest_path = PLUGIN_ROOT / "hooks" / "runtime.manifest.json"
@@ -146,29 +244,31 @@ def _enforcement_evidence(
         except (OSError, UnicodeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             definition_error = str(exc)
 
-    resolved_plugin_data = plugin_data
-    if resolved_plugin_data is None:
-        value = os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA")
-        resolved_plugin_data = Path(value) if value and os.path.isabs(value) else None
+    resolved_session_id, session_id_source, session_error = _resolve_session_id(
+        session_id
+    )
+    resolved_plugin_data, plugin_data_source, plugin_data_error = (
+        _resolve_plugin_data(plugin_data, resolved_session_id)
+    )
     liveness = "unavailable"
     liveness_evidence: dict[str, object] | None = None
-    if (
-        session_id
-        and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", session_id)
-        and resolved_plugin_data is not None
-    ):
-        state_path = resolved_plugin_data / "liveness" / f"{session_id}.json"
+    if resolved_session_id and resolved_plugin_data is not None:
+        state_path = (
+            resolved_plugin_data / "liveness" / f"{resolved_session_id}.json"
+        )
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
             if (
-                state.get("session_id") == session_id
+                state.get("session_id") == resolved_session_id
                 and revision
                 and state.get("runtime_sha256") == revision
+                and _same_repository(state.get("project_root"), repository_root)
             ):
                 liveness = "current_revision_observed"
                 liveness_evidence = {
-                    "session_id": session_id,
+                    "session_id": resolved_session_id,
                     "runtime_sha256": revision,
+                    "project_root": str(repository_root),
                     "model": state.get("model"),
                     "permission_mode": state.get("permission_mode"),
                 }
@@ -176,6 +276,8 @@ def _enforcement_evidence(
                 liveness = "stale_or_mismatched"
         except (OSError, ValueError, AttributeError):
             liveness = "not_observed"
+    elif resolved_session_id and plugin_data_source == "not_found":
+        liveness = "not_observed"
 
     return {
         "definition": (
@@ -188,6 +290,12 @@ def _enforcement_evidence(
         "managed": "unknown",
         "active_task_liveness": liveness,
         "liveness_evidence": liveness_evidence,
+        "liveness_resolution": {
+            "session_id_source": session_id_source,
+            "plugin_data_source": plugin_data_source,
+            "session_error": session_error,
+            "plugin_data_error": plugin_data_error,
+        },
         "handler_revision": revision,
         "active": False,
         "defined_tool_contracts": ["Bash", "apply_patch"] if definition_valid else [],
@@ -236,7 +344,7 @@ def readiness(
     missing = [marker for marker in REPOSITORY_MARKERS if not (root / marker).is_file()]
     initialized = not missing
     context = _context_status(root)
-    enforcement = _enforcement_evidence(session_id, plugin_data)
+    enforcement = _enforcement_evidence(root, session_id, plugin_data)
 
     blockers: list[str] = []
     if plugin.get("status") != "valid":

@@ -80,6 +80,16 @@ codex-host-mvp
 - [x] Pin the LaunchGuardian companion repository and distributed-template
   Action refs to verified full SHAs, add a mutable-ref regression, and rerun
   its clean-source strict self-scan.
+- [x] Install and trust the local Codex plugin and capture the fresh Desktop
+  SessionStart liveness record without treating the broken readiness report as
+  a pass.
+- [x] Make readiness resolve the exact current Desktop task and unique plugin
+  data record automatically while failing non-positively on missing,
+  mismatched, or ambiguous evidence.
+- [ ] Reinstall the corrected local plugin and repeat the fresh-task readiness
+  dogfood.
+- [ ] Independently review the post-convergence readiness correction and its
+  live dogfood evidence.
 - [ ] Dogfood the end-to-end Codex-hosted workflow.
 - [x] Update user/operator documentation and project context.
 - [x] Run full verification, independent review, and LaunchGuardian.

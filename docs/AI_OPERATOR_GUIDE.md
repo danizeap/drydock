@@ -89,10 +89,25 @@ codex plugin add drydock@drydock
 
 Start a fresh Codex task. Review and trust the installed hook definition
 deliberately; installation alone does not prove trust, enablement, current-task
-liveness, or coverage. Ask Codex to “report Drydock readiness,” then ask it to
-“initialize Drydock in this repository.” The init skill previews create-only
-writes and requires explicit approval before apply. Do not translate these
-operations into `/drydock:*` slash commands: those are Claude-host commands.
+liveness, or coverage. On Codex CLI `0.146.0-alpha.3.1`, `/hooks` is an
+interactive CLI command; Codex Desktop treats that text as an ordinary prompt.
+Open the interactive Codex CLI in the repository, use `/hooks` to review and
+trust the exact Drydock definitions, then start a fresh Desktop task. If the
+visible Windows `codex` alias is inaccessible, use the executable path reported
+by Drydock readiness rather than bypassing hook trust. Ask Codex to “report
+Drydock readiness,” then ask it to “initialize Drydock in this repository.”
+The init skill previews create-only writes and requires explicit approval
+before apply. Do not translate these operations into `/drydock:*` slash
+commands: those are Claude-host commands.
+
+On the currently tested Desktop build, readiness binds current-task liveness
+from `CODEX_THREAD_ID` only when one direct child of the current Codex
+plugin-data directory contains a record whose task ID, runtime digest, and
+repository root all match. The variable is observed host behavior rather than
+a stable public environment contract; if it disappears or discovery is
+missing/ambiguous, readiness stays non-positive and reports its resolution
+evidence. Explicit `--session-id` and `--plugin-data` flags are diagnostic
+overrides, not normal installation steps.
 
 Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a

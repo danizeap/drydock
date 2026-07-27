@@ -349,9 +349,29 @@ codex-host-mvp
   findings, and 0 raw Semgrep errors. The earlier scan of the generated copy
   produced findings and was not reported as a pass or hidden with an
   exclusion.
+- [ ] Fresh Desktop readiness dogfood — after CLI review/trust, a new Desktop
+  task executed SessionStart and wrote a liveness record for task
+  `019fa333-1ff4-76d0-901d-2d392973f80b`, repository
+  `C:\Users\Daniel Paez\drydock`, model `gpt-5.6-sol`, and runtime digest
+  `86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`.
+  The skill's documented no-argument readiness invocation nevertheless
+  returned `active_task_liveness: unavailable`. Supplying that exact task ID
+  and plugin-data root manually returned `current_revision_observed`. This
+  proves trusted SessionStart execution and exposes a readiness-adapter
+  blocker; it is not a completed dogfood pass. The corrected source invocation
+  then resolved that same record with no manual flags and reported
+  `session_id_source: CODEX_THREAD_ID`,
+  `plugin_data_source: codex_home_plugin_data`, exact repository root, and
+  `current_revision_observed`. Regression coverage proves unique discovery,
+  explicit-argument precedence, repository-mismatch rejection, and ambiguous
+  root refusal. Codex adapter tests return 98 passed, 2 skipped; legacy tests
+  return 548 passed, 6 skipped; sync 11/11, scaffold bundle, unchanged hook
+  bundle, version parity, and compilation all pass. Installed-cache and fresh
+  post-reinstall task evidence remain pending.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `34 complete, 1 pending`; only the dogfood gate
-  remains explicit.
+  codex-host-mvp` reports `36 complete, 3 pending`; reinstall/fresh-task proof,
+  scoped independent re-review, and the overarching dogfood gate remain
+  explicit.
 
 ## Documentation Updates
 
