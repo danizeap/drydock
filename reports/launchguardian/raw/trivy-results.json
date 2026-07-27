@@ -3,16 +3,16 @@
   "Trivy": {
     "Version": "0.71.1"
   },
-  "ReportID": "019f99d9-649b-77f3-bce8-f867cb5a9102",
-  "CreatedAt": "2026-07-25T17:16:28.9555211+02:00",
-  "ArtifactID": "sha256:dfe9e952c186d7a14bddb33328ba6e9fe1d0303f7a2f57b0c34fe04d5b2ca90a",
+  "ReportID": "019fa592-d7df-72a0-a6c4-05b5b8974dd5",
+  "CreatedAt": "2026-07-27T23:54:51.9991721+02:00",
+  "ArtifactID": "sha256:77b9e60691a650c49b17af5f01f342066984fc69eb4bc11ef58931131631a502",
   "ArtifactName": "C:/Users/Daniel Paez/drydock",
   "ArtifactType": "repository",
   "Metadata": {
     "RepoURL": "git@github-personal:danizeap/drydock.git",
-    "Branch": "codex/codex-host-mvp-checkpoint",
-    "Commit": "8515ed7bd279ba6ec979523f9f9c8cd64dafa1d1",
-    "CommitMsg": "Add Codex host MVP and hardened runner",
+    "Branch": "codex/adaptive-delegation-ledger",
+    "Commit": "4eb973244e2c20997556048522f651924a2749c0",
+    "CommitMsg": "Require automatic capacity-aware routing",
     "Author": "WeCollabify \u003cdanielp@wecollabify.com\u003e",
     "Committer": "WeCollabify \u003cdanielp@wecollabify.com\u003e"
   }
