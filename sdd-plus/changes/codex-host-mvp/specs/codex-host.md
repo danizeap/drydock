@@ -42,7 +42,8 @@ installed file or successful unit probe alone.
 - **WHEN** Codex exposes the current task identifier to a readiness subprocess
   and exactly one candidate plugin-data root contains both a matching
   SessionStart record and a recent supported Bash `PreToolUse` activity marker
-  for the explicit readiness CLI hook-probe flag
+  for the explicit readiness CLI hook-probe flag after deterministic policy
+  allowed that command
 - **THEN** readiness binds the task identifier, current runtime digest,
   resolved repository root, guarded tool contract, and a system-wall-clock age
   inside the documented freshness and future-skew bounds before it reports

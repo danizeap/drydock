@@ -401,29 +401,47 @@ codex-host-mvp
   and was not counted as a verdict. The clean retry cost `$0.6880055` against
   a `$1.25` ceiling. Exact scope and residual gaps are recorded in
   `claude-readiness-review-result.md`.
+- [x] Scoped Opus correction review — exact `claude-opus-5` reviewed
+  `40adbf5..79cb83f` in 218.5 seconds and returned `converged: true` with no
+  blocker. It found the explicit probe, recent activity record, bounded system
+  clock, linked-path rejection, and unsigned/in-window replay disclosures
+  sufficient to proceed to exact-digest install/live dogfood under the
+  cooperative non-managed profile. It explicitly did not authorize release,
+  archive, merge, or publication. Cost was `$0.8256345` against a `$1.25`
+  ceiling. The final independent review remains pending until it can inspect
+  the live evidence for the installed digest.
 - [x] Hook-probe freshness correction — only a supported Bash command
-  containing the readiness subcommand and explicit `--hook-liveness-probe`
-  writes a separate atomic activity record; the readiness process also
-  confirms the probe flag was requested. SessionStart's packet baseline remains
-  unchanged. Readiness requires the same task, runtime digest, resolved
-  repository, event/tool/probe kind, a 10-second maximum system-clock age, and
-  a 2-second future-skew bound. It rejects missing, expired, materially future,
+  tokenizing to `drydock_codex.py`, immediately followed by `readiness`, and
+  containing exact token `--hook-liveness-probe` writes a separate atomic
+  activity record; the readiness process also confirms the probe flag was
+  requested. The marker writes only after deterministic policy allows the
+  command. SessionStart's packet baseline remains unchanged. Readiness requires
+  the same task, runtime digest, resolved repository,
+  event/tool/probe kind, a 10-second maximum system-clock age, and a 2-second
+  future-skew bound. It rejects missing, expired, materially future,
   repository-mismatched, linked/junctioned, or ambiguous evidence and reports
   the record as unsigned/user-writable cooperative evidence. An attempted
   cross-process monotonic design failed on this machine because hook Python
   3.14 and readiness Python 3.11 differed by about 43.7 seconds while their
   wall clocks differed by about 67 milliseconds; the failed test was retained
   until the mechanism changed. An unsigned marker may still replay inside the
-  disclosed 10-second window.
+  disclosed 10-second window. Current model and permission-mode fields come
+  from that fresh activity record, not the unbounded SessionStart record.
 - [x] Freshness correction verification — focused hook/readiness tests return
-  `35 passed, 1 skipped`; the full Codex adapter returns `107 passed, 2
+  `37 passed, 1 skipped`; the full Codex adapter returns `109 passed, 2
   skipped`; the full legacy/Claude-host suite remains `548 passed, 6 skipped`.
   The two Codex skips are the pre-existing Windows symlink-privilege tests;
-  both new Windows junction regressions ran. Sync remains 11/11, scaffold and
+  all three new Windows junction regressions ran. Generic Bash, quoted false
+  probes, apply_patch, and a policy-denied readiness-shaped command do not
+  write an acceptable activity record; exact time boundaries pass. The
+  generated-definition test decodes the inline verifier and proves its
+  `EXPECTED` value and injected
+  `DRYDOCK_RUNTIME_SHA256` both bind the runtime manifest digest. Sync remains
+  11/11, scaffold and
   generated-hook rebuild comparisons pass, compilation passes, and
   `python scripts/release.py --check` reports all five version locations at
   `0.12.1`. The corrected handler revision is
-  `44a45c06c92e8e850a7895f5a0f478e26c6876230c8d0576590abd0442618760`;
+  `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`;
   it is not yet installed, trusted, or observed in a fresh task.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
   codex-host-mvp` reports `37 complete, 3 pending`; current-revision install
@@ -464,7 +482,7 @@ handler
 `86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`;
 a fresh task observed that revision plus live denials on the two narrow
 guarded tool contracts. The source-corrected handler
-`44a45c06c92e8e850a7895f5a0f478e26c6876230c8d0576590abd0442618760`
+`a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`
 is not yet installed, trusted, or observed in a fresh task. Readiness still
 reports `active: false`, `trusted: unknown`, and
 `ready_for_enforcement: false`; these non-managed, user-disableable hooks

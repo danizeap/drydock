@@ -103,7 +103,10 @@ commands: those are Claude-host commands.
 On the currently tested Desktop build, the readiness skill includes
 `--hook-liveness-probe`. The command's own supported Bash `PreToolUse` hook
 recognizes that readiness probe and writes an atomic activity marker
-immediately before the Python process starts. Readiness binds current-task liveness from
+after deterministic policy allows the command and immediately before the
+Python process starts. Readiness evaluates the marker before the optional
+Claude authentication-status subprocess, so peer-check latency does not
+consume the 10-second window. It binds current-task liveness from
 `CODEX_THREAD_ID` only when one direct child of the current Codex plugin-data
 directory contains plain, non-linked SessionStart and activity record paths
 whose task ID, runtime digest, and repository root all match. The activity
@@ -124,6 +127,11 @@ provenance, proof against a hostile agent, host-reported trust/enablement, or
 coverage beyond the named path. The JSON keeps `active: false`,
 `trusted: unknown`, empty covered paths, and `ready_for_enforcement: false` in
 the Phase 1 shell.
+
+The current `model` and `permission_mode` evidence comes from the fresh
+PreToolUse activity record. The older SessionStart record remains only the
+packet-fingerprint baseline and is not presented as current model/permission
+context.
 
 Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -66,6 +68,8 @@ def _pretool(
         "cwd": str(cwd.resolve()),
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "model": "gpt-test",
+        "permission_mode": "default",
     }
 
 
@@ -107,6 +111,13 @@ def test_generated_hooks_are_exact_and_narrow() -> None:
     assert "-I -S -c" in handler["command"]
     assert "-I -S -c" in handler["commandWindows"]
     assert len(handler["commandWindows"]) < 8191
+    encoded = re.search(
+        r"b64decode\('([^']+)'\)", handler["commandWindows"]
+    )
+    assert encoded is not None
+    verifier = base64.b64decode(encoded.group(1))
+    assert f"EXPECTED={digest!r}".encode("ascii") in verifier
+    assert b"'DRYDOCK_RUNTIME_SHA256':EXPECTED" in verifier
 
 
 def test_safe_shell_and_patch_emit_no_decision(tmp_path: Path) -> None:
@@ -300,6 +311,61 @@ def test_session_liveness_is_revision_bound_and_readiness_stays_inactive(
     assert not (data / "activity" / "session-123.json").exists()
     assert session_record.read_bytes() == baseline
 
+    quoted_probe = _run(
+        PLUGIN_ROOT,
+        _pretool(
+            "Bash",
+            {"command": "echo readiness --hook-liveness-probe"},
+            root,
+            "session-123",
+        ),
+        plugin_data=data,
+    )
+    assert quoted_probe.returncode == 0
+    assert quoted_probe.stdout == ""
+    assert not (data / "activity" / "session-123.json").exists()
+
+    patch = _run(
+        PLUGIN_ROOT,
+        _pretool(
+            "apply_patch",
+            {
+                "command": (
+                    "*** Begin Patch\n"
+                    "*** Add File: app.py\n"
+                    "+print('ok')\n"
+                    "*** End Patch\n"
+                )
+            },
+            root,
+            "session-123",
+        ),
+        index=1,
+        plugin_data=data,
+    )
+    assert patch.returncode == 0
+    assert patch.stdout == ""
+    assert not (data / "activity" / "session-123.json").exists()
+
+    denied_probe = _run(
+        PLUGIN_ROOT,
+        _pretool(
+            "Bash",
+            {
+                "command": (
+                    f'python "{PLUGIN_ROOT / "scripts" / "drydock_codex.py"}" '
+                    f'readiness --root "{root}" --hook-liveness-probe ; '
+                    "Set-Content -LiteralPath .env -Value blocked"
+                )
+            },
+            root,
+            "session-123",
+        ),
+        plugin_data=data,
+    )
+    assert "secret" in (_deny_reason(denied_probe) or "").casefold()
+    assert not (data / "activity" / "session-123.json").exists()
+
     probe_command = (
         f'python "{PLUGIN_ROOT / "scripts" / "drydock_codex.py"}" '
         f'readiness --root "{root}" --hook-liveness-probe'
@@ -325,6 +391,16 @@ def test_session_liveness_is_revision_bound_and_readiness_stays_inactive(
         == "current_revision_observed"
     )
     assert report["enforcement"]["liveness_evidence"]["model"] == "gpt-test"
+    assert (
+        report["enforcement"]["liveness_evidence"]["permission_mode"]
+        == "default"
+    )
+    assert (
+        report["enforcement"]["liveness_evidence"][
+            "model_and_permission_source"
+        ]
+        == "fresh_PreToolUse_activity"
+    )
     assert report["enforcement"]["liveness_evidence"]["activity_tool"] == "Bash"
     assert (
         report["enforcement"]["liveness_evidence"]["authentication"]

@@ -11,8 +11,9 @@ description: Report evidence-based Drydock readiness for the current Codex repos
    authentication status but does not make a model call or spend model quota.
    The probe flag is required for positive liveness: on the currently tested
    Desktop build, the command's supported Bash `PreToolUse` hook recognizes
-   that exact readiness probe and writes a separate activity marker immediately
-   before Python starts. The CLI binds
+   that exact readiness probe and, only after its deterministic policy allows
+   the command, writes a separate activity marker immediately before Python
+   starts. The CLI binds
    liveness from `CODEX_THREAD_ID` only when exactly one direct Codex
    plugin-data child contains plain, non-linked SessionStart and activity
    record paths matching that task, runtime digest, and repository root, and
@@ -20,6 +21,9 @@ description: Report evidence-based Drydock readiness for the current Codex repos
    skewed on the operating-system wall clock. Missing, replayed, future-dated,
    malformed, repository-mismatched, linked, or ambiguous records remain
    non-positive.
+   Readiness evaluates this freshness evidence before the optional Claude
+   authentication-status subprocess, so peer-check latency does not consume
+   the 10-second window.
 2. Report the JSON fields without strengthening them. File presence proves
    only definition presence; it does not prove trust, enablement, current-task
    liveness, coverage, or enforcement. Plugin-data records are unsigned and

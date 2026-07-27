@@ -397,6 +397,22 @@ def _activity_path(session_id: object) -> Path | None:
     return _data_path(session_id, "activity")
 
 
+def _is_readiness_probe_command(command: str) -> bool:
+    try:
+        tokens = shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        return False
+    for index, token in enumerate(tokens[:-1]):
+        basename = token.replace("\\", "/").rstrip("/").split("/")[-1]
+        if (
+            basename.casefold() == "drydock_codex.py"
+            and tokens[index + 1] == "readiness"
+            and READINESS_PROBE_FLAG in tokens[index + 2 :]
+        ):
+            return True
+    return False
+
+
 def _packet_fingerprints(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     changes = root / "sdd-plus" / "changes"
@@ -461,8 +477,8 @@ def _write_activity(payload: dict[str, object]) -> bool:
         or root is None
         or tool_name != "Bash"
         or not isinstance(command, str)
-        or READINESS_PROBE_FLAG not in command
-        or not re.search(r"(?<!\S)readiness(?!\S)", command)
+        or payload.get("hook_event_name") != "PreToolUse"
+        or not _is_readiness_probe_command(command)
     ):
         return False
     document = {
@@ -470,9 +486,11 @@ def _write_activity(payload: dict[str, object]) -> bool:
         "session_id": payload["session_id"],
         "runtime_sha256": DRYDOCK_RUNTIME_SHA256,
         "project_root": str(root),
-        "hook_event_name": "PreToolUse",
+        "hook_event_name": payload["hook_event_name"],
         "tool_name": tool_name,
         "probe_kind": "readiness_cli",
+        "model": payload.get("model"),
+        "permission_mode": payload.get("permission_mode"),
         "observed_unix_ns": time.time_ns(),
         "freshness_window_ns": ACTIVITY_FRESHNESS_WINDOW_NS,
         "future_skew_ns": ACTIVITY_FUTURE_SKEW_NS,
@@ -612,7 +630,6 @@ def _pre_tool(payload: dict[str, object]) -> None:
             f"guarded matcher: {tool_name!r}."
         )
         return
-    _write_activity(payload)
     for target in targets:
         if path_is_secret(target):
             deny(
@@ -626,6 +643,8 @@ def _pre_tool(payload: dict[str, object]) -> None:
             "Drydock packet guard blocked an ungoverned write to a "
             f"high-impact path ({risk}). Create a change packet and retry."
         )
+        return
+    _write_activity(payload)
 
 
 def main() -> int:
