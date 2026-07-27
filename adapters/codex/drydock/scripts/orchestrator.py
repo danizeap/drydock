@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Protocol, Sequence
 
@@ -24,12 +25,27 @@ DEFAULT_TIMEOUT = 180
 MAX_TIMEOUT = 600
 DEFAULT_BUDGET_USD = 1.0
 MAX_PLAN_BYTES = 512 * 1024
+PROCESS_CLEANUP_TIMEOUT_S = 5.0
+OUTPUT_DRAIN_TIMEOUT_S = 1.0
 SECRET_INPUT = re.compile(
     r"(?i)(-----BEGIN [A-Z ]*PRIVATE KEY-----|"
     r"\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*"
     r"[\"']?[A-Za-z0-9_./+=-]{12,})"
 )
 SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+RATE_LIMIT_SUBTYPES = frozenset(
+    {"rate_limit_error", "rate_limited", "session_rate_limited"}
+)
+EXPLICIT_RATE_LIMIT_PHRASE = re.compile(
+    r"(?i)\b(?:"
+    r"(?:rate|usage) limit (?:has been )?(?:exceeded|reached)"
+    r"|quota (?:has been )?exceeded"
+    r"|session rate limited"
+    r")\b"
+)
+SINGLE_PILOT_FAILURE_STAGES = frozenset(
+    {"peer_unavailable", "process_failure", "rate_limited", "timeout"}
+)
 CRITIQUE_SCHEMA = {
     "additionalProperties": False,
     "properties": {
@@ -344,6 +360,45 @@ def pace_forecast(
     }
 
 
+def classify_peer_failure(
+    envelope: dict[str, object],
+) -> tuple[str, str]:
+    subtype = envelope.get("subtype")
+    if isinstance(subtype, str) and subtype in RATE_LIMIT_SUBTYPES:
+        return "rate_limited", "structured_subtype"
+    error = envelope.get("error")
+    if (
+        isinstance(error, dict)
+        and isinstance(error.get("type"), str)
+        and error["type"] in RATE_LIMIT_SUBTYPES
+    ):
+        return "rate_limited", "structured_error_type"
+    result = envelope.get("result")
+    if isinstance(result, str) and EXPLICIT_RATE_LIMIT_PHRASE.search(result):
+        return "rate_limited", "explicit_result_phrase"
+    return "process_failure", "no_explicit_rate_limit_marker"
+
+
+def peer_failure_workflow(result: dict[str, object]) -> dict[str, object]:
+    stage = result.get("stage")
+    if stage in SINGLE_PILOT_FAILURE_STAGES:
+        return {
+            "action": "continue_codex_only",
+            "mode": "single_pilot",
+            "peer_convergence": "not_established",
+            "reason": (
+                "peer operationally unavailable; "
+                "Codex governance remains active"
+            ),
+        }
+    return {
+        "action": "return_to_owner",
+        "mode": "blocked",
+        "peer_convergence": "not_established",
+        "reason": "peer contract failed; automatic continuation is not authorized",
+    }
+
+
 def discover_claude() -> Path | None:
     candidates = [
         Path.home() / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude"),
@@ -356,25 +411,187 @@ def discover_claude() -> Path | None:
     return Path(executable).resolve() if executable else None
 
 
-def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            capture_output=True,
-            timeout=15,
-            check=False,
+def _assign_windows_job(process: subprocess.Popen[str]) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+    ]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    ntdll = ctypes.WinDLL("ntdll")
+    ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    ntdll.NtResumeProcess.restype = wintypes.LONG
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        process.kill()
+        process.wait(timeout=PROCESS_CLEANUP_TIMEOUT_S)
+        raise OrchestratorError(
+            "Windows peer job could not be created: "
+            f"{ctypes.get_last_error()}"
         )
+    information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    information.BasicLimitInformation.LimitFlags = 0x00002000
+    configured = kernel32.SetInformationJobObject(
+        job,
+        9,
+        ctypes.byref(information),
+        ctypes.sizeof(information),
+    )
+    assigned = configured and kernel32.AssignProcessToJobObject(
+        job, wintypes.HANDLE(int(process._handle))
+    )
+    if not assigned:
+        error = ctypes.get_last_error()
+        kernel32.TerminateJobObject(job, 1)
+        kernel32.CloseHandle(job)
+        process.kill()
+        process.wait(timeout=PROCESS_CLEANUP_TIMEOUT_S)
+        raise OrchestratorError(
+            "Windows peer process could not be assigned to a "
+            f"kill-on-close job: {error}"
+        )
+    resumed = ntdll.NtResumeProcess(wintypes.HANDLE(int(process._handle)))
+    if resumed != 0:
+        kernel32.TerminateJobObject(job, 1)
+        kernel32.CloseHandle(job)
+        process.wait(timeout=PROCESS_CLEANUP_TIMEOUT_S)
+        raise OrchestratorError(
+            f"Windows peer process could not resume inside its job: {resumed}"
+        )
+    setattr(process, "_drydock_job_handle", int(job))
+
+
+def _close_windows_job(
+    process: subprocess.Popen[str], *, terminate: bool
+) -> bool:
+    handle = getattr(process, "_drydock_job_handle", None)
+    if handle is None:
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject.argtypes = [
+        wintypes.HANDLE,
+        wintypes.UINT,
+    ]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    if terminate:
+        kernel32.TerminateJobObject(wintypes.HANDLE(handle), 1)
+    closed = bool(kernel32.CloseHandle(wintypes.HANDLE(handle)))
+    delattr(process, "_drydock_job_handle")
+    return closed
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen[str],
+) -> dict[str, object]:
+    deadline = time.monotonic() + PROCESS_CLEANUP_TIMEOUT_S
+    boundary = (
+        "windows_job_object"
+        if os.name == "nt"
+        else "posix_process_group_best_effort"
+    )
+    boundary_terminated = False
+    if os.name == "nt":
+        boundary_terminated = _close_windows_job(process, terminate=True)
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
+            boundary_terminated = True
         except ProcessLookupError:
             pass
     try:
-        process.wait(timeout=15)
+        process.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
         pass
+    return {
+        "attempted": True,
+        "boundary": boundary,
+        "boundary_terminated": boundary_terminated,
+        "direct_process_absent": process.returncode is not None,
+        "cleanup_timeout_s": PROCESS_CLEANUP_TIMEOUT_S,
+        "drain_timeout_s": OUTPUT_DRAIN_TIMEOUT_S,
+        "escaped_descendants": (
+            "not observed within the job boundary"
+            if os.name == "nt"
+            else "not ruled out"
+        ),
+    }
+
+
+def _partial_text(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value if isinstance(value, str) else ""
+
+
+def _drain_after_cleanup(
+    process: subprocess.Popen[str],
+) -> tuple[str, str, bool]:
+    try:
+        stdout, stderr = process.communicate(timeout=OUTPUT_DRAIN_TIMEOUT_S)
+        return stdout, stderr, True
+    except subprocess.TimeoutExpired as exc:
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        return _partial_text(exc.output), _partial_text(exc.stderr), False
 
 
 def _bounded_process(
@@ -383,8 +600,13 @@ def _bounded_process(
     input_text: str | None,
     cwd: Path,
     timeout: int,
-) -> tuple[bool, int | None, str, str]:
-    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+) -> tuple[bool, int | None, str, str, dict[str, object] | None]:
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = (
+            subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_SUSPENDED", 0x00000004)
+        )
     try:
         process = subprocess.Popen(
             list(arguments),
@@ -398,15 +620,24 @@ def _bounded_process(
             creationflags=creationflags,
             start_new_session=os.name != "nt",
         )
+        if os.name == "nt":
+            _assign_windows_job(process)
     except OSError as exc:
         raise OrchestratorError(f"peer process could not start: {exc}") from exc
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout)
-        return False, process.returncode, stdout, stderr
+        if os.name == "nt":
+            _close_windows_job(process, terminate=True)
+        return False, process.returncode, stdout, stderr, None
     except subprocess.TimeoutExpired:
-        _terminate_process_tree(process)
-        stdout, stderr = process.communicate()
-        return True, process.returncode, stdout, stderr
+        cleanup = _terminate_process_tree(process)
+        stdout, stderr, drained = _drain_after_cleanup(process)
+        cleanup["output_pipes_drained"] = drained
+        if not drained:
+            cleanup["detail"] = (
+                "output pipes remained open after tree cleanup"
+            )
+        return True, process.returncode, stdout, stderr, cleanup
 
 
 class ClaudePeer:
@@ -441,7 +672,7 @@ class ClaudePeer:
             return {"status": "absent", "model": self.model}
         with tempfile.TemporaryDirectory(prefix="drydock-claude-status-") as temporary:
             try:
-                timed_out, exit_code, stdout, stderr = _bounded_process(
+                timed_out, exit_code, stdout, stderr, cleanup = _bounded_process(
                     [str(self.executable), "auth", "status", "--json"],
                     input_text=None,
                     cwd=Path(temporary),
@@ -454,7 +685,12 @@ class ClaudePeer:
                     "error": str(exc),
                 }
         if timed_out:
-            return {"status": "unavailable", "model": self.model, "reason": "timeout"}
+            return {
+                "status": "unavailable",
+                "model": self.model,
+                "reason": "timeout",
+                "cleanup": cleanup,
+            }
         try:
             document = _strict_json_loads(stdout)
         except ValueError:
@@ -525,7 +761,7 @@ class ClaudePeer:
             str(self.budget_usd),
         ]
         with tempfile.TemporaryDirectory(prefix="drydock-claude-peer-") as temporary:
-            timed_out, exit_code, stdout, stderr = _bounded_process(
+            timed_out, exit_code, stdout, stderr, cleanup = _bounded_process(
                 arguments,
                 input_text=prompt,
                 cwd=Path(temporary),
@@ -538,6 +774,7 @@ class ClaudePeer:
                 "peer": status,
                 "round": round_number,
                 "cap": round_cap,
+                "cleanup": cleanup,
             }
         try:
             envelope = _strict_json_loads(stdout)
@@ -562,15 +799,11 @@ class ClaudePeer:
                 "cap": round_cap,
             }
         if exit_code != 0 or envelope.get("is_error") is not False:
-            message = (str(envelope.get("result", "")) + " " + stderr).casefold()
-            failure = (
-                "rate_limited"
-                if "rate" in message or "quota" in message or "usage" in message
-                else "process_failure"
-            )
+            failure, classification = classify_peer_failure(envelope)
             return {
                 "ok": False,
                 "stage": failure,
+                "failure_classification": classification,
                 "peer": status,
                 "exit_code": exit_code,
                 "is_error": envelope.get("is_error"),
@@ -672,7 +905,10 @@ class NegotiationController:
             plan, round_number=round_number, round_cap=self.round_cap
         )
         if not result.get("ok"):
-            return result
+            return {
+                **result,
+                "workflow": peer_failure_workflow(result),
+            }
         critique = result.get("critique")
         decision = loop_decision(critique, round_number, self.round_cap)
         return {**result, "loop": decision}

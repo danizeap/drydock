@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -41,6 +42,21 @@ def main() -> int:
 
     prompt = sys.stdin.read()
     _log(prompt)
+    descendant_sentinel = os.environ.get(
+        "DRYDOCK_FAKE_CLAUDE_DESCENDANT_SENTINEL"
+    )
+    if descendant_sentinel:
+        delay = float(
+            os.environ.get("DRYDOCK_FAKE_CLAUDE_DESCENDANT_DELAY", "2.5")
+        )
+        script = (
+            "import pathlib,sys,time;"
+            "time.sleep(float(sys.argv[2]));"
+            "pathlib.Path(sys.argv[1]).write_text('escaped', encoding='utf-8')"
+        )
+        subprocess.Popen(
+            [sys.executable, "-c", script, descendant_sentinel, str(delay)]
+        )
     sleep = float(os.environ.get("DRYDOCK_FAKE_CLAUDE_SLEEP", "0"))
     if sleep:
         time.sleep(sleep)
@@ -75,6 +91,12 @@ def main() -> int:
         envelope.pop("modelUsage")
     if os.environ.get("DRYDOCK_FAKE_CLAUDE_NO_COST") == "1":
         envelope.pop("total_cost_usd")
+    if "DRYDOCK_FAKE_CLAUDE_RESULT" in os.environ:
+        envelope["result"] = os.environ["DRYDOCK_FAKE_CLAUDE_RESULT"]
+    if "DRYDOCK_FAKE_CLAUDE_ERROR_TYPE" in os.environ:
+        envelope["error"] = {
+            "type": os.environ["DRYDOCK_FAKE_CLAUDE_ERROR_TYPE"]
+        }
     print(json.dumps(envelope))
     return int(os.environ.get("DRYDOCK_FAKE_CLAUDE_EXIT", "0"))
 

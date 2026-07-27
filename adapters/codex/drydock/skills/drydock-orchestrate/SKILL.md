@@ -19,10 +19,18 @@ semantics, while the explicit one-tool allowlist is the authority boundary.
    required packet/approval.
 2. Draft the smallest complete plan. Send it on stdin to
    `scripts/orchestrator.py critique`. Never put plan content or credentials in
-   command-line arguments.
-3. Audit the critique. A `converged: true` result with blockers is not
-   convergence. Revise and run at most the configured round cap; unresolved
-   blockers at the cap return to the Owner.
+   command-line arguments. Parse a non-zero peer command as a failed peer call,
+   not as proof that the Drydock lifecycle itself failed.
+3. Audit the critique and its machine-readable workflow decision. A
+   `converged: true` result with blockers is not convergence. Revise and run at
+   most the configured round cap; unresolved blockers at the cap return to the
+   Owner. When an operational failure returns
+   `workflow.action: continue_codex_only`, continue through the normal packet,
+   approval, mutation, review, and verification gates in explicit
+   `single_pilot` mode. Record the peer stage and
+   `peer_convergence: not_established`; do not infer a retry, alternate model,
+   or cross-model agreement. When the action is `return_to_owner`, stop before
+   execution because the peer contract or control evidence failed.
 4. Use project-scoped nested agents only for bounded read-only advisory work.
    They are not a permission or independent-verification boundary.
 5. Send every mutating task through `scripts/process_runner.py mutate`. The

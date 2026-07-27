@@ -1,0 +1,15 @@
+# Decision Log
+
+## Change
+
+peer-unavailable-governance
+
+## Decisions
+
+| Date | Decision | Reason | Alternatives Considered |
+| --- | --- | --- | --- |
+| 2026-07-27 | Operational peer failure enters an explicit `single_pilot` mode instead of blocking all Drydock lifecycle work. | Codex owns governance and must remain useful when Claude usage or service availability disappears; absence of a peer is not absence of Drydock. | Treat every peer failure as fatal; silently pretend Codex and Claude agreed. |
+| 2026-07-27 | Only exact structured markers or explicit rate-limit phrases may produce `rate_limited`. | The previous substring test misclassified ordinary words such as `generate` and `separate`, violating the evidence rule. | Keep broad keyword matching; remove rate-limit classification entirely. |
+| 2026-07-27 | Contract-invalid peer output returns to the Owner rather than continuing automatically. | Model mismatch, malformed structure, unproven cost/model, and budget violations are integrity or control failures, not ordinary unavailability. | Continue on every failure; block on every failure. |
+| 2026-07-27 | Windows peer calls require a kill-on-close Job Object and bounded drain. | PATH `taskkill` and an unbounded second `communicate()` do not back a reliable lifetime claim. | Retain process-group convention; import private mutation-runner helpers. |
+| 2026-07-27 | Claude usage sensing remains a separate packet with no credential access in this change. | The newly discovered OAuth endpoint is useful but conflicts with the current credential boundary and needs its own architecture decision. | Read `.credentials.json` directly as part of this bugfix. |

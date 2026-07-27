@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -160,6 +161,124 @@ def test_nonzero_or_is_error_overrides_success_subtype(
     assert result["subtype"] == "success"
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "failed to generate structured output",
+        "a separate process failed",
+        "usage metadata was malformed",
+        "quota accounting was unavailable",
+    ],
+)
+def test_generic_keyword_fragments_are_not_rate_limit_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_RESULT", message)
+    result = _peer(tmp_path).critique(
+        "A real plan.", round_number=1, round_cap=2
+    )
+    assert result["stage"] == "process_failure"
+    assert result["failure_classification"] == "no_explicit_rate_limit_marker"
+
+
+@pytest.mark.parametrize(
+    ("subtype", "message", "basis"),
+    [
+        ("session_rate_limited", "peer unavailable", "structured_subtype"),
+        ("failure", "usage limit reached", "explicit_result_phrase"),
+        ("failure", "rate limit exceeded", "explicit_result_phrase"),
+        ("failure", "quota exceeded", "explicit_result_phrase"),
+    ],
+)
+def test_explicit_rate_limit_markers_are_classified_without_raw_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    subtype: str,
+    message: str,
+    basis: str,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SUBTYPE", subtype)
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_RESULT", message)
+    result = _peer(tmp_path).critique(
+        "A real plan.", round_number=1, round_cap=2
+    )
+    assert result["stage"] == "rate_limited"
+    assert result["failure_classification"] == basis
+    assert message not in json.dumps(result)
+
+
+def test_structured_error_type_is_rate_limit_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_ERROR_TYPE", "rate_limit_error")
+    result = _peer(tmp_path).critique(
+        "A real plan.", round_number=1, round_cap=2
+    )
+    assert result["stage"] == "rate_limited"
+    assert result["failure_classification"] == "structured_error_type"
+
+
+def test_operational_peer_failure_continues_single_pilot_without_convergence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SUBTYPE", "session_rate_limited")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["ok"] is False
+    assert result["workflow"] == {
+        "action": "continue_codex_only",
+        "mode": "single_pilot",
+        "peer_convergence": "not_established",
+        "reason": "peer operationally unavailable; Codex governance remains active",
+    }
+
+
+def test_absent_peer_continues_codex_governance_without_peer_claim(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "claude-missing"
+    peer = orchestrator.ClaudePeer(
+        missing,
+        model="claude-opus-5",
+        timeout=2,
+        budget_usd=0.1,
+    )
+    result = orchestrator.NegotiationController(
+        peer, round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "peer_unavailable"
+    assert result["peer"]["status"] == "absent"
+    assert result["workflow"]["action"] == "continue_codex_only"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
+def test_contract_invalid_peer_result_returns_to_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_MALFORMED", "1")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "malformed_critique"
+    assert result["workflow"]["action"] == "return_to_owner"
+    assert result["workflow"]["mode"] == "blocked"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
 def test_malformed_schema_model_mismatch_and_budget_violation_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -221,11 +340,40 @@ def test_timeout_is_unavailable_not_convergence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SLEEP", "3")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path, timeout=1), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["ok"] is False
+    assert result["stage"] == "timeout"
+    assert result["workflow"]["action"] == "continue_codex_only"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
+def test_timeout_terminates_delayed_descendant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sentinel = tmp_path / "escaped-descendant.txt"
+    monkeypatch.setenv(
+        "DRYDOCK_FAKE_CLAUDE_DESCENDANT_SENTINEL", str(sentinel)
+    )
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_DESCENDANT_DELAY", "2.5")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SLEEP", "5")
+    started = time.monotonic()
     result = _peer(tmp_path, timeout=1).critique(
         "A real plan.", round_number=1, round_cap=2
     )
-    assert result["ok"] is False
+    elapsed = time.monotonic() - started
     assert result["stage"] == "timeout"
+    assert result["cleanup"]["direct_process_absent"] is True
+    assert result["cleanup"]["boundary"] == (
+        "windows_job_object"
+        if sys.platform == "win32"
+        else "posix_process_group_best_effort"
+    )
+    assert elapsed < 10
+    time.sleep(3)
+    assert not sentinel.exists()
 
 
 def test_pace_forecast_reports_unavailable_and_at_risk() -> None:

@@ -150,6 +150,25 @@ Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a
 successful schema-validated live peer round. Claude is optional: its absence
 removes cross-model agreement, not Codex-hosted lifecycle governance.
+An operational failure such as absence, authentication loss, timeout, process
+failure, service unavailability, or an explicit supported rate-limit marker
+returns a machine-readable `continue_codex_only` decision. The pilot may then
+continue the ordinary packet, approval, mutation, review, and verification
+gates in `single_pilot` mode, while reporting
+`peer_convergence: not_established`. This is continuity of governance, not a
+substitute claim of cross-model agreement. Malformed output, model mismatch,
+missing model or cost proof, and budget violations instead return
+`return_to_owner`; they are contract or control failures and do not authorize
+automatic continuation. Rate limiting is identified only from exact supported
+structured markers or explicit rate-limit phrases, not from generic
+`rate`, `quota`, or `usage` substrings.
+
+Peer subprocess cleanup can exceed the requested peer deadline by a bounded
+cleanup allowance of five seconds plus a one-second output drain. On Windows,
+the adapter starts the peer suspended, assigns it to a kill-on-close Job
+Object, and only then resumes it; failure to establish that boundary refuses
+the call. On POSIX, process-group cleanup is best effort and does not prove
+containment against a deliberately escaping descendant.
 
 Codex hook coverage is currently narrow: canonical local `Bash` and
 `apply_patch` only. MCP, hosted, specialized, renamed, and other unmatched
