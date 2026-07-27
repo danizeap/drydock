@@ -491,6 +491,14 @@ codex-host-mvp
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
   codex-host-mvp` reports `39 complete, 1 pending`; one integrated end-to-end
   workflow run remains explicit.
+- [ ] Integrated workflow negotiation — exact Opus 5 returned schema-valid,
+  model-observed critiques in both configured rounds but did not converge.
+  Round 1 cost `$0.2588095`; Round 2 cost `$0.4821165`. No mutation process or
+  worktree started. Codex's post-cap audit found that the runner already
+  rejects `.git` pointer drift before explicit-root Git extraction and that an
+  identical `-X utf8=1` discriminator clears the locale-cause uncertainty.
+  The peer has not reviewed those rebuttals, so agreement is not inferred.
+  Full evidence is in `integrated-dogfood-negotiation.md`.
 
 ## Documentation Updates
 
