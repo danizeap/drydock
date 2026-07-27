@@ -92,7 +92,7 @@ codex-host-mvp
 - [x] Bind readiness to an explicit CLI hook probe and bounded recent supported
   `PreToolUse` activity marker; reject out-of-window resume replay and linked
   candidate paths; disclose unsigned plugin-data evidence and in-window replay.
-- [ ] Independently review the post-convergence readiness correction and its
+- [x] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
 - [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
   agreement, isolated mutation, cross-review, separate verification, and push.

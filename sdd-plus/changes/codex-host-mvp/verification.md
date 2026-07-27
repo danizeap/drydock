@@ -466,9 +466,10 @@ codex-host-mvp
   integrity message. Direct SHA-256 measurements immediately afterward showed
   both installed and source `runtime.py` at the expected `a04cf380...` digest,
   their text compared equal, and smaller guarded `apply_patch` calls succeeded.
-  The failed invocation made no changes. Its cause is unresolved; the evidence
-  does not relabel that denial as a detected tamper.
-- [ ] Final exact-handler peer review — two authenticated bounded
+  The failed invocation made no changes. Its cause was unresolved at this
+  point; the final peer review below later reproduced a locale-decoding cause
+  without relabeling the denial as detected tamper.
+- [x] Final exact-handler peer review — two authenticated bounded
   `claude-opus-5` CLI attempts returned no verdict. The first duplicated full
   current sources after the exact delta and exhausted its configured `$1.25`
   ceiling after 222.2 seconds. One right-sized retry removed the duplicated
@@ -476,10 +477,20 @@ codex-host-mvp
   `process_failure` / `error_max_budget_usd`, without a schema-valid envelope,
   model-usage proof, critique, or cost evidence. Neither is counted as a
   review. The bounded manual-chat relay is saved in
-  `claude-final-readiness-review-request.md`.
+  `claude-final-readiness-review-request.md`. The Owner-relayed repository-aware
+  Claude review then returned `converged: true` with no blocking concerns,
+  reproduced the Git identities, `37 passed, 1 skipped` focused,
+  `109 passed, 2 skipped` adapter, sync 11/11, packet 38/2, and all eight
+  decoded digest chains. It identified the earlier generic integrity denial as
+  a host-locale stdin decoding failure under `-I -S`, plus four other
+  non-blocking precision/portability findings. The complete bounded result and
+  five required follow-ups are saved in
+  `claude-final-readiness-review-result.md`. Because the manual relay has no
+  successful controller envelope, exact model observation is not claimed from
+  controller evidence.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `38 complete, 2 pending`; scoped independent
-  re-review and one integrated end-to-end workflow run remain explicit.
+  codex-host-mvp` reports `39 complete, 1 pending`; one integrated end-to-end
+  workflow run remains explicit.
 
 ## Documentation Updates
 
@@ -490,6 +501,9 @@ codex-host-mvp
 - [x] A bounded re-review prompt is saved as `claude-rereview-request.md`.
 - [x] The scoped readiness re-review result is saved as
   `claude-readiness-review-result.md`.
+- [x] The final exact-handler review request and converged result are saved as
+  `claude-final-readiness-review-request.md` and
+  `claude-final-readiness-review-result.md`.
 - [x] README/operator guide updated during implementation.
 - [x] Operator guide records the tested Desktop full-backend restart
   requirement after a local plugin refresh or trust change.
@@ -498,8 +512,8 @@ codex-host-mvp
 
 ## Result
 
-**IMPLEMENTATION, SECURITY-SCAN, AND CURRENT-REVISION LIVE EVIDENCE PASS —
-PEER AND INTEGRATED DOGFOOD GATES OPEN.**
+**IMPLEMENTATION, SECURITY-SCAN, CURRENT-REVISION LIVE, AND PEER EVIDENCE
+PASS - INTEGRATED DOGFOOD GATE OPEN.**
 
 The additive plugin, deterministic enforcement adapter, peer controller,
 mutation runner, and verifier pass their local suites and current-machine live
@@ -507,9 +521,13 @@ probes. The final Owner-relayed Opus architecture/code review reproduced the
 then-current deterministic evidence and returned `converged: true` with no
 blockers. A later scoped Opus review found the readiness resume-replay blocker;
 the reproduced correction now passes local verification and exact-handler live
-dogfood but has not yet received the required final re-review. This is
-independent process/context review rather than cross-family epistemic
-diversity.
+dogfood. The final Owner-relayed repository-aware Claude review reproduced the
+current identities, tests, and digest chain and returned `converged: true`
+with no blocking concern. It also reproduced the generic integrity denial as a
+fail-closed host-locale stdin decoding defect and recorded five non-blocking
+follow-ups. The manual relay has no successful-controller model-usage proof.
+This remains independent process/context review rather than authenticated
+cross-family epistemic diversity.
 LaunchGuardian's reviewed source build returns
 `APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
 findings, and its action-pinned descendant passes a clean-source self-scan;
@@ -525,5 +543,5 @@ still reports `active: false`, `trusted: unknown`, and
 `ready_for_enforcement: false`; host trust was inspected separately and is not
 promoted into the readiness schema. These non-managed, user-disableable hooks
 remain explicitly incomplete for other tool paths. A scoped independent
-re-review and one integrated hosted workflow run remain pending. No
-publication or release is authorized by this evidence.
+re-review has now converged; one integrated hosted workflow run remains
+pending. No publication or release is authorized by this evidence.
