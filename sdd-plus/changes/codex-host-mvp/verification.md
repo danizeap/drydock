@@ -441,12 +441,36 @@ codex-host-mvp
   generated-hook rebuild comparisons pass, compilation passes, and
   `python scripts/release.py --check` reports all five version locations at
   `0.12.1`. The corrected handler revision is
-  `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`;
-  it is not yet installed, trusted, or observed in a fresh task.
+  `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`.
+- [x] Exact-handler install and fresh-task liveness dogfood — the installed
+  cache matched all 22 source files at commit
+  `d4d63111b4d82735cd135cb8439a3c97bd26d568`. After the stale Desktop
+  backend was fully terminated and restarted, task
+  `019fa3ba-1935-7e73-87da-6587d087ea2a` returned
+  `current_revision_observed` for handler
+  `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`.
+  Its 363-millisecond-old `PreToolUse`/`Bash` activity record supplied the
+  current `gpt-5.6-sol` model and `bypassPermissions` context and matched the
+  exact repository root and runtime digest. The report retained every stated
+  limitation: unsigned user-writable plugin data, a 10-second replay window,
+  wall-clock dependence, `active: false`, `trusted: unknown`, empty covered
+  paths, and `ready_for_enforcement: false`.
+- [x] Exact-handler selective deny dogfood — canonical `Bash` denied
+  `Set-Content -WhatIf` against `.env.drydock-a04c-live-probe`, and canonical
+  `apply_patch` denied an Update File patch against the same guaranteed-absent
+  path. Both returned the exact Drydock secrets-guardrail reason. A final
+  `Test-Path` returned exit 0 and `False`. These are point-in-time observations
+  of the two defined contracts, not evidence for MCP, hosted, specialized,
+  renamed, or other local tool paths. One later large, multi-file
+  `apply_patch` invocation failed closed with the bootstrap's generic runtime
+  integrity message. Direct SHA-256 measurements immediately afterward showed
+  both installed and source `runtime.py` at the expected `a04cf380...` digest,
+  their text compared equal, and smaller guarded `apply_patch` calls succeeded.
+  The failed invocation made no changes. Its cause is unresolved; the evidence
+  does not relabel that denial as a detected tamper.
 - [x] Final packet consistency refresh — `python scripts/sdd.py verify
-  codex-host-mvp` reports `37 complete, 3 pending`; current-revision install
-  and live proof, scoped independent re-review, and one integrated end-to-end
-  workflow run remain explicit.
+  codex-host-mvp` reports `38 complete, 2 pending`; scoped independent
+  re-review and one integrated end-to-end workflow run remain explicit.
 
 ## Documentation Updates
 
@@ -458,34 +482,39 @@ codex-host-mvp
 - [x] The scoped readiness re-review result is saved as
   `claude-readiness-review-result.md`.
 - [x] README/operator guide updated during implementation.
+- [x] Operator guide records the tested Desktop full-backend restart
+  requirement after a local plugin refresh or trust change.
 - [x] Project context updated for the Codex-host phase and current release
   facts.
 
 ## Result
 
-**IMPLEMENTATION AND SECURITY-SCAN EVIDENCE PASS — CURRENT-REVISION LIVE,
-PEER, AND INTEGRATED DOGFOOD GATES OPEN.**
+**IMPLEMENTATION, SECURITY-SCAN, AND CURRENT-REVISION LIVE EVIDENCE PASS —
+PEER AND INTEGRATED DOGFOOD GATES OPEN.**
 
 The additive plugin, deterministic enforcement adapter, peer controller,
 mutation runner, and verifier pass their local suites and current-machine live
 probes. The final Owner-relayed Opus architecture/code review reproduced the
 then-current deterministic evidence and returned `converged: true` with no
 blockers. A later scoped Opus review found the readiness resume-replay blocker;
-the reproduced correction now passes local verification but has not yet
-received the required clean re-review. This is independent process/context
-review rather than cross-family epistemic diversity.
+the reproduced correction now passes local verification and exact-handler live
+dogfood but has not yet received the required final re-review. This is
+independent process/context review rather than cross-family epistemic
+diversity.
 LaunchGuardian's reviewed source build returns
 `APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
 findings, and its action-pinned descendant passes a clean-source self-scan;
 PyPI 0.2.0 cannot yet reproduce that result. The Owner installed and trusted
 handler
-`86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`;
-a fresh task observed that revision plus live denials on the two narrow
-guarded tool contracts. The source-corrected handler
+`86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`
+and previously observed it plus live denials on the two narrow guarded tool
+contracts. The source-corrected handler
 `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`
-is not yet installed, trusted, or observed in a fresh task. Readiness still
-reports `active: false`, `trusted: unknown`, and
-`ready_for_enforcement: false`; these non-managed, user-disableable hooks
-remain explicitly incomplete for other tool paths. Current-revision live
-proof, a scoped independent re-review, and one integrated hosted workflow run
-remain pending. No publication or release is authorized by this evidence.
+is now installed, trusted through the host UI, observed by a fresh readiness
+probe, and selectively observed denying both defined tool contracts. Readiness
+still reports `active: false`, `trusted: unknown`, and
+`ready_for_enforcement: false`; host trust was inspected separately and is not
+promoted into the readiness schema. These non-managed, user-disableable hooks
+remain explicitly incomplete for other tool paths. A scoped independent
+re-review and one integrated hosted workflow run remain pending. No
+publication or release is authorized by this evidence.

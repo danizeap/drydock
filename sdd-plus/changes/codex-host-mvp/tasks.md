@@ -86,7 +86,7 @@ codex-host-mvp
 - [x] Make readiness resolve the exact current Desktop task and unique plugin
   data record automatically while failing non-positively on missing,
   mismatched, or ambiguous evidence.
-- [ ] Reinstall the current corrected local plugin and repeat fresh-task
+- [x] Reinstall the current corrected local plugin and repeat fresh-task
   readiness plus selective allow/deny dogfood against its exact handler
   revision.
 - [x] Bind readiness to an explicit CLI hook probe and bounded recent supported

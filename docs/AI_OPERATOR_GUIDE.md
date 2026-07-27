@@ -100,6 +100,19 @@ The init skill previews create-only writes and requires explicit approval
 before apply. Do not translate these operations into `/drydock:*` slash
 commands: those are Claude-host commands.
 
+After refreshing the plugin cache or changing hook trust on the currently
+tested Windows Desktop build, fully stop the Desktop backend before starting
+the proving task. Closing the visible window did not terminate the surviving
+`codex.exe` and `codex-code-mode-host.exe` processes in live dogfood, and tasks
+created by that stale backend did not dispatch the refreshed hooks. Save and
+close active work first; use the application's full-exit path when available.
+If the backend still survives, the tested PowerShell fallback is
+`Get-Process codex,codex-code-mode-host -ErrorAction SilentlyContinue |
+Stop-Process -Force`. Restart Desktop, open a new task, and require
+`current_revision_observed` for the exact installed handler before recording
+live evidence. A checked or trusted hook in `/hooks` does not substitute for
+that fresh-task observation.
+
 On the currently tested Desktop build, the readiness skill includes
 `--hook-liveness-probe`. The command's own supported Bash `PreToolUse` hook
 recognizes that readiness probe and writes an atomic activity marker
