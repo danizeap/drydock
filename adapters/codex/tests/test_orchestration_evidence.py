@@ -454,6 +454,48 @@ def test_v2_fingerprint_uses_committed_blobs_not_clean_checkout_bytes(
     )
 
 
+def test_v2_tree_serialization_frames_embedded_nul_bytes() -> None:
+    first = evidence.GitTreeEntry(
+        path="a",
+        path_bytes=b"a",
+        mode="100644",
+        object_type="blob",
+        object_id="1" * 40,
+        body=b"",
+    )
+    second = evidence.GitTreeEntry(
+        path="b",
+        path_bytes=b"b",
+        mode="100644",
+        object_type="blob",
+        object_id="2" * 40,
+        body=b"",
+    )
+    impersonating_body = b"x\x00b\x00file\x00100644\x00y"
+
+    def legacy_serialization(entry: evidence.GitTreeEntry, body: bytes) -> bytes:
+        return b"\0".join(
+            (
+                entry.path_bytes,
+                entry.kind,
+                entry.mode.encode("ascii"),
+                body,
+                b"",
+            )
+        )
+
+    assert legacy_serialization(
+        first, impersonating_body
+    ) == legacy_serialization(first, b"x") + legacy_serialization(second, b"y")
+    one_entry = hashlib.sha256(evidence.EXECUTABLE_DIGEST_DOMAIN)
+    evidence._update_tree_digest(one_entry, first, impersonating_body)
+    two_entries = hashlib.sha256(evidence.EXECUTABLE_DIGEST_DOMAIN)
+    evidence._update_tree_digest(two_entries, first, b"x")
+    evidence._update_tree_digest(two_entries, second, b"y")
+
+    assert one_entry.digest() != two_entries.digest()
+
+
 def test_task_status_is_evidence_but_task_contract_stays_executable(
     tmp_path: Path,
 ) -> None:
@@ -533,6 +575,116 @@ def test_task_projection_is_exactly_scoped_and_declines_noncanonical_bytes(
     )
 
 
+@pytest.mark.parametrize(
+    ("initial", "changed", "reason"),
+    [
+        (
+            b"\xef\xbb\xbf- [ ] task\n",
+            b"\xef\xbb\xbf- [x] task\n",
+            "leading UTF-8 BOM",
+        ),
+        (b"- [ ] task\r\n", b"- [x] task\r\n", "CR bytes"),
+        (b"\xff- [ ] task\n", b"\xff- [x] task\n", "not valid UTF-8"),
+        (
+            "\u00a0- [ ] task\n".encode("utf-8"),
+            "\u00a0- [x] task\n".encode("utf-8"),
+            "outside the canonical ASCII grammar",
+        ),
+    ],
+)
+def test_declined_task_projection_hashes_complete_file_as_executable(
+    tmp_path: Path, initial: bytes, changed: bytes, reason: str
+) -> None:
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    tasks = repo / packet_root / "tasks.md"
+    with (repo / ".gitattributes").open(
+        "a", encoding="utf-8", newline="\n"
+    ) as stream:
+        stream.write(f"{packet_root}/tasks.md -text\n")
+    _git(repo, "add", ".gitattributes")
+    _git(repo, "commit", "-m", "preserve raw task bytes")
+    tasks.write_bytes(initial)
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "add noncanonical tasks")
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert baseline["task_projection"]["status"] == "declined"
+    assert reason in baseline["task_projection"]["reason"]
+
+    tasks.write_bytes(changed)
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "change noncanonical task state")
+    result = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert result["task_projection"]["status"] == "declined"
+    assert result["executable_surface_sha256"] != baseline[
+        "executable_surface_sha256"
+    ]
+    assert result["packet_evidence_sha256"] == baseline[
+        "packet_evidence_sha256"
+    ]
+
+
+@pytest.mark.parametrize(
+    "task_path",
+    [
+        "sdd-plus/templates/tasks.md",
+        "assets/project-scaffold/sdd-plus/templates/tasks.md",
+        "sdd-plus/changes/other/tasks.md",
+    ],
+)
+def test_only_exact_active_packet_tasks_are_projected(
+    tmp_path: Path, task_path: str
+) -> None:
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    target = repo / task_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("- [ ] outside active packet\n", encoding="utf-8")
+    _git(repo, "add", task_path)
+    _git(repo, "commit", "-m", "add non-target tasks")
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+
+    target.write_text("- [x] outside active packet\n", encoding="utf-8")
+    _git(repo, "add", task_path)
+    _git(repo, "commit", "-m", "change non-target task state")
+    changed = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert changed["executable_surface_sha256"] != baseline[
+        "executable_surface_sha256"
+    ]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        b"- [ ] alpha\n  continuation\n- [ ] beta\n- [~] parked\n- [ ] added\n",
+        b"- [ ] alpha\n  continuation\n- [~] parked\n",
+        b"- [ ] beta\n- [ ] alpha\n  continuation\n- [~] parked\n",
+        b"- [ ] alpha\n  changed continuation\n- [ ] beta\n- [~] parked\n",
+        b"- [ ] alpha\n  continuation\n- [ ] beta\n- [?] parked\n",
+    ],
+)
+def test_task_contract_mutations_change_executable_identity(
+    tmp_path: Path, changed: bytes
+) -> None:
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    tasks = repo / packet_root / "tasks.md"
+    tasks.write_bytes(
+        b"- [ ] alpha\n  continuation\n- [ ] beta\n- [~] parked\n"
+    )
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "set task contract")
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+
+    tasks.write_bytes(changed)
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "change task contract")
+    result = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert result["executable_surface_sha256"] != baseline[
+        "executable_surface_sha256"
+    ]
+
+
 @pytest.mark.parametrize("attribute", ["export-ignore", "export-subst"])
 def test_proof_archive_must_match_committed_tree(
     tmp_path: Path, attribute: str
@@ -548,6 +700,31 @@ def test_proof_archive_must_match_committed_tree(
     _git(repo, "commit", "-m", attribute)
     commit = _git(repo, "rev-parse", "HEAD")
     with pytest.raises(evidence.EvidenceError, match="proof archive"):
+        with evidence.fresh_proof_root(repo, commit):
+            pass
+
+
+def test_proof_archive_rejects_tracked_symlink(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    target = repo / "symlink-target"
+    target.write_text("target\n", encoding="utf-8")
+    blob = _git(repo, "hash-object", "-w", "symlink-target")
+    target.unlink()
+    _git(repo, "update-index", "--add", "--cacheinfo", f"120000,{blob},linked")
+    _git(repo, "commit", "-m", "add tracked symlink")
+    commit = _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(evidence.EvidenceError, match="proof archive"):
+        with evidence.fresh_proof_root(repo, commit):
+            pass
+
+
+def test_proof_materialization_rejects_gitlink(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    commit = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{commit},nested")
+    _git(repo, "commit", "-m", "add gitlink")
+    commit = _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(evidence.EvidenceError, match="unsupported tracked types"):
         with evidence.fresh_proof_root(repo, commit):
             pass
 
@@ -592,6 +769,11 @@ def test_fresh_proof_root_and_final_suite_binding(tmp_path: Path) -> None:
     assert evidence.final_suite_acceptance(
         full, executable_fingerprint=fingerprint
     )["accepted"] is True
+    full["fingerprint_version"] = "drydock-repository-fingerprint-v1"
+    assert evidence.final_suite_acceptance(
+        full, executable_fingerprint=fingerprint
+    )["accepted"] is False
+    full["fingerprint_version"] = evidence.FINGERPRINT_VERSION
     full["executable_surface_sha256"] = DIGEST_A
     assert evidence.final_suite_acceptance(
         full, executable_fingerprint=fingerprint

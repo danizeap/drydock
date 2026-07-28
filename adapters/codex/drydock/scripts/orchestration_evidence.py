@@ -1052,14 +1052,14 @@ def _canonical_repo_relative(value: str, label: str) -> str:
 def _update_tree_digest(
     digest: object, entry: GitTreeEntry, body: bytes
 ) -> None:
-    digest.update(entry.path_bytes)
-    digest.update(b"\0")
-    digest.update(entry.kind)
-    digest.update(b"\0")
-    digest.update(entry.mode.encode("ascii"))
-    digest.update(b"\0")
-    digest.update(body)
-    digest.update(b"\0")
+    for field in (
+        entry.path_bytes,
+        entry.kind,
+        entry.mode.encode("ascii"),
+        body,
+    ):
+        digest.update(len(field).to_bytes(8, "big"))
+        digest.update(field)
 
 
 def _project_tasks(body: bytes) -> tuple[bytes | None, str]:

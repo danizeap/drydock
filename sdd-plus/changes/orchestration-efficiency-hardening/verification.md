@@ -149,6 +149,19 @@ orchestration-efficiency-hardening
   `python -m pytest adapters/codex/tests/test_orchestrator.py
   adapters/codex/tests/test_orchestration_evidence.py -q
   -p no:cacheprovider` reported 67 passed.
+- [x] A controller-side audit before freeze found that delimiter-only v2 tree
+  serialization let arbitrary NUL-bearing blob bytes impersonate later entry
+  boundaries without a SHA-256 collision. The implementation now length-frames
+  every path, type, mode, and body field. Its adversarial regression first
+  reproduces the old structural collision and then proves the framed inputs
+  differ. The same remediation adds direct v1 final-refusal, repository-level
+  projection-decline/fallback, exact task-scope, task-contract mutation, tracked
+  link, and gitlink rejection coverage.
+- [x] Focused controller/evidence suite after the framing remediation:
+  `python -m pytest adapters/codex/tests/test_orchestrator.py
+  adapters/codex/tests/test_orchestration_evidence.py -q
+  -p no:cacheprovider` reported 82 passed. Packet artifact verification passed
+  with 25 complete and 4 pending tasks, and range diff-check passed.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -159,9 +172,10 @@ orchestration-efficiency-hardening
 
 ## Result
 
-V2 PROOF-IDENTITY ARCHITECTURE CONVERGED AND FOCUSED TESTS PASS; V2
-IMPLEMENTATION CROSS-REVIEW, CANDIDATE FREEZE, FULL SUITES, AND SEPARATE
-VERIFICATION REMAIN PENDING. The implementation does not claim
+V2 PROOF-IDENTITY ARCHITECTURE CONVERGED; THE PRE-FREEZE STRUCTURAL
+SERIALIZATION FINDING IS REMEDIATED AND FOCUSED TESTS PASS. V2 IMPLEMENTATION
+CROSS-REVIEW, CANDIDATE FREEZE, FULL SUITES, AND SEPARATE VERIFICATION REMAIN
+PENDING. The implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
 checkout directly. Remaining disclosed risks include stacked unsynced deltas,

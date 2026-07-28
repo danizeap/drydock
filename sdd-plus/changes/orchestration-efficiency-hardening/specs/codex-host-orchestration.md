@@ -157,7 +157,10 @@ budget
 The controller SHALL maintain two distinct, domain-separated v2 digests under
 the explicit scheme identifier `drydock-repository-fingerprint-v2`. Both
 digests SHALL use exact committed Git-tree paths, modes, types, and blob bytes,
-not platform working-tree bytes:
+not platform working-tree bytes. Every entry field SHALL be framed by its
+unsigned 64-bit big-endian byte length before its bytes are hashed, so arbitrary
+blob content, including NUL bytes, cannot impersonate field or entry
+boundaries:
 
 - an executable-surface fingerprint over all tracked source, tests,
   dependencies, configuration, generators, hooks, agent instructions, and
