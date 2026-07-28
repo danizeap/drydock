@@ -55,6 +55,25 @@ orchestration-efficiency-hardening
 - [x] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.
 
+## Verifier Remediation
+
+- [x] Preserve the state-bound BLOCKED verdict and the later timed-out
+  in-band-evidence attempt without inferring PASS.
+- [x] Identify the sandbox-SID Git trust failure and the read-only temporary
+  file mismatch by mechanism.
+- [x] Pin a process-local Git shell environment to the exact delegated root
+  without modifying Owner, global, or system Git configuration.
+- [x] Pin command-scoped `safe.directory` in both runner and proof-identity Git
+  helpers.
+- [x] Add focused regression coverage for direct-child configuration,
+  internal-helper configuration, hostile inherited Git state, and paths with
+  spaces.
+- [ ] Obtain focused implementation cross-review of the verifier remediation.
+- [ ] Re-freeze the executable candidate and run one replacement full required
+  suite on its exact v2 fingerprint.
+- [ ] Obtain final separate verification against the remediated frozen
+  candidate.
+
 ## Deferred Calibration
 
 - Deferred follow-up: collect multiple real dogfood observations before

@@ -232,6 +232,14 @@ a separate Codex process, and neither may merge, commit, push, or deploy on its
 own authority. On Codex CLI 0.146.0-alpha.3.1, repository trust requires loading
 Owner config; the runner therefore reports that TCB and fixes disabled
 integration/network/rules/root-expansion/hook features on the command line.
+It also replaces inherited subprocess overrides with an exact Git environment
+for the delegated root and passes command-scoped `safe.directory` inside its
+own Git helpers; this avoids Windows sandbox-SID `dubious ownership` without
+writing global or Owner Git configuration. These are cooperative process
+defaults, not a claim that model-authored code cannot replace its own
+environment. A read-only verifier audits the exact-fingerprint full-suite
+record and does not duplicate pytest inside a boundary with no writable
+temporary directory.
 Provider, authentication/base-URL, model-instruction, and unpinned
 notification or telemetry settings remain explicit Owner-config trust
 dependencies. Post-worker review validates the worktree Git control link,

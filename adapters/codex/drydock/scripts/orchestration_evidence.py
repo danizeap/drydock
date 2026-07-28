@@ -801,13 +801,16 @@ class InvocationStore:
 def _git_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for key in list(environment):
-        if key.startswith("GIT_"):
+        if key.upper().startswith("GIT_"):
             environment.pop(key)
     environment.update(
         {
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_TERMINAL_PROMPT": "0",
         }
     )
     return environment
@@ -821,10 +824,16 @@ def _git_executable() -> str:
 
 
 def _git(repo: Path, arguments: Sequence[str]) -> bytes:
+    resolved_repo = repo.resolve(strict=True)
     try:
         result = subprocess.run(
-            [_git_executable(), *arguments],
-            cwd=repo,
+            [
+                _git_executable(),
+                "-c",
+                f"safe.directory={resolved_repo.as_posix()}",
+                *arguments,
+            ],
+            cwd=resolved_repo,
             capture_output=True,
             timeout=60,
             check=False,

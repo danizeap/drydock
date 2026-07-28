@@ -202,7 +202,16 @@ effect.
 - Builds fixed arguments that callers cannot override: explicit model,
   `--ephemeral`, `-s read-only`, bounded timeout, and no write-capable fallback.
 - Treats the working root as task context, not as a read-confinement claim.
-  The tested read-only sandbox denied writes but could read outside that root.
+  One earlier tested build could read outside that root; the later live final
+  verifier denied an external proof-store read. Host-read behavior is therefore
+  point-in-time platform evidence, never a stable confinement or reachability
+  claim.
+- Replaces Owner shell-environment overrides with an exact process-local Git
+  map: command-scope `safe.directory` for only the canonical delegated root,
+  null global/system configuration, no system attributes, optional locks, or
+  prompts, and a canonical ceiling. Internal Git helpers independently pass
+  command-scoped `safe.directory` because they strip inherited `GIT_*`.
+  Nothing writes Owner or global Git configuration.
 - Binds the verdict to HEAD plus a working-tree fingerprint in three places:
   the prompt, exact schema constants echoed by the verifier, and an
   independently recomputed post-run fingerprint. Nested verdict fields and
@@ -214,6 +223,8 @@ effect.
 - Returns BLOCKED if isolation or fingerprinting cannot be established.
 - Establishes process, context, and permission isolation only. A same-family
   Codex process is not claimed as an independent epistemic vantage.
+- Audits the exact-fingerprint full-suite proof rather than duplicating pytest
+  inside a boundary that correctly has no writable temporary directory.
 
 ### Mutation runner
 

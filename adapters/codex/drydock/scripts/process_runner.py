@@ -233,6 +233,39 @@ def _git_environment(
     return environment
 
 
+def _canonical_git_path(path: Path) -> str:
+    return path.resolve(strict=True).as_posix()
+
+
+def _safe_directory_override(repo: Path) -> str:
+    return f"safe.directory={_canonical_git_path(repo)}"
+
+
+def _codex_shell_environment(root: Path) -> dict[str, str]:
+    resolved = root.resolve(strict=True)
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": resolved.as_posix(),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CEILING_DIRECTORIES": resolved.parent.as_posix(),
+    }
+
+
+def _codex_shell_environment_override(root: Path) -> str:
+    values = _codex_shell_environment(root)
+    encoded = ",".join(
+        f"{key}={json.dumps(value, ensure_ascii=True)}"
+        for key, value in values.items()
+    )
+    return f"shell_environment_policy.set={{{encoded}}}"
+
+
 def discover_git() -> Path:
     global _PINNED_GIT_EXECUTABLE
     if _PINNED_GIT_EXECUTABLE is not None:
@@ -275,15 +308,19 @@ def _run_git(
     controlled_environment: dict[str, str] | None = None,
     ceiling: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
+    resolved_repo = repo.resolve(strict=True)
     pinned = [
         item
-        for override in WORKTREE_GIT_CONFIG_OVERRIDES
+        for override in (
+            _safe_directory_override(resolved_repo),
+            *WORKTREE_GIT_CONFIG_OVERRIDES,
+        )
         for item in ("-c", override)
     ]
     try:
         result = subprocess.run(
             [str(discover_git()), *pinned, *arguments],
-            cwd=repo,
+            cwd=resolved_repo,
             capture_output=True,
             timeout=timeout,
             check=False,
@@ -644,6 +681,7 @@ def _codex_argv(
     schema: Path | None = None,
     output: Path | None = None,
 ) -> list[str]:
+    resolved_root = root.resolve(strict=True)
     arguments = [
         *prefix,
         "-a",
@@ -655,6 +693,9 @@ def _codex_argv(
     ]
     for override in FIXED_CONFIG_OVERRIDES:
         arguments.extend(["-c", override])
+    arguments.extend(
+        ["-c", _codex_shell_environment_override(resolved_root)]
+    )
     for feature in FIXED_DISABLED_FEATURES:
         arguments.extend(["--disable", feature])
     arguments.extend(
@@ -665,7 +706,7 @@ def _codex_argv(
         "-m",
         _validate_model(model),
         "-C",
-        str(root.resolve(strict=True)),
+        str(resolved_root),
         ]
     )
     if schema is not None:
@@ -888,7 +929,10 @@ def _worktree_root(repo: Path) -> Path:
     probe = path / ".drydock-ignore-probe"
     pinned = [
         item
-        for override in WORKTREE_GIT_CONFIG_OVERRIDES
+        for override in (
+            _safe_directory_override(repo),
+            *WORKTREE_GIT_CONFIG_OVERRIDES,
+        )
         for item in ("-c", override)
     ]
     try:
@@ -1599,6 +1643,9 @@ def mutate(
                     ],
                     "rules_loaded": False,
                     "fixed_config_overrides": list(FIXED_CONFIG_OVERRIDES),
+                    "fixed_shell_environment": _codex_shell_environment(
+                        worktree
+                    ),
                     "disabled_features": list(FIXED_DISABLED_FEATURES),
                     "model": model,
                     "process_tree_boundary": (
@@ -1839,6 +1886,7 @@ def verify(
                 ],
                 "rules_loaded": False,
                 "fixed_config_overrides": list(FIXED_CONFIG_OVERRIDES),
+                "fixed_shell_environment": _codex_shell_environment(repo),
                 "disabled_features": list(FIXED_DISABLED_FEATURES),
                 "epistemic_independence": False,
                 "state_binding": "freshness_and_anti_replay",

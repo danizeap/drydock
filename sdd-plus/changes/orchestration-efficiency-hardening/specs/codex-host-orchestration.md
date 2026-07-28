@@ -279,6 +279,36 @@ other archive/tree divergence SHALL fail proof materialization.
 - **THEN** executable identity changes, or uncertain target syntax declines
   projection and the complete target task file remains executable
 
+### Requirement: Separate Codex processes receive a pinned Git context
+The process runner SHALL replace inherited `shell_environment_policy.set`
+values with an exact process-local map for every delegated root. The map SHALL
+set command-scope Git configuration count/key/value fields that mark only the
+canonical delegated root as `safe.directory`; null global and system Git
+configuration; disable system attributes, optional locks, and terminal
+prompts; and set a canonical Git ceiling. The runner SHALL NOT mutate Owner,
+global, system, or repository Git configuration to establish trust. Its own
+Git helpers and the proof-identity Git helpers SHALL independently pass the
+canonical current root as command-scoped `safe.directory`, because those
+helpers deliberately remove inherited `GIT_*` variables. The injected shell
+defaults make cooperative verifier commands usable; they SHALL NOT be
+described as tamper-resistant against model-authored code that deliberately
+replaces its own process environment.
+
+#### Scenario: Sandbox identity differs from repository owner
+- **WHEN** a read-only Codex process runs Git under a sandbox SID different
+  from the repository owner's SID
+- **THEN** direct Git and Drydock's internal Git helpers operate against only
+  the canonical delegated root without a `dubious ownership` failure or a
+  global `safe.directory` write
+
+#### Scenario: Owner shell overrides exist
+- **WHEN** Owner configuration contains unrelated
+  `shell_environment_policy.set` values or the parent environment contains
+  hostile `GIT_*` variables
+- **THEN** the delegated process receives only the runner's exact Git map, and
+  internal helpers replace inherited Git state with their own pinned
+  command-scoped configuration
+
 ### Requirement: Test execution follows a targeted-to-full ladder
 During mutation, the controller SHALL prefer the smallest checks that cover the
 changed behavior. It SHALL freeze a candidate before the full required suite
@@ -307,6 +337,14 @@ completion marker or the user-writable evidence digest.
   change or executable-surface byte change
 - **THEN** final acceptance retains the exact tested executable-surface
   fingerprint and records the new packet-evidence fingerprint
+
+#### Scenario: Read-only verifier audits proof without duplicating tests
+- **WHEN** the final full required suite already passed on the exact frozen
+  executable fingerprint and the separate verifier has no writable temporary
+  directory
+- **THEN** the verifier validates the exact proof record, implementation,
+  specification, state binding, and read-only checks without rerunning
+  write-requiring test commands inside its permission boundary
 
 #### Scenario: A packet change can affect governed behavior
 - **WHEN** a spec, plan, task contract, agent instruction, skill, configuration,

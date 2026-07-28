@@ -87,6 +87,88 @@ def test_runner_git_uses_a_pinned_absolute_executable(
         assert arguments[0] != "git"
 
 
+def test_runner_git_pins_only_the_canonical_root_and_strips_hostile_git_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = tmp_path / "owner path with spaces"
+    parent.mkdir()
+    repo = _repository(parent)
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "poison"))
+    observed: dict[str, object] = {}
+    original = process_runner.subprocess.run
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        observed["arguments"] = list(arguments)
+        observed["cwd"] = kwargs["cwd"]
+        observed["env"] = dict(kwargs["env"])
+        return original(arguments, *args, **kwargs)
+
+    monkeypatch.setattr(process_runner.subprocess, "run", capture)
+    process_runner._run_git(repo, ["rev-parse", "HEAD"])
+
+    arguments = observed["arguments"]
+    assert isinstance(arguments, list)
+    assert arguments[1:3] == [
+        "-c",
+        f"safe.directory={repo.resolve().as_posix()}",
+    ]
+    assert observed["cwd"] == repo.resolve()
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "GIT_OBJECT_DIRECTORY" not in environment
+    assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert environment["GIT_CONFIG_SYSTEM"] == os.devnull
+    assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert environment["GIT_ATTR_NOSYSTEM"] == "1"
+    assert environment["GIT_OPTIONAL_LOCKS"] == "0"
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+
+
+def test_codex_child_receives_exact_root_bound_git_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "delegated root with spaces"
+    root.mkdir()
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "poison"))
+    expected = {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": root.resolve().as_posix(),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CEILING_DIRECTORIES": root.resolve().parent.as_posix(),
+    }
+    assert process_runner._codex_shell_environment(root) == expected
+
+    expected_override = "shell_environment_policy.set={" + ",".join(
+        f"{key}={json.dumps(value)}" for key, value in expected.items()
+    ) + "}"
+    assert (
+        process_runner._codex_shell_environment_override(root)
+        == expected_override
+    )
+    argv = process_runner._codex_argv(
+        _prefix(),
+        root=root,
+        sandbox="read-only",
+        model="gpt-test",
+    )
+    overrides = [
+        argv[index + 1] for index, value in enumerate(argv) if value == "-c"
+    ]
+    assert overrides == [
+        *process_runner.FIXED_CONFIG_OVERRIDES,
+        expected_override,
+    ]
+    assert "GIT_OBJECT_DIRECTORY" not in expected_override
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [
@@ -244,7 +326,16 @@ def test_mutation_uses_fixed_worktree_process_and_never_merges(
     overrides = [
         argv[index + 1] for index, value in enumerate(argv) if value == "-c"
     ]
-    assert overrides == list(process_runner.FIXED_CONFIG_OVERRIDES)
+    assert overrides == [
+        *process_runner.FIXED_CONFIG_OVERRIDES,
+        process_runner._codex_shell_environment_override(
+            Path(result["worktree"])
+        ),
+    ]
+    assert (
+        result["worker"]["argv_contract"]["fixed_shell_environment"]
+        == process_runner._codex_shell_environment(Path(result["worktree"]))
+    )
     disabled = [
         argv[index + 1] for index, value in enumerate(argv) if value == "--disable"
     ]
@@ -575,6 +666,17 @@ def test_verifier_fixes_read_only_root_and_binds_tree(
     assert "--output-schema" in argv
     assert "--output-last-message" in argv
     assert "danger-full-access" not in argv
+    assert (
+        result["isolation"]["fixed_shell_environment"]
+        == process_runner._codex_shell_environment(repo)
+    )
+    overrides = [
+        argv[index + 1] for index, value in enumerate(argv) if value == "-c"
+    ]
+    assert overrides == [
+        *process_runner.FIXED_CONFIG_OVERRIDES,
+        process_runner._codex_shell_environment_override(repo),
+    ]
 
 
 def test_verifier_invalidates_pass_when_tree_changes(
