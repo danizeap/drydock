@@ -230,6 +230,23 @@ orchestration-efficiency-hardening
   the read-only sandbox denied the external proof-store path and could not
   allocate pytest temporary files. The exact blocking summary is preserved in
   `codex-final-verifier.json`; no implementation failure or PASS is inferred.
+- [x] After Owner-approved evidence-delivery remediation, a further verifier
+  received the exact 1,585-byte proof record in-band after local
+  `final_suite_acceptance` returned accepted. Its preflight proved the exact
+  PowerShell file/capture path, zero wrapper parse errors, a clean tree, and no
+  active verifier. The runner preserved 5,179 bytes of output (SHA-256
+  `7153936680b7f4193d67b3bf5239bcd611e4bfe8dbfe09120260a149d7d73c53`)
+  with zero wrapper stderr, but returned `timed_out: true`, process exit 1,
+  `parse_error: verifier emitted no structured verdict file`, and `ok: false`.
+  Its before/after binding matched HEAD
+  `9271a22dd7e119746745868e640480947353a180` and working-tree fingerprint
+  `c1ddb492129ad4d5e1284ea1e0f765fe92bd0678751429ab8a520c47d174d09a`;
+  the tree stayed unchanged. The captured tool tail shows ordinary Git failed
+  under the `CodexSandboxOffline` SID with `dubious ownership` until the model
+  injected `safe.directory`; a later direct committed-tree/archive probe
+  matched all 473 paths and mode/bytes. No missing structured verdict or
+  partial positive check is interpreted as PASS. The verifier runner must make
+  its fixed read-only Git context usable before another paid attempt.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -247,7 +264,10 @@ CANDIDATE
 `b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`
 AT COMMIT `4caa98812e5774c48bdd78451abaf43d0a5a4c10`; SEPARATE VERIFICATION
 IS BLOCKED ON READ-ONLY EVIDENCE REACHABILITY AND TEMPORARY-FILE
-AVAILABILITY, NOT AN OBSERVED IMPLEMENTATION FAILURE. The
+AVAILABILITY; THE LATEST IN-BAND-EVIDENCE ATTEMPT ALSO EXPOSED AN UNPINNED
+`safe.directory` REQUIREMENT FOR GIT UNDER THE SANDBOX SID AND TIMED OUT
+WITHOUT A VERDICT. NO IMPLEMENTATION FAILURE IS OBSERVED, BUT THE VERIFIER
+RUNNER MUST BE REMEDIATED BEFORE ANOTHER ATTEMPT. The
 implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
