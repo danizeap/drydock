@@ -167,8 +167,22 @@ are separate implementer evidence and do not claim that CI ran for this diff.
 
 - [x] Delta spec, plan, Build Blueprint, decision log, tasks, and verification
   updated for the accepted round-1 remediation.
-- [ ] Fresh independent verifier review against the final diff.
-- [ ] Claude code/architecture/security review.
+- [x] Fresh independent verifier reviewed exact commit `cefc2ea`. Its overall
+  result remains BLOCKED because both mandatory pytest commands were nonzero.
+  It nevertheless reported every candidate-specific invariant PASS and
+  `implementation_defects: []`. The exact structured result is preserved in
+  `codex-final-verifier.json`; the failures are not relabelled as passes.
+- [x] Claude reviewed `7d4c08b..cefc2ea` read-only from an extracted candidate
+  tree, reproduced 126/1 focused, 244/2 adapter, and 548/6 legacy counts, and
+  returned `converged: true` with no candidate blocker. Its structured result
+  is preserved in `claude-final-review.json`.
+- [x] Claude classified the verifier's 13 hook-runtime failures as the
+  unchanged `py -3` launcher dependency and the one descendant-cleanup failure
+  as a separate unchanged timing-sensitive runner issue. Those remain tracked
+  gaps rather than candidate passes.
+- [x] Two earlier automated peer attempts are operational failures, not
+  reviews: Opus 5 and Fable 5 each received the bounded 297 KB source packet
+  and exited with `error_max_budget_usd` under a $1 controller ceiling.
 - [ ] Live controller/executor integration.
 - [ ] Living spec sync and archive.
 - [ ] Commit, integration into another branch, push, install, release, or
@@ -176,6 +190,10 @@ are separate implementer evidence and do not claim that CI ran for this diff.
 
 ## Result
 
-IMPLEMENTER FOCUSED, PACKET, AND DIFF CHECKS PASS; INDEPENDENT REVIEW REMAINS
-PENDING. This substrate is not wired into live routing, is not archive-ready,
-and carries no integration, launch, or release authorization.
+CANDIDATE-SPECIFIC CODE CONVERGENCE ESTABLISHED; FULL REPOSITORY VERIFICATION
+REMAINS BLOCKED BY THE DISCLOSED ENVIRONMENTAL AND UNCHANGED RUNNER FAILURES.
+The substrate is not wired into live routing, is not archive-ready, and
+carries no install, launch, release, or deployment authorization. Claude also
+identified a pre-existing quadratic append curve, unlocked reads when the
+sidecar is absent, and an unverified write-denied-storage boundary; these are
+non-blocking follow-up gaps, not erased evidence.

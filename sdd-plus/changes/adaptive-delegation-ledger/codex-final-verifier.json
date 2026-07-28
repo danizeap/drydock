@@ -1,0 +1,73 @@
+{
+  "verdict": "BLOCKED",
+  "commit_binding": {
+    "expected": "cefc2ea7635efd28a12d954eabb7a289e37cb8e8",
+    "HEAD": "cefc2ea7635efd28a12d954eabb7a289e37cb8e8",
+    "detached": true,
+    "worktree_clean": true
+  },
+  "commands": [
+    {
+      "command": "python -m pytest adapters/codex/tests -q",
+      "exit": 1,
+      "result": "231 passed, 13 failed, 2 skipped; all 13 failures were test_hook_runtime subprocesses returning 112: No installed Python found!"
+    },
+    {
+      "command": "python -m pytest tests -q",
+      "exit": 1,
+      "result": "547 passed, 1 failed, 6 skipped; tests/test_mutate.py::test_timed_out_test_reaps_descendant_and_reports_cleanup left its child-created file"
+    },
+    {
+      "command": "python scripts/check_sync.py",
+      "exit": 0,
+      "result": "all 11 root/scaffold pairs identical"
+    },
+    {
+      "command": "python adapters/codex/drydock/scripts/scaffold_bundle.py --source assets/project-scaffold --output adapters/codex/drydock/assets/project-scaffold.bundle.json --check",
+      "exit": 0,
+      "result": "bundle matches source"
+    },
+    {
+      "command": "python adapters/codex/drydock/scripts/build_hooks.py --source adapters/codex/drydock/scripts/hook_runtime_source.py --output adapters/codex/drydock/hooks --check",
+      "exit": 0,
+      "result": "hook runtime and definition match source"
+    },
+    {
+      "command": "python scripts/release.py --check",
+      "exit": 0,
+      "result": "all version locations agree at 0.12.1"
+    },
+    {
+      "command": "python scripts/sdd.py verify adaptive-delegation-ledger",
+      "exit": 0,
+      "result": "artifacts verified; 34 tasks complete, 4 pending"
+    },
+    {
+      "command": "git diff --check; git status --short",
+      "exit": 0,
+      "result": "no tracked diff or status entries"
+    }
+  ],
+  "invariants": {
+    "atomic_prefix_plus_reserved_marker_before_replace_and_visible_to_read_verify": "PASS",
+    "intent_candidate_marker_quarantine_later_stream_fail_closed_including_record_10000": "PASS",
+    "eight_subprocesses_times_three_appends_contend_via_sidecar_lock": "PASS",
+    "profile_commit_claims_explicitly_unauthenticated_controller_assertions": "PASS",
+    "canonical_json_LF_direct_import_and_LF_bundle_fixes": "PASS"
+  },
+  "implementation_defects": [],
+  "blockers": [
+    "Both mandatory pytest commands exited nonzero.",
+    "Packet had 4 pending tasks at review time."
+  ],
+  "gaps": [
+    {
+      "kind": "environment",
+      "detail": "Nested hook-runtime tests required py -3; the verifier environment reported No installed Python found while python itself ran pytest."
+    },
+    {
+      "kind": "unattributed_noncommit_failure",
+      "detail": "The descendant-reaping failure was in unchanged scripts/conductor/mutate.py and tests/test_mutate.py; it was not attributable to this candidate."
+    }
+  ]
+}

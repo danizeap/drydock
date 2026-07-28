@@ -29,9 +29,11 @@ adaptive-delegation-ledger
 
 - [x] Capture and remediate both concrete defects surfaced by failed verifier
   attempts: caller-owned mutable lists and caller-supplied aggregate snapshots.
-- [ ] Obtain a fresh independent Codex verification against the frozen diff.
-- [ ] Obtain Claude architectural/security peer review when usage returns.
-- [ ] Reconcile every Claude blocker before integration or archive.
+- [x] Obtain a fresh independent Codex verification against the frozen diff;
+  preserve its overall BLOCKED result and candidate-specific invariant passes.
+- [x] Obtain Claude architectural/security peer review when usage returns.
+- [x] Reconcile every Claude blocker before integration or archive; the final
+  review found no candidate-specific blocker.
 - [ ] Design routing calibration only after dogfood evidence exists; do not
   invent a scalar score in this packet.
 
