@@ -205,6 +205,17 @@ orchestration-efficiency-hardening
   surface a recoverable structured verdict. Either defect is sufficient to
   withhold PASS. No absence or process exit was interpreted as a result, and
   no automatic paid retry was launched.
+- [x] After explicit Owner approval, a corrected bounded verifier removed the
+  manually duplicated HEAD, used only runner-owned state binding, and ended
+  after about four minutes without changing the repository. Its result is also
+  not accepted: the pilot's durable-capture wrapper used the unsupported
+  Windows PowerShell 5.1 parameter `New-Item -LiteralPath`, so the output
+  directory was never created and the ephemeral structured verdict was not
+  recoverable after process exit. A later local no-model probe with
+  `New-Item -Path`, hidden-process stdout redirection, and an explicit file
+  read proved the corrected capture mechanism before any further paid call.
+  No process exit or missing output was interpreted as PASS, and no third
+  verifier was launched without renewed Owner authorization.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
