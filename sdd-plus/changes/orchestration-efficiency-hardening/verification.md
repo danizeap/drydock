@@ -196,6 +196,15 @@ orchestration-efficiency-hardening
   The record is user-writable identity evidence, not attestation; the outer
   shell wrapper stopped observing the surviving child, so individual current
   test counts are not reconstructed from the digest.
+- [x] The first separate read-only verifier attempt after the full-suite
+  checkpoint is not accepted as verification. The runner bound its schema to
+  actual evidence HEAD
+  `6f281a3eff9c4d131d7a35bf1b1b2dd95d628de4`, but the pilot's human-authored
+  request accidentally named a different hash with the same short prefix.
+  The child process tree ended, while the outer orchestration wrapper did not
+  surface a recoverable structured verdict. Either defect is sufficient to
+  withhold PASS. No absence or process exit was interpreted as a result, and
+  no automatic paid retry was launched.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
