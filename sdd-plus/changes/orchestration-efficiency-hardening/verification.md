@@ -19,9 +19,9 @@ orchestration-efficiency-hardening
   test files with an out-of-tree bytecode cache. Python 3.12 pytest execution
   was unavailable because that interpreter has no pytest installation; this is
   not reported as a passing test run.
-- [ ] Full Codex adapter suite after candidate freeze.
-- [ ] Legacy suite after candidate freeze.
-- [ ] Root/scaffold, hook, bundle, release-version, packet, and diff parity.
+- [x] Full Codex adapter suite after candidate freeze.
+- [x] Legacy suite after candidate freeze.
+- [x] Root/scaffold, hook, bundle, release-version, packet, and diff parity.
 
 ## Manual Checks
 
@@ -181,6 +181,21 @@ orchestration-efficiency-hardening
   round-9 evidence, verification text, and canonical task-state transitions
   changed only packet-evidence identity. Reuse eligibility was true with no
   tracked bytecode, ignored code-injection path, or invalid packet evidence.
+- [x] Final full-suite proof ran from fresh committed-tree materialization at
+  exact clean HEAD `4caa98812e5774c48bdd78451abaf43d0a5a4c10`, whose v2
+  executable fingerprint remained
+  `b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`.
+  One sequential command chain ran the legacy suite, full Codex adapter suite,
+  root/scaffold sync check, scaffold-bundle parity, generated-hook parity,
+  release-version parity, and packet verification. The external proof record
+  reports `terminal_status: passed`, exit code 0, `timed_out: false`,
+  180.453 seconds elapsed, environment digest
+  `2f903bc2c7a4829eb1c95cc7c1356cd2daa970ada729eb8e936f0ae9c31fa75b`,
+  and output digest
+  `d45d67fb77ed0a06383c04d64f852d3ca1fafd389c207d1996d08f4087a15057`.
+  The record is user-writable identity evidence, not attestation; the outer
+  shell wrapper stopped observing the surviving child, so individual current
+  test counts are not reconstructed from the digest.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -192,10 +207,12 @@ orchestration-efficiency-hardening
 ## Result
 
 V2 PROOF-IDENTITY ARCHITECTURE CONVERGED; THE PRE-FREEZE STRUCTURAL
-SERIALIZATION FINDING IS REMEDIATED, FOCUSED TESTS PASS, AND IMPLEMENTATION
-CROSS-REVIEW CONVERGED. EXECUTABLE CANDIDATE
+SERIALIZATION FINDING IS REMEDIATED, IMPLEMENTATION CROSS-REVIEW CONVERGED,
+AND THE FINAL FULL REQUIRED SUITE PASSED ON THE EXACT FROZEN EXECUTABLE
+CANDIDATE
 `b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`
-IS FROZEN; FULL SUITES AND SEPARATE VERIFICATION REMAIN PENDING. The
+AT COMMIT `4caa98812e5774c48bdd78451abaf43d0a5a4c10`; SEPARATE VERIFICATION
+REMAINS PENDING. The
 implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner

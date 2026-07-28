@@ -52,7 +52,7 @@ orchestration-efficiency-hardening
   record-level v1 replay refusal, and proof-root tree equality checks.
 - [x] Obtain implementation cross-review of the v2 fingerprint correction.
 - [x] Freeze the candidate after cross-review.
-- [ ] Run one final full adapter/legacy/parity pass.
+- [x] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.
 
 ## Deferred Calibration
