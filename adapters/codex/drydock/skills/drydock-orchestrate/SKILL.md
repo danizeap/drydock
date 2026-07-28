@@ -53,31 +53,36 @@ semantics, while the explicit one-tool allowlist is the authority boundary.
    capped at 64 KiB, and logically expire within 24 hours. Rejected bodies
    retain only bounded digest/status metadata and may require a new
    Owner-approved call.
-6. Use project-scoped nested agents only for bounded read-only advisory work.
+6. Treat `pre_mutation_critique` as a machine-readable gate input, not the
+   interlock itself. The process runner or pilot MUST refuse to launch a
+   mutating worker when a required critique reports `gate_satisfied: false`;
+   this controller does not launch workers and therefore cannot enforce that
+   boundary by itself.
+7. Use project-scoped nested agents only for bounded read-only advisory work.
    They are not a permission or independent-verification boundary.
-7. Send every mutating task through `scripts/process_runner.py mutate`. The
+8. Send every mutating task through `scripts/process_runner.py mutate`. The
    runner fixes an ephemeral `workspace-write` process to its dedicated Git
    worktree, owns Git metadata, rejects Owner-checkout drift, and never merges.
    The tested alpha CLI requires Owner config for repository trust; the runner
    reports that TCB and pins disabled MCP, web, network, rules, plugin, app,
    browser, and computer-use surfaces. A zero-exit worker with no diff is
    `no_changes`, never success.
-8. Treat worker test claims as untrusted. Cross-review the staged work, then
+9. Treat worker test claims as untrusted. Cross-review the staged work, then
    run `scripts/process_runner.py verify` against the exact intended tree. A
    missing, timed-out, malformed, or stale verdict is BLOCKED, never PASS.
    Read-only proves no write capability on the tested host; `-C` supplies task
    context but is not a proven read-confinement boundary.
-9. Use `scripts/orchestrator.py proof-run` for candidate-bound proof. It
+10. Use `scripts/orchestrator.py proof-run` for candidate-bound proof. It
    materializes a fresh root from the exact clean commit, refuses tracked
    bytecode and ignored Python/pytest injection paths, and disables bytecode
    writes. Reused proof is intermediate only. Final acceptance still requires
    one `full_required_suite` record on the exact frozen executable fingerprint;
    an evidence-only record never establishes peer agreement or attestation.
-10. Integrate sequentially only after the packet gates and Owner authorization
+11. Integrate sequentially only after the packet gates and Owner authorization
    that apply to the requested workflow. Commit, merge, push, deploy, and
    destructive cleanup remain separate actions; none is implied by a green
    verifier.
-11. Report the plan/peer result, worktree and branch, changed files, evidence,
+12. Report the plan/peer result, worktree and branch, changed files, evidence,
    verifier fingerprint, unresolved risks, and `merged: false` until deliberate
    integration actually occurs.
 

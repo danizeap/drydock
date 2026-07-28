@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -169,6 +170,117 @@ def test_run_supersession_requires_recorded_owner_digests(
             objective_digest="raw objective",
             owner_action_digest=DIGEST_B,
         )
+
+
+def _write_abandoned_lock(path: Path, body: object) -> None:
+    lock = path.with_name(f".{path.name}.lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps(body), encoding="utf-8")
+
+
+def test_dead_ledger_locks_recover_across_all_mutations(tmp_path: Path) -> None:
+    root = evidence.state_root(tmp_path / "state")
+
+    reserving = evidence.RunLedger.start(
+        root,
+        objective_digest=DIGEST_A,
+        owner_action_digest=DIGEST_B,
+    )
+    _write_abandoned_lock(
+        reserving.path,
+        {
+            "process": {"pid": 2147483646, "started": "dead"},
+            "created_at": 0,
+        },
+    )
+    reservation = reserving.reserve(
+        "plan_peer",
+        input_bytes=1,
+        configured_provider_usd=0,
+        model="claude-opus-5",
+    )
+    assert reservation["ok"] is True
+
+    reserving.path.with_name(f".{reserving.path.name}.lock").write_text(
+        "not-json", encoding="utf-8"
+    )
+    reserving.complete(
+        reservation["reservation_id"],
+        observed_provider_usd=0,
+    )
+
+    closing = evidence.RunLedger.start(
+        root,
+        objective_digest=DIGEST_A,
+        owner_action_digest=DIGEST_B,
+    )
+    _write_abandoned_lock(
+        closing.path,
+        {
+            "process": {
+                "pid": os.getpid(),
+                "started": "definitely-not-the-current-process-token",
+            },
+            "created_at": time.time(),
+        },
+    )
+    closing.close("blocked")
+    assert closing.read()["status"] == "blocked"
+
+    superseded = evidence.RunLedger.start(
+        root,
+        objective_digest=DIGEST_A,
+        owner_action_digest=DIGEST_B,
+    )
+    _write_abandoned_lock(
+        superseded.path,
+        {
+            "process": evidence.process_identity(os.getpid()),
+            "created_at": 0,
+        },
+    )
+    successor = evidence.RunLedger.start(
+        root,
+        objective_digest=DIGEST_C,
+        owner_action_digest=DIGEST_A,
+        previous_run_id=superseded.run_id,
+    )
+    assert superseded.read()["status"] == "superseded"
+    assert successor.read()["transition"]["old_run_id"] == superseded.run_id
+
+
+def test_live_ledger_lock_is_refused(tmp_path: Path) -> None:
+    root = evidence.state_root(tmp_path / "state")
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest=DIGEST_A,
+        owner_action_digest=DIGEST_B,
+    )
+    with evidence._exclusive_record_lock(ledger.path):
+        with pytest.raises(evidence.EvidenceError, match="concurrent"):
+            ledger.reserve(
+                "plan_peer",
+                input_bytes=1,
+                configured_provider_usd=0,
+                model="claude-opus-5",
+            )
+    live_payload = {
+        "process": evidence.process_identity(os.getpid()),
+        "created_at": time.time(),
+    }
+    _write_abandoned_lock(ledger.path, live_payload)
+    with pytest.raises(evidence.EvidenceError, match="live"):
+        ledger.reserve(
+            "plan_peer",
+            input_bytes=1,
+            configured_provider_usd=0,
+            model="claude-opus-5",
+        )
+    assert json.loads(
+        ledger.path.with_name(f".{ledger.path.name}.lock").read_text(
+            encoding="utf-8"
+        )
+    ) == live_payload
 
 
 def test_objective_properties_force_full_critique_and_skip_is_not_gate() -> None:
@@ -364,6 +476,39 @@ def test_fresh_proof_root_and_final_suite_binding(tmp_path: Path) -> None:
     )["accepted"] is False
 
 
+def test_fresh_proof_root_selects_explicit_extraction_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path)
+    commit = _git(repo, "rev-parse", "HEAD")
+    observed: list[object] = []
+    original = evidence.tarfile.TarFile.extractall
+
+    def recording_extractall(
+        bundle: object,
+        path: object = ".",
+        members: object = None,
+        *,
+        numeric_owner: bool = False,
+        filter: object = None,
+    ) -> None:
+        observed.append(filter)
+        original(
+            bundle,
+            path,
+            members,
+            numeric_owner=numeric_owner,
+            filter=filter,
+        )
+
+    monkeypatch.setattr(
+        evidence.tarfile.TarFile, "extractall", recording_extractall
+    )
+    with evidence.fresh_proof_root(repo, commit) as root:
+        assert (root / "app.py").is_file()
+    assert observed == ["fully_trusted"]
+
+
 def test_reusable_proof_is_intermediate_and_exactly_bound() -> None:
     command = [sys.executable, "-m", "pytest", "-q"]
     environment_digest = DIGEST_B
@@ -435,6 +580,16 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
         executable_fingerprint=DIGEST_A,
         result=result,
         scope="full_required_suite",
+    )
+    assert store.final(
+        executable_fingerprint=DIGEST_A,
+        command=command,
+        environment_sha256=DIGEST_B,
+    )["accepted"] is True
+    store.record(
+        executable_fingerprint=DIGEST_A,
+        result=result,
+        scope="intermediate",
     )
     assert store.final(
         executable_fingerprint=DIGEST_A,

@@ -13,7 +13,8 @@ orchestration-efficiency-hardening
 - [x] Focused controller/evidence tests:
   `python -m pytest adapters/codex/tests/test_orchestrator.py
   adapters/codex/tests/test_orchestration_evidence.py -q
-  -p no:cacheprovider` reported 57 passed on Python 3.11.
+  -p no:cacheprovider` reported 62 passed on Python 3.11 after round-five
+  implementation-review remediation.
 - [x] Python 3.12 compiled the controller, evidence module, and both focused
   test files with an out-of-tree bytecode cache. Python 3.12 pytest execution
   was unavailable because that interpreter has no pytest installation; this is
@@ -94,19 +95,34 @@ orchestration-efficiency-hardening
   single-flight and bounded terminal recovery, executable/evidence
   fingerprints, fresh proof roots, intermediate proof reuse, and final-suite
   exact-fingerprint binding.
+- [x] Owner-relayed implementation review inspected exact range
+  `a10faf3..0444a0f`, reproduced 57 focused tests, confirmed the principal
+  mechanisms, and returned `converged: false` because a crash-stale ledger
+  lock permanently blocked run mutation. Its findings are faithfully
+  summarized in `claude-architecture-review-round-5.json`; the filename
+  follows the packet's narrow evidence allowlist, while the content explicitly
+  identifies this as implementation cross-review.
+- [x] Round-five remediation serializes lock recovery with an operating-system
+  advisory lock, recovers absent, mismatched, unreadable, or expired holder
+  records, preserves refusal for a live holder, exposes tested `close-run`
+  lifecycle closure, keys proof by scope, emits a uniform critique-gate block,
+  documents the external mutation interlock, and pins tar extraction behavior
+  where supported.
+- [ ] Owner-relayed implementation re-review of the remediation commit.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
 
-- [ ] Operator guidance updated.
+- [x] Operator guidance updated.
 - [ ] Project context updated if the durable defaults change.
 - [x] Delta spec written before runtime code.
 
 ## Result
 
-ARCHITECTURE CONVERGED AND THE BOUNDED IMPLEMENTATION IS FOCUSED-TEST GREEN;
-CROSS-REVIEW, CANDIDATE FREEZE, FULL SUITES, AND SEPARATE VERIFICATION REMAIN
-PENDING. The implementation does not claim fixed-root mutation containment:
+ARCHITECTURE CONVERGED AND ROUND-FIVE IMPLEMENTATION-REVIEW REMEDIATION IS
+FOCUSED-TEST GREEN; IMPLEMENTATION RE-REVIEW, CANDIDATE FREEZE, FULL SUITES,
+AND SEPARATE VERIFICATION REMAIN PENDING. The implementation does not claim
+fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
 checkout directly. Remaining disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or

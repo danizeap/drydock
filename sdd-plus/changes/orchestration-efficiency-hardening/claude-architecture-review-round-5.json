@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": false,
+  "overall": "Claude reviewed a10faf3..0444a0f read-only, reproduced the 57-test focused suite, and directly rechecked the implemented failure routing, input-before-spawn ordering, cumulative envelopes, single-flight behavior, bounded terminal persistence, candidate fingerprinting, fresh proof roots, exact-fingerprint final acceptance, and objective-triggered critique disclosure. Those mechanisms matched the converged architecture. One reachable freeze blocker remained: a crash-stale RunLedger lock was never inspected or recovered, permanently preventing reservation, completion, closure, or supersession. Four bounded implementation corrections were also required before the next review.",
+  "blocking_concerns": [
+    "RunLedger used a bare exclusive-create lock file and unconditionally rejected FileExistsError. A dead or unreadable holder therefore bricked every mutation of the affected run, including Owner cancellation and supersession, despite the lock payload already carrying exact process identity."
+  ],
+  "gaps": [
+    "RunLedger.close was implemented but had no CLI path or regression, leaving terminal run states unreachable through the documented controller.",
+    "ProofStore omitted scope from its key, so a later intermediate record could overwrite a full_required_suite record for the same fingerprint, command, and environment.",
+    "pre_mutation_critique was absent on return_to_owner failures, making the result shape non-uniform even though the path remained fail-closed.",
+    "The controller emits critique gate evidence but does not launch workers; the separate runner or pilot must enforce that gate before mutation.",
+    "Proof-root tar extraction did not select an explicit filter on interpreters that support the filter parameter."
+  ],
+  "risks": [
+    "Invocation terminal and expiry writes do not share the RunLedger record-lock discipline, leaving a narrow low-reachability lost-update risk.",
+    "Invocation terminal writes do not bind the caller to the process identity that created the lease.",
+    "Repository fingerprints read each tracked file fully rather than streaming large files.",
+    "Objective-property classification remains caller-supplied judgment and default envelopes remain uncalibrated.",
+    "All orchestration evidence stores remain user-writable, identifying evidence rather than attestation."
+  ],
+  "required_changes": [
+    "Recover crash-stale, mismatched, unreadable, or expired ledger locks while continuing to refuse a genuinely live holder, with regression coverage across reserve, complete, close, and supersession.",
+    "Expose RunLedger.close through a tested close-run CLI path or remove it.",
+    "Include proof scope in the record key or otherwise prevent an intermediate record from destroying final-suite evidence.",
+    "Emit pre_mutation_critique on every peer failure path and document the external worker-launch enforcement boundary.",
+    "Select tar extraction behavior explicitly where the interpreter exposes a filter parameter."
+  ]
+}

@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -19,7 +20,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Iterator, Mapping, Sequence
+from typing import BinaryIO, Iterable, Iterator, Mapping, Sequence
 
 
 PHASES = (
@@ -32,6 +33,7 @@ PHASES = (
 MAX_TERMINAL_BYTES = 64 * 1024
 MAX_RECORD_BYTES = 128 * 1024
 MAX_RESULT_AGE_SECONDS = 24 * 60 * 60
+RECORD_LOCK_LEASE_SECONDS = 60
 SAFE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 PEER_REVIEW_NAME = re.compile(
     r"^claude-architecture-review-round-[1-9][0-9]*\.json$"
@@ -125,23 +127,113 @@ def _exclusive_record_lock(path: Path) -> Iterator[None]:
     identity = process_identity(os.getpid())
     if identity is None:
         raise EvidenceError("cannot establish process identity for state lock")
-    payload = _canonical_json(
-        {"process": identity, "created_at": time.time()}
-    )
+    payload = _canonical_json({"process": identity, "created_at": time.time()})
+    lock.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with lock.open("xb") as stream:
+        stream = lock.open("x+b")
+        created = True
+    except FileExistsError:
+        try:
+            stream = lock.open("r+b")
+        except OSError as exc:
+            raise EvidenceError(
+                "orchestration state lock is unreadable"
+            ) from exc
+        created = False
+    acquired = False
+    owns_record = False
+    try:
+        if not _try_advisory_lock(stream):
+            raise EvidenceError(
+                "orchestration state is locked; refusing a concurrent update"
+            )
+        acquired = True
+        if created:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-    except FileExistsError as exc:
-        raise EvidenceError(
-            "orchestration state is locked; refusing a concurrent or stale update"
-        ) from exc
-    try:
+            owns_record = True
+        else:
+            recoverable = False
+            try:
+                stream.seek(0)
+                raw = stream.read(MAX_RECORD_BYTES + 1)
+                if len(raw) > MAX_RECORD_BYTES:
+                    raise ValueError("lock record exceeds its byte bound")
+                existing = json.loads(raw.decode("utf-8"))
+                if not isinstance(existing, dict):
+                    raise ValueError("lock record root is not an object")
+                created_at = existing.get("created_at")
+                age = (
+                    time.time() - float(created_at)
+                    if isinstance(created_at, (int, float))
+                    and not isinstance(created_at, bool)
+                    and math.isfinite(float(created_at))
+                    else math.inf
+                )
+                liveness = exact_process_liveness(existing.get("process"))
+                recoverable = (
+                    liveness in {"absent", "mismatched", "unknown"}
+                    or age < 0
+                    or age > RECORD_LOCK_LEASE_SECONDS
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError, OSError):
+                recoverable = True
+            if not recoverable:
+                raise EvidenceError(
+                    "orchestration state is locked; refusing a live update"
+                )
+            stream.seek(0)
+            stream.truncate()
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+            owns_record = True
         yield
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            lock.unlink()
+        if owns_record:
+            with contextlib.suppress(OSError):
+                stream.seek(0)
+                stream.truncate()
+                stream.write(
+                    _canonical_json(
+                        {"released": True, "released_at": time.time()}
+                    )
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+        if acquired:
+            _release_advisory_lock(stream)
+        stream.close()
+
+
+def _try_advisory_lock(stream: BinaryIO) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _release_advisory_lock(stream: BinaryIO) -> None:
+    with contextlib.suppress(OSError):
+        if os.name == "nt":
+            import msvcrt
+
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 def state_root(
@@ -937,7 +1029,10 @@ def fresh_proof_root(repo: Path, commit: str) -> Iterator[Path]:
                     or not (member.isfile() or member.isdir())
                 ):
                     raise EvidenceError("proof archive contains an unsafe path")
-            bundle.extractall(root)
+            if "filter" in inspect.signature(bundle.extractall).parameters:
+                bundle.extractall(root, filter="fully_trusted")
+            else:
+                bundle.extractall(root)
         archive_path.unlink()
         bytecode = [
             path
@@ -1048,7 +1143,10 @@ class ProofStore:
         executable_fingerprint: str,
         command: Sequence[str],
         environment_sha256: str,
+        scope: str,
     ) -> Path:
+        if scope not in {"intermediate", "full_required_suite"}:
+            raise EvidenceError("proof scope is invalid")
         key = _digest_bytes(
             _canonical_json(
                 {
@@ -1059,6 +1157,7 @@ class ProofStore:
                     "environment_sha256": _require_digest(
                         environment_sha256, "environment fingerprint"
                     ),
+                    "scope": scope,
                 }
             )
         )
@@ -1100,7 +1199,7 @@ class ProofStore:
             "authenticated": False,
         }
         path = self._path(
-            executable_fingerprint, command, environment_sha256
+            executable_fingerprint, command, environment_sha256, scope
         )
         _atomic_json(path, record)
         return record
@@ -1121,7 +1220,9 @@ class ProofStore:
                 "reusable": False,
                 "reason": "candidate cleanliness or loadable-path proof is absent",
             }
-        path = self._path(fingerprint, command, environment_sha256)
+        path = self._path(
+            fingerprint, command, environment_sha256, "intermediate"
+        )
         if not path.is_file():
             return {"reusable": False, "reason": "exact proof record is absent"}
         record = _read_json(path)
@@ -1144,7 +1245,10 @@ class ProofStore:
         environment_sha256: str,
     ) -> dict[str, object]:
         path = self._path(
-            executable_fingerprint, command, environment_sha256
+            executable_fingerprint,
+            command,
+            environment_sha256,
+            "full_required_suite",
         )
         if not path.is_file():
             return {

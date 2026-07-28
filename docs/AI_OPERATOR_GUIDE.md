@@ -163,6 +163,10 @@ malformed output, model mismatch, and missing, malformed, negative, or positive
 cost instead return `return_to_owner`. Rate limiting is identified only from
 exact supported structured markers or explicit rate-limit phrases, not from
 generic `rate`, `quota`, or `usage` substrings.
+The `pre_mutation_critique` block is a uniform machine-readable gate input,
+not a process-launch interlock. The mutating runner or pilot must inspect it
+and refuse to start a worker when a required critique has
+`gate_satisfied: false`; the peer controller itself never launches workers.
 
 Each Owner objective receives one durable run ID. Starting another process or
 resuming the task does not reset its cumulative envelope; only an explicit
@@ -174,6 +178,8 @@ the provider exposes no trustworthy evidence. Exhaustion starts no new
 automatic call and can route a cheaper model only as advisory output that
 satisfies no gate. The shipped defaults are configurable and explicitly
 uncalibrated.
+Use `close-run` to record `complete`, `blocked`, or `cancelled_by_owner`;
+Owner cancellation requires the digest of the explicit Owner action.
 
 Peer requests are preflighted against the phase input ceiling before any Claude
 process starts. Equivalent calls are single-flight through user-writable local

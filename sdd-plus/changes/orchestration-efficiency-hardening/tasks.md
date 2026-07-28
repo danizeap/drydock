@@ -38,6 +38,12 @@ orchestration-efficiency-hardening
   conservative invalidation and a final exact-fingerprint full-suite rule.
 - [x] Update the orchestration skill and operator guidance.
 - [x] Run focused checks during implementation.
+- [x] Obtain implementation cross-review of `a10faf3..0444a0f`; it returned
+  non-converged with one crash-stale ledger-lock blocker and four bounded
+  required corrections.
+- [x] Remediate the round-five blocker and all four required corrections with
+  focused regression coverage.
+- [ ] Obtain implementation re-review convergence on the remediation commit.
 - [ ] Freeze the candidate after cross-review.
 - [ ] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.

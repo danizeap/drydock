@@ -1261,16 +1261,12 @@ class NegotiationController:
                 **result,
                 "workflow": peer_failure_workflow(result),
             }
-            if (
-                self.critique_requirement["critique_required"]
-                and governed["workflow"]["action"] == "continue_codex_only"
-            ):
-                governed["pre_mutation_critique"] = {
-                    **critique_skipped(
-                        str(result.get("stage", "peer unavailable"))
-                    ),
-                    "trigger": self.critique_requirement,
-                }
+            governed["pre_mutation_critique"] = {
+                **critique_skipped(
+                    str(result.get("stage", "peer unavailable"))
+                ),
+                "trigger": self.critique_requirement,
+            }
             return governed
         critique = result.get("critique")
         decision = loop_decision(critique, round_number, self.round_cap)
@@ -1341,6 +1337,15 @@ def main(argv: list[str] | None = None) -> int:
     phase_finish_parser.add_argument("--reservation-id", required=True)
     phase_finish_parser.add_argument("--provider-cost-usd", type=float)
     phase_finish_parser.add_argument("--state-dir", type=Path)
+    close_parser = subparsers.add_parser("close-run")
+    close_parser.add_argument("--run-id", required=True)
+    close_parser.add_argument(
+        "--status",
+        choices=["complete", "blocked", "cancelled_by_owner"],
+        required=True,
+    )
+    close_parser.add_argument("--owner-action-digest")
+    close_parser.add_argument("--state-dir", type=Path)
     proof_parser = subparsers.add_parser("proof-run")
     proof_parser.add_argument("--repo", type=Path, default=Path.cwd())
     proof_parser.add_argument("--commit", required=True)
@@ -1447,6 +1452,19 @@ def main(argv: list[str] | None = None) -> int:
                     args.reservation_id,
                     observed_provider_usd=args.provider_cost_usd,
                 ),
+            }
+            ok = True
+        elif args.command == "close-run":
+            root = state_root(args.state_dir, repository_root=Path.cwd())
+            ledger = RunLedger(root, args.run_id)
+            ledger.close(
+                args.status,
+                owner_action_digest=args.owner_action_digest,
+            )
+            result = {
+                "ok": True,
+                "run_id": args.run_id,
+                "status": args.status,
             }
             ok = True
         elif args.command == "proof-run":

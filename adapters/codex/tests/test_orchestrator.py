@@ -446,6 +446,19 @@ def test_high_impact_objective_discloses_skipped_critique(
     assert disclosure["trigger"]["mode"] == "FULL"
 
 
+def test_return_to_owner_has_uniform_pre_mutation_critique_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_MALFORMED", "1")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path),
+        objective_properties=["permissions"],
+    ).one_round("A real plan.", 1)
+    assert result["workflow"]["action"] == "return_to_owner"
+    assert result["pre_mutation_critique"]["gate_satisfied"] is False
+    assert result["pre_mutation_critique"]["trigger"]["critique_required"] is True
+
+
 def test_unauthenticated_peer_continues_without_claiming_agreement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -472,6 +485,40 @@ def test_contract_invalid_peer_result_returns_to_owner(
     assert result["workflow"]["action"] == "return_to_owner"
     assert result["workflow"]["mode"] == "blocked"
     assert result["workflow"]["peer_convergence"] == "not_established"
+
+
+def test_close_run_cli_reaches_terminal_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    state = tmp_path / "state"
+    root = evidence.state_root(state, repository_root=repo)
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest="a" * 64,
+        owner_action_digest="b" * 64,
+    )
+    exit_code = orchestrator.main(
+        [
+            "close-run",
+            "--run-id",
+            ledger.run_id,
+            "--status",
+            "cancelled_by_owner",
+            "--owner-action-digest",
+            "c" * 64,
+            "--state-dir",
+            str(state),
+        ]
+    )
+    assert exit_code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "cancelled_by_owner"
+    assert ledger.read()["status"] == "cancelled_by_owner"
 
 
 def test_malformed_schema_model_mismatch_and_budget_violation_fail_closed(
