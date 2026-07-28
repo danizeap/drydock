@@ -50,7 +50,7 @@ orchestration-efficiency-hardening
   fingerprint correction.
 - [x] Implement exact committed-tree fingerprinting, task-state projection,
   record-level v1 replay refusal, and proof-root tree equality checks.
-- [ ] Obtain implementation cross-review of the v2 fingerprint correction.
+- [x] Obtain implementation cross-review of the v2 fingerprint correction.
 - [ ] Freeze the candidate after cross-review.
 - [ ] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.
