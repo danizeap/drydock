@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": true,
+  "overall": "Claude reviewed exact clean HEAD 1f2969c720f2ee6e023b1a77105eafa345bf5c07 and range 0444a0f..1f2969c read-only, reproduced the 62-test focused result, and found no remaining candidate-freeze blocker. The review directly exercised stale and concurrent ledger-lock behavior, close-run validation, scope-bound proof identity, uniform critique-gate reporting, operator guidance, and the version-aware tar extraction path. It confirmed that live lock holders are refused without clobbering their records, crash-stale and malformed records recover under the operating-system advisory lock, final-suite proof remains distinct from intermediate proof, and skipped critique never satisfies the mutation gate. The review reported only non-blocking portability, retention, and locking-consistency gaps plus already-disclosed residual risks.",
+  "blocking_concerns": [],
+  "gaps": [
+    "POSIX process identity currently depends on /proc/<pid>/stat, so macOS and BSD operation is unsupported by this mechanism and is not covered by the Ubuntu and Windows CI matrix.",
+    "Ledger lock tombstones and run records have no bounded cleanup path and therefore accumulate with the number of runs.",
+    "InvocationStore terminal and expiry transitions remain unlocked read-modify-write operations even though the run ledger now uses per-record advisory locking."
+  ],
+  "risks": [
+    "The fully_trusted tar extraction filter intentionally makes the explicit prevalidation loop the sole archive-member barrier; future archive-format changes must preserve that validation.",
+    "A failed tombstone write can conservatively refuse a contender for up to the sixty-second lease window before recovery.",
+    "Pre-mutation critique is a gate input rather than an interlock; the process runner or pilot must enforce refusal when gate_satisfied is false.",
+    "High-impact classification remains caller-declared judgment through objective_properties.",
+    "Evidence and proof stores remain unsigned and user-writable, and default phase and run envelopes remain uncalibrated."
+  ],
+  "required_changes": []
+}
