@@ -104,3 +104,9 @@ IMPLEMENTATION CHECKS PASS; INDEPENDENT REVIEW PENDING. The local substrate is
 not live routing, is not archive-ready, and is not release authorization.
 Claude remains required to review the contracts, integrity claims, learning
 attack surface, and future calibration before integration.
+
+## Schema-v2 Remediation Status
+
+The 2026-07-28 accepted remediation supersedes the implementation-check claims
+above until the v2 focused suite is complete. Independent verification remains
+unchecked and must not be inferred from implementer test evidence.

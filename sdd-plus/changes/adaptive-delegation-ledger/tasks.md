@@ -34,3 +34,27 @@ adaptive-delegation-ledger
 - [ ] Reconcile every Claude blocker before integration or archive.
 - [ ] Design routing calibration only after dogfood evidence exists; do not
   invent a scalar score in this packet.
+
+## Accepted Schema-v2 Remediation
+
+- [ ] Replace persisted ledger/profile contracts with schema v2 and explicitly
+  refuse v1.
+- [ ] Bound strict JSON depth, integer digits, floats, constants, duplicate
+  keys, and millisecond UTC timestamp grammar with boundary tests.
+- [ ] Deeply detach generic payloads and untrusted nested error claims from
+  caller-owned objects.
+- [ ] Replace idempotency and bare terminal/error names with request-binding,
+  trusted-runtime, and explicit untrusted-claim semantics.
+- [ ] Add explicit token usage, reasoning-token, and cost evidence bases.
+- [ ] Count one delegation execution once and accept multiple digest-bound
+  observations without replaying execution aggregates.
+- [ ] Persist full replayable submissions plus typed duplicate/conflict
+  decisions and durable per-profile rejection counters.
+- [ ] Enforce the single-writer 30-second lock model, mutation-free reads, full
+  observed-stream verification, and qualified sibling imports.
+- [ ] Implement explicit digest-bound torn-tail repair with immutable external
+  intent, fsync ordering, atomic replacement, and deterministic crash replay.
+- [ ] Add strict boundary, same-batch/cross-commit conflict, integration,
+  repair fault-injection/replay, and deterministic capacity/performance tests.
+- [ ] Run focused tests on supported local interpreters and the Codex adapter
+  suite if feasible; keep independent verification incomplete.
