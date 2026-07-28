@@ -26,8 +26,8 @@ COMMIT_FIELDS = frozenset(
         "sequence",
         "commit_run_id",
         "recorded_at",
-        "claimed_terminal_status",
-        "untrusted_verification_ref",
+        "controller_asserted_status",
+        "asserted_verification_ref",
         "start_state_digest",
         "state_digest",
         "source_submissions",
@@ -38,6 +38,13 @@ COMMIT_FIELDS = frozenset(
         "previous_record_digest",
         "record_digest",
     }
+)
+CONTROLLER_ASSERTION_LIMITATIONS = (
+    "controller assertions are unauthenticated",
+    "evidence existence and origin are not established",
+    "a passing verification result is not established",
+    "an independent verifier process is not established",
+    "permissions and authority are not granted",
 )
 DECISION_FIELDS = frozenset(
     {
@@ -920,6 +927,9 @@ def _integrity_report(
         "authenticity": "not_established",
         "suffix_completeness": "not_established",
         "limitations": list(ledger.INTEGRITY_LIMITATIONS),
+        "controller_assertion_limitations": list(
+            CONTROLLER_ASSERTION_LIMITATIONS
+        ),
     }
 
 
@@ -956,13 +966,13 @@ def _validate_commit(
         raise ProfileError("profile commit sequence is not contiguous")
     contracts.validate_storage_component(value["commit_run_id"], "commit_run_id")
     contracts.validate_timestamp(value["recorded_at"], "recorded_at")
-    if value["claimed_terminal_status"] != "verified":
+    if value["controller_asserted_status"] != "passed":
         raise ProfileError(
-            "profile commit claimed_terminal_status must be verified"
+            "profile commit controller_asserted_status must be passed"
         )
     contracts.validate_reference(
-        value["untrusted_verification_ref"],
-        "untrusted_verification_ref",
+        value["asserted_verification_ref"],
+        "asserted_verification_ref",
     )
     if value["start_state_digest"] != start.content_digest:
         raise ProfileError("profile commit start state does not match replay state")
@@ -1107,9 +1117,10 @@ def _read_commits_unlocked(
 class CapabilityProfileStore:
     """Single-writer append store whose snapshots replay from full sources.
 
-    ``claimed_terminal_status`` and ``untrusted_verification_ref`` are in-band
-    assertions only. This store does not prove evidence existence, pass status,
-    provenance, or verifier independence.
+    ``controller_asserted_status`` and ``asserted_verification_ref`` are
+    unauthenticated controller assertions only. This store does not prove
+    evidence existence, pass result, origin, verifier independence, permission,
+    or authority.
     """
 
     def __init__(self, root: Path) -> None:
@@ -1150,17 +1161,17 @@ class CapabilityProfileStore:
         commit_run_id: str,
         start: ProfileSnapshot,
         shadow: ShadowReduction,
-        claimed_terminal_status: str,
-        untrusted_verification_ref: str,
+        controller_asserted_status: str,
+        asserted_verification_ref: str,
         recorded_at: Optional[str] = None,
     ) -> Mapping[str, object]:
         contracts.validate_storage_component(commit_run_id, "commit_run_id")
-        if claimed_terminal_status != "verified":
+        if controller_asserted_status != "passed":
             raise ProfileError(
-                "profile learning requires claimed_terminal_status exactly verified"
+                "profile learning requires controller_asserted_status exactly passed"
             )
         selected_ref = contracts.validate_reference(
-            untrusted_verification_ref, "untrusted_verification_ref"
+            asserted_verification_ref, "asserted_verification_ref"
         )
         selected_time = recorded_at or ledger.utc_now()
         contracts.validate_timestamp(selected_time, "recorded_at")
@@ -1193,8 +1204,8 @@ class CapabilityProfileStore:
                 "sequence": len(commits) + 1,
                 "commit_run_id": commit_run_id,
                 "recorded_at": selected_time,
-                "claimed_terminal_status": claimed_terminal_status,
-                "untrusted_verification_ref": selected_ref,
+                "controller_asserted_status": controller_asserted_status,
+                "asserted_verification_ref": selected_ref,
                 "start_state_digest": start.content_digest,
                 "state_digest": snapshot.content_digest,
                 "source_submissions": [

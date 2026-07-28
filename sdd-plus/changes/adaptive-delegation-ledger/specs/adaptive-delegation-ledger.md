@@ -36,6 +36,15 @@ to the byte, depth, item-count, string, numeric, duplicate-key, and
 known-secret-shape validators. It is not a semantic guarantee that arbitrary
 safe-looking strings are minimal or secret-free.
 
+Every canonical document SHALL use Python `json.dumps` with `sort_keys=True`,
+`separators=(",", ":")`, `ensure_ascii=True`, and `allow_nan=False`.
+Canonicalization SHALL preserve the exact Python code-point sequence and SHALL
+perform no Unicode normalization; canonically equivalent Unicode spellings
+remain distinct. Persistent streams SHALL use binary I/O and exactly one LF
+byte after each record. Numeric behavior is limited to finite Python JSON
+integers/floats within the schema bounds. This contract SHALL NOT be described
+as cross-language canonical JSON.
+
 #### Scenario: Schema v1 is presented
 
 - **WHEN** any persisted v1 contract, event, profile commit, or repair intent is
@@ -71,6 +80,19 @@ the next contiguous sequence, appends one canonical JSONL record, flushes, and
 fsyncs. No trust cache or verified-prefix shortcut may replace full observed
 stream verification.
 
+The implemented lock SHALL be a sidecar file initialized with one NUL at byte
+zero through a binary `a+b` writer handle or existing-file binary `r+b` read
+handle that performs no writes. Each nonblocking attempt SHALL `seek(0)`.
+Windows SHALL use custom `msvcrt.LK_NBLCK` for the one-byte range at byte zero; POSIX SHALL
+use `fcntl.flock(..., LOCK_EX | LOCK_NB)` for the sidecar file, independent of
+the seek offset. Attempts SHALL retry every 25 ms against a monotonic
+caller-selected timeout capped at 30 seconds. The initialization byte SHALL be
+written only after the selected OS lock is acquired so racing first opens
+cannot append duplicate initialization bytes. OS handle close or process crash
+SHALL release the lock. No PID file, stale-lock reaper, or semantic identity
+between the two OS primitives beyond tested serialization/release behavior
+SHALL be claimed.
+
 Read-only verify/read calls SHALL NOT create a root, directory, ledger, lock
 file, repair directory, or any other filesystem entry. Modules SHALL use
 package-qualified sibling imports. Direct execution of the ledger script SHALL
@@ -85,6 +107,8 @@ normal append.
 
 The hard limits are conjunctive capacity ceilings, not throughput guarantees:
 a run ledger accepts at most 10,000 records, 16 MiB total, and 32 KiB per line.
+Crossing any ceiling SHALL hard-refuse mutation rather than truncate, rotate,
+or partially append.
 
 #### Scenario: Empty ledger is inspected
 
@@ -109,6 +133,16 @@ a run ledger accepts at most 10,000 records, 16 MiB total, and 32 KiB per line.
   executed directly with `--help`
 - **THEN** its qualified sibling contract import resolves from that exact
   plugin root and the command exits successfully
+
+#### Scenario: Real subprocesses contend for the sidecar lock
+
+- **WHEN** at least eight OS subprocesses each append at least three events to
+  one ledger through the public writer
+- **THEN** every child exits successfully, event IDs are unique, sequences are
+  unique and contiguous, every line is complete canonical JSON plus LF with no
+  torn bytes, and final chain verification passes
+- **AND** terminating a lock-owning child releases the lock through OS handle
+  close without PID-file cleanup
 
 ### Requirement: Integrity reports do not claim authentication
 
@@ -202,10 +236,11 @@ select verifier independence, establish convergence, or override the Owner.
 ### Requirement: Persistent profile transitions carry explicit untrusted claims
 
 A profile transition SHALL require the caller to provide
-`claimed_terminal_status="verified"` and a safe
-`untrusted_verification_ref`. These fields are explicitly untrusted in-band
-controller/model claims. Their accepted shape does not prove the referenced
-artifact exists, passed, or came from an independent verifier.
+`controller_asserted_status="passed"` and a safe
+`asserted_verification_ref`. These fields are unauthenticated controller
+assertions. Their accepted shape does not prove the referenced artifact exists,
+identify its origin, establish an actual pass result, establish an independent
+process, or grant permission/authority.
 
 The store SHALL commit only when the durable current state digest equals the
 frozen start digest and commit-time reduction of the retained source contracts
@@ -218,7 +253,8 @@ escaping SHALL be corruption and SHALL block another commit.
 
 Profile history accepts at most 32 commits, 128 MiB total, 4 MiB per commit, 64
 source submissions per commit, and 256 profile keys. These are capacity
-ceilings, not latency or throughput promises.
+ceilings, not latency or throughput promises. A 33rd commit or 65th submission
+SHALL be hard-refused without truncation or partial persistence.
 
 #### Scenario: Same-batch conflicts survive replay
 
@@ -227,6 +263,15 @@ ceilings, not latency or throughput promises.
 - **THEN** the store commits all three full sources and typed decisions
 - **AND** rereading decisions and rebuilding from empty state produces the
   committed snapshot exactly
+
+#### Scenario: Controller fabricates assertion metadata
+
+- **WHEN** structural and frozen-state gates pass and the controller supplies
+  `controller_asserted_status="passed"` plus a well-shaped reference to
+  evidence that does not exist
+- **THEN** the profile transition is accepted by design
+- **AND** the store establishes no evidence existence/origin, actual pass
+  result, independent process, permission, or authority
 
 ### Requirement: Torn-tail repair is explicit, digest-bound, and crash-replayable
 
@@ -253,26 +298,42 @@ string, and UTF-8-codepoint truncation SHALL remain classifiable.
 Before replacing data, repair SHALL exclusively create, flush, and fsync an
 immutable external intent recording schema/run binding, before digest, valid
 prefix byte/record counts, discarded-tail digest/bytes, structural
-classification, optional extractable sequence, candidate digest, optional
-quarantine metadata, and a self-digest. It SHALL fsync the parent directory on
-POSIX, optionally write/fsync explicitly selected raw-byte quarantine, prepare
-and fsync the exact candidate, atomically replace the ledger, and fsync the
-parent. Repair audit SHALL never be appended to the ledger being repaired.
+classification, optional extractable sequence, intent identity, candidate byte
+count/record count/final digest/candidate digest, optional quarantine metadata,
+and a self-digest. The candidate SHALL be the exact valid prefix plus one
+canonical reserved in-chain `drydock_repair` event. That marker SHALL bind the
+before digest, discarded-tail digest/count, classification, valid-prefix
+record/byte counts, extractable sequence, intent identity, and optional
+quarantine reference, without retaining raw discarded bytes.
+
+Ordinary `RunLedger.append` SHALL refuse the reserved repair event type.
+Immediately after atomic replacement, normal `read_records` SHALL return the
+marker and `verify` SHALL expose an explicit repair-history count and presence
+flag. A repaired ledger therefore SHALL NOT be byte- or record-equivalent to
+its pristine valid prefix.
+
+Repair SHALL fsync the external intent, optionally write/fsync explicitly
+selected raw-byte quarantine, prepare and fsync the exact prefix-plus-marker
+candidate, atomically replace the ledger, and fsync the parent directory on
+POSIX. Windows SHALL flush/fsync file handles and use atomic replacement but
+SHALL NOT claim POSIX-equivalent directory-entry durability because this
+stdlib implementation has no Windows directory-fsync operation.
 
 Retry SHALL be idempotent before intent, after intent, after optional
 quarantine, after candidate preparation, and after replacement. A current
-ledger digest equal to the intent candidate digest establishes completed
-replay.
+ledger digest equal to the intent candidate digest is necessary but SHALL NOT
+alone establish completed replay; the exact marker and candidate relations
+must also be recomputed and validated.
 
 Under the lock, every existing intent SHALL be validated against reachable
 bytes, not only its self-digest. If current bytes are the before state, repair
 SHALL recompute and compare the exact structural classification, prefix
-byte/record counts, last record digest, candidate digest, discarded-tail
-digest/count, next/extractable sequence, and quarantine selection. A prepared
-or completed candidate SHALL be canonical and match exact
-length/digest/record-count/last-digest/next-sequence relations. A later stream
-SHALL begin with the exact candidate bytes and the complete current stream
-SHALL verify canonically.
+byte/record counts, last prefix digest, exact repair marker, candidate digest,
+candidate byte/record counts and final digest, discarded-tail digest/count,
+extractable sequence, intent identity, and quarantine selection. A prepared or
+completed candidate SHALL equal the exact valid prefix plus recomputed marker.
+A later stream SHALL begin with those exact candidate bytes and the complete
+current stream SHALL verify canonically. No digest-only shortcut is sufficient.
 
 If quarantine is selected, its reference SHALL be exactly
 `repair-quarantine/<before-sha256-hex>.bin`, its digest SHALL equal the
@@ -281,6 +342,11 @@ allowed only while still in the pre-quarantine before state. Completed replay
 SHALL require and verify the selected quarantine. Any impossible, malformed,
 conflicting, orphaned, or stale relation SHALL block automated repair for
 manual recovery.
+
+Default recorded timestamps SHALL use the OS UTC wall clock with millisecond
+precision. Caller-supplied timestamps SHALL match the same real-calendar
+grammar. Neither source SHALL be described as monotonic; only lock deadlines
+use a monotonic clock.
 
 #### Scenario: Operator intent is stale
 
@@ -300,6 +366,19 @@ manual recovery.
   candidate digest
 - **THEN** repair reports the transaction complete and leaves valid ledger
   bytes unchanged
+- **AND** the in-chain repair marker remains readable and counted by verify
+
+#### Scenario: Deterministic adversarial corpus is exercised
+
+- **WHEN** the bounded corpus covers braces/quotes inside strings, escaped
+  quotes, truncated escapes, Unicode escape/surrogate truncation, nested
+  arrays, and mid-file malformation
+- **THEN** only structurally valid terminal truncations are repairable and
+  mid-file malformation remains fail closed
+- **AND** canonicalize-parse-canonicalize produces deterministic identical
+  bytes without Unicode normalization
+- **AND** this evidence is described as a deterministic corpus, not fuzz or
+  property-testing proof
 
 ### Requirement: Performance evidence is measured without weakening integrity
 
@@ -320,3 +399,14 @@ if a text entry embeds CRLF, even when its entry and tree digests were updated.
 This bundle correction is a pre-existing fresh-checkout verification
 prerequisite exposed by the LF worktree. It is not caused by delegation-ledger
 runtime behavior.
+
+The repository-global `.gitattributes` rule `* text=auto eol=lf` SHALL be
+treated as already covering the bundle and source; no duplicate path rule is
+required. Because the bundle is a consumed generated plugin artifact, rollback
+SHALL rebuild it from deliberately reverted scaffold source rather than delete
+it.
+
+Existing `.github/workflows/ci.yml` SHALL remain the cross-platform evidence
+path: it runs both `tests/` and `adapters/codex/tests/` on `ubuntu-latest` and
+`windows-latest` with Python 3.9 and 3.12. Local commands/results SHALL be
+recorded separately. This packet SHALL NOT add a redundant CI workflow.

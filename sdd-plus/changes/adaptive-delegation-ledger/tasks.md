@@ -17,8 +17,8 @@ adaptive-delegation-ledger
 
 - [x] Implement strict delegation/result/observation/profile contracts.
 - [x] Implement the bounded append-only run ledger.
-- [x] Implement frozen snapshot, shadow reduction, and verified-only profile
-  commit storage.
+- [x] Implement frozen snapshot, shadow reduction, and unauthenticated
+  controller-asserted profile commit storage.
 - [x] Add focused contract, corruption, concurrency, replay, conflict, and
   commit-gate tests.
 - [x] Run focused Codex-adapter tests.
@@ -64,5 +64,24 @@ adaptive-delegation-ledger
   repair fault-injection/replay, and deterministic capacity/performance tests.
 - [x] Regenerate the scaffold bundle from fresh LF source and add a direct CRLF
   text-entry rejection invariant as a pre-existing checkout prerequisite.
-- [ ] Run focused tests on supported local interpreters and the Codex adapter
-  suite if feasible; keep independent verification incomplete.
+- [x] Run focused smoke on all three supported local interpreters and the full
+  Python 3.11 Codex adapter suite; disclose that Python 3.12/3.14 lack pytest
+  and keep independent verification incomplete.
+
+## Accepted Opus-5 Round-1 Remediation
+
+- [x] Replace prefix-only repair with atomic prefix-plus-reserved-marker
+  candidates and recompute exact intent/marker/candidate/later-stream
+  relations.
+- [x] Expose repair-history count/presence, return markers from `read_records`,
+  and reserve `drydock_repair` from ordinary append.
+- [x] Replace bare `verified` commit-gate naming with unauthenticated
+  `controller_asserted_status="passed"` and
+  `asserted_verification_ref`; characterize fabricated assertion acceptance.
+- [x] Strengthen native contention evidence to 8 subprocesses x 3 appends and
+  retain timeout plus OS-handle crash-release proof.
+- [x] Freeze serialization, Unicode, binary LF, numeric, capacity, timestamp,
+  durability, CI, and global LF-attribute claims in packet text.
+- [x] Add the bounded deterministic adversarial corpus without claiming fuzz
+  or property-testing coverage.
+- [x] Record this slice's final focused command results and diff check.

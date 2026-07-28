@@ -156,8 +156,8 @@ def commit(
         commit_run_id=run_id,
         start=start,
         shadow=shadow,
-        claimed_terminal_status="verified",
-        untrusted_verification_ref="verification/{}.json".format(run_id),
+        controller_asserted_status="passed",
+        asserted_verification_ref="verification/{}.json".format(run_id),
         recorded_at=NOW,
     )
 
@@ -750,27 +750,27 @@ def test_profile_modules_bind_package_qualified_siblings() -> None:
     )
 
 
-def test_untrusted_claim_gate_and_stale_state_fail_before_append(
+def test_controller_assertion_gate_and_stale_state_fail_before_append(
     tmp_path: Path,
 ) -> None:
     store = capability_profiles.CapabilityProfileStore(tmp_path)
     start = store.current_snapshot()
     shadow = capability_profiles.shadow_reduce(start, [one_submission()])
-    with pytest.raises(capability_profiles.ProfileError, match="exactly verified"):
+    with pytest.raises(capability_profiles.ProfileError, match="exactly passed"):
         store.commit_reduction(
             commit_run_id="profile-run-1",
             start=start,
             shadow=shadow,
-            claimed_terminal_status="implemented",
-            untrusted_verification_ref="verification/run.json",
+            controller_asserted_status="implemented",
+            asserted_verification_ref="verification/run.json",
         )
     with pytest.raises(contracts.ContractError, match="relative"):
         store.commit_reduction(
             commit_run_id="profile-run-1",
             start=start,
             shadow=shadow,
-            claimed_terminal_status="verified",
-            untrusted_verification_ref="C:/owner/result.json",
+            controller_asserted_status="passed",
+            asserted_verification_ref="C:/owner/result.json",
         )
     assert not store.path.exists()
 
@@ -782,6 +782,39 @@ def test_untrusted_claim_gate_and_stale_state_fail_before_append(
     with pytest.raises(capability_profiles.ProfileError, match="conflict"):
         commit(store, start, stale_shadow, "profile-run-2")
     assert store.path.read_bytes() == before
+
+
+def test_fabricated_controller_assertion_is_accepted_without_authority(
+    tmp_path: Path,
+) -> None:
+    store = capability_profiles.CapabilityProfileStore(tmp_path)
+    start = store.current_snapshot()
+    shadow = capability_profiles.shadow_reduce(start, [one_submission()])
+    fabricated_ref = "verification/fabricated.json"
+
+    assert not (tmp_path / fabricated_ref).exists()
+    committed = store.commit_reduction(
+        commit_run_id="fabricated-controller-assertion",
+        start=start,
+        shadow=shadow,
+        controller_asserted_status="passed",
+        asserted_verification_ref=fabricated_ref,
+        recorded_at=NOW,
+    )
+
+    assert committed["controller_asserted_status"] == "passed"
+    assert committed["asserted_verification_ref"] == fabricated_ref
+    assert not (tmp_path / fabricated_ref).exists()
+    assert {
+        "evidence_origin",
+        "verification_result",
+        "independent_process",
+        "permission",
+        "authority",
+    }.isdisjoint(committed)
+    limitations = store.verify()["controller_assertion_limitations"]
+    assert "controller assertions are unauthenticated" in limitations
+    assert "permissions and authority are not granted" in limitations
 
 
 def test_store_recomputes_and_refuses_forged_snapshot(tmp_path: Path) -> None:

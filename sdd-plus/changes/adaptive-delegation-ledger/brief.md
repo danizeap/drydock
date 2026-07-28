@@ -48,8 +48,9 @@ In scope:
   suffix-truncation protection.
 - Task-specific capability profiles made only of observable counts and cost
   aggregates, not one authority-bearing trust score.
-- Frozen profile snapshots, duplicate-resistant shadow reduction, and a
-  verified-terminal-only append commit.
+- Frozen profile snapshots, duplicate-resistant shadow reduction, and an
+  append commit gated by unauthenticated controller assertions plus structural
+  and frozen-state checks.
 - Deterministic Windows/macOS/Linux tests with no provider calls or quota use.
 - Strict schema-v2 request binding, controller-observed runtime status, and
   explicitly untrusted claimed terminal/error detail.
@@ -57,7 +58,8 @@ In scope:
   decisions that replay into the exact same profile state.
 - Exact canonical JSON bytes plus LF for every accepted ledger/profile line.
 - Explicit relational torn-tail repair whose immutable intent, candidate,
-  optional quarantine, and later reachable ledger bytes must agree.
+  canonical in-chain marker, optional quarantine, and later reachable ledger
+  bytes must agree.
 
 Out of scope:
 
@@ -87,8 +89,9 @@ Out of scope:
 - [ ] A profile commit recomputes the exact shadow snapshot from immutable
   source contracts rather than trusting caller-supplied aggregates.
 - [ ] A profile commit is refused unless the current state still equals the
-  frozen start, observations are unique, and the controller records terminal
-  status `verified` plus a safe evidence reference.
+  frozen start, observations are unique, and the controller supplies
+  unauthenticated `controller_asserted_status="passed"` plus a safe
+  `asserted_verification_ref`.
 - [ ] The store explicitly does not claim that this reference proves the
   artifact exists, passed, or came from an independent process; live
   integration must establish those properties.
@@ -106,6 +109,9 @@ Out of scope:
 - [ ] Torn-tail classification is bounded and never leaks raw parser recursion
   or integer-conversion exceptions; existing repair metadata is relationally
   checked before replay.
+- [ ] Every repair atomically installs the valid prefix plus a reserved
+  canonical in-chain marker; verify counts repair history and ordinary append
+  cannot forge the reserved event type.
 - [ ] The generated scaffold bundle is rebuilt from LF source and rejects CRLF
   in text entries. This is a fresh-checkout verification prerequisite caused
   by the pre-existing committed bundle, not by delegation-ledger behavior.

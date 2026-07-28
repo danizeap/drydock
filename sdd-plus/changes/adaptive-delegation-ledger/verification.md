@@ -4,109 +4,178 @@
 
 adaptive-delegation-ledger
 
-## Automated Checks
+## Evidence Before This Opus-5 Round-1 Slice
 
-- [x] `python -m pytest -q` on the three new focused modules: 35 passed on
-  Python 3.14.
-- [x] The same focused command under `py -3.11`: 35 passed.
-- [ ] Python 3.12 focused execution: interpreter is installed, but this local
-  interpreter has no `pytest`; command failed before collection and is not
-  counted as a pass. CI remains responsible for Python 3.9/3.12 coverage.
-- [x] Ledger suite exercised a real two-process concurrent append on native
-  Windows and reconstructed two contiguous, hash-linked records.
-- [x] `python -m pytest adapters/codex/tests/ -q`: 157 passed, 2 skipped.
-- [x] `python -m pytest tests/ -q`: 548 passed, 6 skipped.
+- [x] Python 3.11 Codex adapter suite: 227 passed, 2 skipped.
+- [x] Python 3.11 legacy `tests/` suite: 548 passed, 6 skipped.
+- [x] LaunchGuardian reviewed-source strict scan:
+  `APPROVED_WITH_DISPOSITIONS`; all five scanners participated and there were
+  0 open blockers.
+- [x] Python 3.12 and 3.14 received direct CLI/adversarial smoke only because
+  `pytest` was absent in those interpreter environments. No Python 3.12/3.14
+  pytest count is claimed.
+
+These are pre-slice facts supplied for correction of stale packet text. They
+were not rerun by this bounded worker.
+
+## This Slice: Exact Local Commands And Results
+
+- [x] Final syntax check:
+  `python -m py_compile adapters/codex/drydock/scripts/delegation_contracts.py adapters/codex/drydock/scripts/delegation_ledger.py adapters/codex/drydock/scripts/capability_profiles.py adapters/codex/tests/test_delegation_contracts.py adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py`.
+  Exit 0 with no output.
+- [x] Final focused suite:
+  `python -m pytest adapters/codex/tests/test_delegation_contracts.py adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py -q`
+  on Python 3.11.9: 120 passed in 10.75s.
+- [x] `python scripts/sdd.py verify adaptive-delegation-ledger`: exit 0;
+  `Verified artifacts for adaptive-delegation-ledger. Tasks: 33 complete, 5
+  pending. Pending tasks remain. Archive will require --force.`
+- [x] `git diff --check`: exit 0 with no output.
+
+Development-only runs, retained rather than laundered into the final pass:
+
+- `py -3.11 -m py_compile adapters/codex/drydock/scripts/delegation_ledger.py adapters/codex/drydock/scripts/capability_profiles.py adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py; py -3.11 -m pytest adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py -q`
+  did not start:
+  the Windows launcher returned `No installed Python found!`; the available
+  `python` command was then confirmed as Python 3.11.9.
+- `python -m py_compile adapters/codex/drydock/scripts/delegation_ledger.py adapters/codex/drydock/scripts/capability_profiles.py adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py; python -m pytest adapters/codex/tests/test_delegation_ledger.py adapters/codex/tests/test_capability_profiles.py adapters/codex/tests/test_delegation_integration.py -q`
+  completed syntax compilation, then reported 21 failed and 67 passed. The
+  failures exposed the marker occupying the torn record's sequence and a
+  Windows locked-file test reading the sidecar before releasing its own lock;
+  both were corrected.
+- Rerunning the same three-module pytest command reported 1 failed and 87
+  passed. The remaining test mutated the candidate rather than the later
+  appended suffix; the fixture was corrected to exercise the intended later
+  stream.
+- A subsequent four-module run passed 120 tests in 10.39s. The next rerun
+  after contention start-gate/cleanup hardening passed 120 in 10.80s. The
+  cross-platform `r+b` existing-file handle alignment rerun passed 120 in
+  10.44s. The final rerun above adds the explicit all-child-exits assertion and
+  supersedes those timings.
+
+## Pilot Acceptance After The Worker
+
+- [x] Targeted lock/repair boundary selection:
+  `python -m pytest adapters/codex/tests/test_delegation_ledger.py -q -k
+  "eight_processes or final_record_capacity or repair_replays or
+  repair_event_type_is_reserved"` on Python 3.11.9: 8 passed, 54 deselected in
+  7.40s.
+- [x] Full Codex adapter suite on Python 3.11.9:
+  `python -m pytest adapters/codex/tests -q`: 244 passed, 2 skipped in 82.78s.
+- [x] Legacy suite on Python 3.11.9:
+  `python -m pytest tests -q`: 548 passed, 6 skipped in 44.95s.
+- [x] Current-candidate direct CLI plus typed adversarial scanner smoke passed
+  on Python 3.12 and 3.14. `python -m pytest --version` failed on each with
+  `No module named pytest`; those environments were not modified.
 - [x] `python scripts/check_sync.py`: all 11 root/scaffold pairs identical.
-- [x] `python scripts/sdd.py verify adaptive-delegation-ledger`: artifact
-  structure verified; it correctly continued to report pending review tasks
-  rather than archive readiness.
-- [x] LaunchGuardian source checkout `c754062d`:
-  `scan --target . --framework-mode --strict-scanners` returned
-  `APPROVED_WITH_DISPOSITIONS`, 6 Python-below-3.6 compatibility findings,
-  all covered by the Owner's two exact `not_applicable` dispositions, and no
-  open blocking finding.
-- [ ] The globally installed PyPI `launchguardian` 0.2.0 is not equivalent to
-  that reviewed source checkout: it ignored the disposition configuration,
-  reported `BLOCKED`, and its scanner reader emitted a Windows CP-1252 decode
-  exception. That run is failed/incomplete evidence, not a security pass.
-- [ ] Separate Codex verification did not converge to a usable verdict:
-  two `gpt-5.6-sol` runs timed out at 600 and 300 seconds, one
-  `codex-auto-review` run correctly returned `BLOCKED` after being prohibited
-  from reading, and a final read-only inspection run timed out at 240 seconds.
-  Every runner fingerprint reported the tree unchanged, but no completed
-  positive review exists. The failed runs surfaced two real defects:
-  caller-owned lists remained mutable after frozen-contract construction, and
-  a caller could forge aggregate totals in an otherwise monotonic shadow.
-  Both are fixed and covered by negative regressions; this does not convert the
-  failed review attempts into an independent pass.
+- [x] Deterministic scaffold-bundle, generated-hook, and release-version
+  checks passed. All version locations remain 0.12.1; no release was made.
+- [x] `git diff --check`: exit 0 with no output.
 
-## Manual Checks
+## Existing CI Evidence Path
 
-- [x] Confirm no raw prompt, repository content, credentials, provider bodies,
-  or account identifiers are persisted.
-- [x] Confirm every integrity report states the unkeyed/user-writable and
-  suffix-truncation limitations.
-- [x] Confirm learned evidence has no permission, gate, convergence, verifier,
-  or Owner-authority field.
-- [x] Confirm the store disclaims evidence existence, pass-status, and
-  independent-process proof; those remain live-controller obligations.
-- [ ] Independent Codex verification against a frozen tree.
-- [ ] Claude peer review when usage returns.
+- [x] Read-only inspection confirms `.github/workflows/ci.yml` already runs
+  `python -m pytest tests/ -q` and
+  `python -m pytest adapters/codex/tests/ -q` on `ubuntu-latest` and
+  `windows-latest` with Python 3.9 and 3.12.
+- [x] No redundant CI workflow was added.
+- [x] Read-only inspection confirms the global `.gitattributes` rule
+  `* text=auto eol=lf` already covers source and generated bundle text; no
+  duplicate bundle-specific rule was added.
 
-## Documentation Updates
+CI is the Windows/POSIX Python 3.9/3.12 evidence path. The local commands above
+are separate implementer evidence and do not claim that CI ran for this diff.
 
-- [x] Delta spec updated.
-- [x] Build Blueprint updated.
-- [x] Backend change plan and ownership map recorded.
-- [x] User-facing docs deferred because this packet does not wire a live
-  operator workflow.
-- [ ] Living spec sync deferred until archive.
+## Behavior Proven By Focused Tests
+
+- [x] Atomic repair installs the valid prefix plus the exact reserved
+  `drydock_repair` marker, including at the injected post-replace crash
+  boundary.
+- [x] A repair marker may occupy record 10,000. The resulting ledger verifies,
+  exposes one repair-history record, and then hard-refuses another append at
+  the record ceiling.
+- [x] The marker binds before digest, discarded-tail digest/count,
+  classification, prefix record/byte counts, extractable sequence,
+  before-digest-derived intent identity, and optional quarantine reference,
+  without raw tail bytes.
+- [x] `verify` exposes `repair_history_count` and `has_repair_history`;
+  `read_records` returns the marker; ordinary `RunLedger.append` refuses its
+  reserved event type.
+- [x] Before, prepared-candidate, completed, quarantine, marker-tamper, and
+  later-stream replay relations are recomputed; no candidate-digest-only
+  completion shortcut remains.
+- [x] Eight real OS subprocesses append three events each. All children exit
+  zero; 24 IDs and sequences are unique, sequences are contiguous, all 24
+  lines are exact canonical JSON plus LF with no torn bytes, and final chain
+  verification succeeds.
+- [x] Lock contention times out through the monotonic caller bound; terminating
+  the lock owner releases the OS lock; reacquisition succeeds; the racing-open
+  sidecar contains exactly one initialization byte and uses no PID file.
+- [x] A fabricated `controller_asserted_status="passed"` plus nonexistent
+  `asserted_verification_ref` is accepted when structural/state gates pass.
+  The store establishes no evidence existence/origin, actual pass result,
+  independent process, permission, or authority.
+- [x] The deterministic adversarial corpus covers braces/quotes in strings,
+  escaped quotes, truncated escapes, Unicode escape/surrogate truncation,
+  nested arrays, and mid-file malformation refusal. It is deterministic corpus
+  evidence, not fuzz/property proof.
+- [x] Canonicalize-parse-canonicalize is stable for the corpus, and composed
+  versus decomposed Unicode remains distinct without normalization.
 
 ## Backend Evidence
 
 - Classification: local data mutation and agent-orchestration substrate.
 - Function inventory: immutable contract constructors/parsers; one run-ledger
-  append/read/verify boundary; pure profile shadow reducer; one optimistic
-  profile commit/read/verify boundary.
+  append/read/verify/explicit-repair boundary; pure profile shadow reducer; one
+  optimistic profile commit/read/verify boundary.
 - Inputs and validation: exact schemas, duplicate-key and non-finite refusal,
   identifier/reference/timestamp/digest validation, byte/depth/count/integer
   bounds, secret-shaped value checks, and forbidden raw-content field names.
 - Auth/authorization: no network route, account, credential, tenant, or remote
-  authorization surface is added. Learned data grants no effect authority.
-- Mutation safety: OS plus in-process locking, existing-chain verification
-  before append, contiguous allocation under lock, append+flush+fsync,
-  duplicate observation refusal, optimistic state digest, and monotonic
-  transition validation.
-- Verification boundary: the profile store requires the controller's exact
-  `verified` assertion and safe relative evidence reference, but does not claim
-  to authenticate or inspect that evidence. Live integration is responsible
-  for binding an accepted separate-verifier result.
-- Secrets/logging: persistent schemas store digests, bounded metadata, safe
-  references, raw aggregate counts, and error summaries only. Arbitrary
-  secret detection is not claimed.
-- Integration behavior: no provider call, credential access, retry loop,
-  scheduler, permission change, or live adapter integration in this packet.
-- Performance/cost: no model/API cost; run ledgers are capped at 16 MiB/10,000
-  records and profile history at 128 MiB/10,000 commits, with 256 profiles and
-  512 observations per commit.
-- Silent behavior: none; new modules are additive and no current caller imports
-  them.
-- Kill switch / rollback: live behavior has no switch because it is not wired.
-  Rollback is removal of the additive modules and packet before integration.
-- Negative proof includes traversal-shaped IDs, secret/raw fields, oversized
-  values, partial usage, corrupt/reordered streams, incomplete lines,
-  concurrent writers, mutable caller lists, replay, stale-state conflict,
-  exact-source aggregate forgery, and unverified terminal status.
+  authorization surface is added. Controller assertions are unauthenticated
+  and learned data grants no effect authority.
+- Mutation safety: sidecar OS locking with byte-zero initialization, full existing-stream
+  verification before mutation, contiguous allocation under lock,
+  append/flush/fsync, immutable external repair intent, optional quarantine,
+  atomic prefix-plus-marker replacement, exact crash replay, optimistic state
+  digest, and exact source recomputation.
+- Lock contract: writer `a+b`; existing-file reader `r+b` without writes on
+  both OS paths; `seek(0)`; custom nonblocking `msvcrt.LK_NBLCK` on the one-byte Windows range
+  at byte zero; `fcntl.flock(..., LOCK_EX | LOCK_NB)` on the whole POSIX
+  sidecar; 25 ms retry; monotonic caller timeout capped at 30 seconds;
+  initialization under the selected acquired lock; OS close/crash release; no
+  stale PID policy and no cross-OS semantic-identity claim.
+- Serialization/I/O: `sort_keys=True`, compact comma/colon separators,
+  `ensure_ascii=True`, `allow_nan=False`, exact code points without Unicode
+  normalization, finite bounded Python numerics, binary I/O, and exactly one
+  LF. No cross-language canonicalization claim is made.
+- Durability/timestamps: files are flushed and file-fsynced. Parent-directory
+  fsync is performed on POSIX and unavailable in this Windows stdlib path, so
+  equal power-loss durability is not claimed. Default timestamps use the OS
+  UTC wall clock to milliseconds; accepted caller timestamps follow the same
+  exact grammar and need not be monotonic.
+- Capacity: run ledger hard-refuses beyond 10,000 records, 16 MiB total, or
+  32 KiB per line. Profile history hard-refuses beyond 32 commits or 64 source
+  submissions per commit (plus its documented byte/profile ceilings).
+- Integration behavior: no provider call, credential access, scheduler,
+  permission change, or live adapter integration occurs in this packet.
+- Kill switch/rollback: live behavior has no switch because it is not wired.
+  Deliberate rollback reverts the additive runtime/tests and rebuilds the
+  consumed generated bundle from the intended reverted scaffold source; it
+  does not delete the bundle artifact.
+
+## Documentation And Review Gates
+
+- [x] Delta spec, plan, Build Blueprint, decision log, tasks, and verification
+  updated for the accepted round-1 remediation.
+- [ ] Fresh independent verifier review against the final diff.
+- [ ] Claude code/architecture/security review.
+- [ ] Live controller/executor integration.
+- [ ] Living spec sync and archive.
+- [ ] Commit, integration into another branch, push, install, release, or
+  deployment.
 
 ## Result
 
-IMPLEMENTATION CHECKS PASS; INDEPENDENT REVIEW PENDING. The local substrate is
-not live routing, is not archive-ready, and is not release authorization.
-Claude remains required to review the contracts, integrity claims, learning
-attack surface, and future calibration before integration.
-
-## Schema-v2 Remediation Status
-
-The 2026-07-28 accepted remediation supersedes the implementation-check claims
-above until the v2 focused suite is complete. Independent verification remains
-unchecked and must not be inferred from implementer test evidence.
+IMPLEMENTER FOCUSED, PACKET, AND DIFF CHECKS PASS; INDEPENDENT REVIEW REMAINS
+PENDING. This substrate is not wired into live routing, is not archive-ready,
+and carries no integration, launch, or release authorization.

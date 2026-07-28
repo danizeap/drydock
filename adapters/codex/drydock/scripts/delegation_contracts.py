@@ -183,7 +183,11 @@ def strict_json_loads(raw: str) -> object:
 
 
 def canonical_json(value: object) -> str:
-    """Return deterministic compact JSON after validating persisted content."""
+    """Return deterministic compact JSON without Unicode normalization.
+
+    Exact Python code-point sequences remain distinct. This is the project's
+    Python serialization contract, not a cross-language canonical JSON claim.
+    """
     validate_json_value(value)
     try:
         raw = json.dumps(

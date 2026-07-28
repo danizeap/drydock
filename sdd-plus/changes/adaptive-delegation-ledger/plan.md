@@ -20,7 +20,9 @@ Schema-v2 remediation keeps that architecture: a bounded structural-prefix
 scanner classifies only incomplete terminal JSON; complete observed records
 must match their canonical serialization byte-for-byte, including LF. Repair
 intents are not trusted as isolated documents: each one must describe bytes
-reachable from the locked current ledger.
+reachable from the locked current ledger. A repair candidate is the exact
+valid prefix plus one canonical reserved in-chain `drydock_repair` marker, so
+the repaired ledger cannot be confused with a pristine prefix.
 
 Intended files:
 
@@ -29,8 +31,10 @@ Intended files:
 - `delegation_ledger.py` owns one run's serialized event file and honest
   integrity report.
 - `capability_profiles.py` owns pure shadow reduction and the optimistic
-  controller-asserted verified-terminal profile commit log. It explicitly does
-  not establish evidence provenance or verifier independence.
+  unauthenticated controller-asserted `passed` profile commit log. Its
+  `controller_asserted_status` and `asserted_verification_ref` fields do not
+  establish evidence existence/origin, a pass result, verifier independence,
+  permission, or authority.
 - Four focused test modules own the contract, corruption, concurrency,
   replay, conflict, and gate proofs.
 - `scaffold_bundle.py`, its focused test, and the generated bundle own the
@@ -43,6 +47,19 @@ reduction separate so future provider adapters cannot couple raw provider
 content to long-lived evidence. Use local append-only JSONL and stdlib OS locks
 because the project has no runtime dependency layer and the data is
 single-Owner operational evidence, not a multi-tenant database.
+
+The implemented lock is a sidecar file initialized with one NUL at byte zero.
+Writers use binary `a+b`; existing-file read-only calls use binary `r+b` on
+both OS paths without writing, then `seek(0)`. Windows uses custom nonblocking
+`msvcrt.LK_NBLCK` for the one-byte range at offset zero; POSIX uses
+`fcntl.flock(..., LOCK_EX | LOCK_NB)` for the sidecar file (the seek does not
+turn POSIX flock into a byte-range lock). Attempts retry every 25 ms against
+the caller's monotonic timeout, whose hard maximum is 30 seconds. First-open
+initialization occurs only after the selected OS lock is acquired, so racing
+opens cannot append initialization bytes. Handle close or process crash
+releases the OS lock; there is no PID file, stale-lock reaper, or claim that
+the two OS primitives are semantically identical beyond the tested
+serialization behavior.
 
 Risks before coding:
 
@@ -95,9 +112,12 @@ supporting implementation skill, before broad verification and integration.
    duplicate observations, detaches caller-owned collections, retains immutable
    source contracts, and updates only observable counts and aggregates.
 5. Add an append-only profile commit store. A commit requires an unchanged
-   start digest, a unique observation set, terminal status `verified`, and a
-   relative verification reference. The live controller, not this store,
-   remains responsible for establishing the evidence result and provenance.
+   start digest, a unique observation set,
+   `controller_asserted_status="passed"`, and an
+   `asserted_verification_ref`. Both are unauthenticated controller
+   assertions. The live controller, not this store, remains responsible for
+   establishing evidence existence, origin, actual pass result, and verifier
+   independence.
    The store recomputes the exact aggregate snapshot from the source contracts
    before appending.
    Persist every full source triple and its typed reduction decision. Enforce
@@ -105,17 +125,34 @@ supporting implementation skill, before broad verification and integration.
 6. Require exact canonical serialization plus LF when replaying ledger events
    and profile commits; otherwise verification is corrupt and mutation stops.
 7. Validate every repair intent against the current before, prepared candidate,
-   completed candidate, or exact later-appended stream. Verify candidate
-   length/digest/count/last digest/next sequence and require any selected
-   quarantine before completed replay.
+   completed candidate, or exact later-appended stream. Recompute the exact
+   reserved marker and the prefix-plus-marker candidate, including
+   length/digest/record count/final digest, and require any selected quarantine
+   before completed replay. `verify` exposes repair-history count/presence and
+   `read_records` returns the marker; ordinary `append` refuses its event type.
 8. Test schema rejection, secret-shaped data, corruption, hash reordering,
    duplicate replay, frozen-state preservation, concurrent append, optimistic
-   conflict, and failed/unverified commit refusal.
+   conflict, fabricated-assertion characterization, and non-`passed` commit
+   refusal.
 9. Regenerate the scaffold bundle from LF-normalized source and reject CRLF in
    text bundle entries. Treat the old generated bytes as a pre-existing
    fresh-checkout prerequisite, not a ledger regression.
 10. Leave executor integration, routing policy, UI, Claude telemetry, and real
    model calls to later bounded packets.
+
+Serialization is frozen to Python's `json.dumps` with `sort_keys=True`,
+`separators=(",", ":")`, `ensure_ascii=True`, and `allow_nan=False`. Values
+retain the exact Python code-point sequence with no Unicode normalization, so
+canonically equivalent Unicode spellings remain distinct. Files are read and
+written in binary mode with exactly one LF per accepted record. This is a
+Python finite-number contract, not a cross-language canonical-JSON claim.
+Caller-supplied timestamps must be real millisecond UTC `...Z` values; default
+timestamps use the OS wall clock and are not required to be monotonic.
+
+File data and repair artifacts are flushed and file-fsynced. Directory fsync
+is performed after durable metadata transitions on POSIX; Windows has no
+equivalent directory-fsync call in this stdlib implementation, so atomic
+replace and file fsync do not make an equal power-loss durability claim.
 
 ## Files Expected To Change
 
@@ -149,6 +186,19 @@ supporting implementation skill, before broad verification and integration.
 ## Rollback
 
 The new modules are additive and are not wired into live delegation in this
-packet. Rollback is removal of the modules, tests, and packet before any
-consumer depends on them. Persisted test fixtures live only in temporary
-directories.
+packet. Before any consumer depends on them, runtime/test changes can be
+reverted deliberately. The generated project-scaffold bundle is a consumed
+plugin artifact and must not simply be deleted: rollback rebuilds it from the
+intended reverted `assets/project-scaffold` source and reruns its check.
+Persisted test fixtures live only in temporary directories; schema v2 has no
+live compatibility obligation.
+
+## Verification Environments
+
+Local commands and CI evidence are separate. Local focused commands use the
+available Python interpreter and are recorded in `verification.md`. Existing
+`.github/workflows/ci.yml` already runs both `tests/` and
+`adapters/codex/tests/` on `ubuntu-latest` and `windows-latest` with Python 3.9
+and 3.12. No redundant workflow is added. The repository-wide
+`.gitattributes` rule `* text=auto eol=lf` already covers source and generated
+bundle text, so this packet documents that coverage rather than duplicating it.

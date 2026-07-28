@@ -114,8 +114,8 @@ def test_contract_ledger_profile_later_conflict_rebuild_and_repair(
         commit_run_id="profile-run-1",
         start=start,
         shadow=first_shadow,
-        claimed_terminal_status="verified",
-        untrusted_verification_ref="verification/profile-run-1.json",
+        controller_asserted_status="passed",
+        asserted_verification_ref="verification/profile-run-1.json",
         recorded_at=NOW,
     )
 
@@ -128,8 +128,8 @@ def test_contract_ledger_profile_later_conflict_rebuild_and_repair(
         commit_run_id="profile-run-2",
         start=current,
         shadow=later_shadow,
-        claimed_terminal_status="verified",
-        untrusted_verification_ref="verification/profile-run-2.json",
+        controller_asserted_status="passed",
+        asserted_verification_ref="verification/profile-run-2.json",
         recorded_at=NOW,
     )
 
@@ -141,8 +141,8 @@ def test_contract_ledger_profile_later_conflict_rebuild_and_repair(
         commit_run_id="profile-run-3",
         start=current,
         shadow=conflict_shadow,
-        claimed_terminal_status="verified",
-        untrusted_verification_ref="verification/profile-run-3.json",
+        controller_asserted_status="passed",
+        asserted_verification_ref="verification/profile-run-3.json",
         recorded_at=NOW,
     )
     assert conflict_commit["decisions"][0]["disposition"] == "rejected"
@@ -170,7 +170,12 @@ def test_contract_ledger_profile_later_conflict_rebuild_and_repair(
         expected_digest=expected_digest
     )
     assert repair["status"] == "repaired"
-    assert run_ledger.verify()["valid"] is True
+    report = run_ledger.verify()
+    assert report["valid"] is True
+    assert report["has_repair_history"] is True
+    assert run_ledger.read_records()[-1]["event_type"] == (
+        delegation_ledger.REPAIR_EVENT_TYPE
+    )
     replay = run_ledger.repair_torn_tail(
         expected_digest=expected_digest
     )

@@ -46,6 +46,8 @@ MAX_LINE_BYTES = 32 * 1024
 MAX_RECORDS = 10_000
 DEFAULT_LOCK_TIMEOUT_S = 30.0
 LOCK_RETRY_S = 0.025
+REPAIR_EVENT_TYPE = "drydock_repair"
+REPAIR_RUNTIME_STATUS = "repaired"
 
 EVENT_FIELDS = frozenset(
     {
@@ -66,6 +68,7 @@ EVENT_FIELDS = frozenset(
 REPAIR_INTENT_FIELDS = frozenset(
     {
         "schema_version",
+        "intent_id",
         "run_id",
         "created_at",
         "before_digest",
@@ -77,9 +80,25 @@ REPAIR_INTENT_FIELDS = frozenset(
         "structural_classification",
         "extractable_sequence",
         "candidate_repaired_digest",
+        "candidate_byte_count",
+        "candidate_record_count",
+        "candidate_last_record_digest",
         "quarantine_ref",
         "quarantine_digest",
         "intent_digest",
+    }
+)
+REPAIR_EVENT_PAYLOAD_FIELDS = frozenset(
+    {
+        "intent_id",
+        "before_digest",
+        "discarded_tail_digest",
+        "discarded_tail_byte_count",
+        "structural_classification",
+        "valid_prefix_record_count",
+        "valid_prefix_byte_count",
+        "extractable_sequence",
+        "quarantine_ref",
     }
 )
 REPAIR_CLASSIFICATIONS = frozenset(
@@ -179,13 +198,17 @@ def exclusive_file_lock(
     locked = False
     try:
         stream = path.open("a+b")
+        # Acquire the selected OS lock before initializing byte zero. Windows
+        # locks the one-byte range at offset zero; POSIX flock locks the
+        # sidecar file. Both work while the file is empty, so racing first
+        # opens cannot append multiple initialization bytes.
+        _acquire_stream_lock(stream, selected_timeout)
+        locked = True
         stream.seek(0, os.SEEK_END)
         if stream.tell() == 0:
             stream.write(b"\0")
             stream.flush()
             os.fsync(stream.fileno())
-        _acquire_stream_lock(stream, selected_timeout)
-        locked = True
         yield
     finally:
         if stream is not None:
@@ -208,11 +231,10 @@ def read_only_file_lock(
     stream: Optional[BinaryIO] = None
     locked = False
     try:
-        # Windows byte-range locking requires a writable handle; this mode does
-        # not write or change file metadata/content.
-        mode = "r+b" if os.name == "nt" else "rb"
+        # Use one existing-file binary handle mode on both OS paths. The
+        # read-only operation never writes through this handle.
         try:
-            stream = path.open(mode)
+            stream = path.open("r+b")
         except FileNotFoundError:
             yield
             return
@@ -232,12 +254,15 @@ def _integrity_report(
     *,
     valid: bool,
     record_count: int,
+    repair_history_count: int,
     last_record_digest: Optional[str],
     corruption: Optional[Mapping[str, object]],
 ) -> Dict[str, object]:
     return {
         "valid": valid,
         "record_count": record_count,
+        "repair_history_count": repair_history_count,
+        "has_repair_history": repair_history_count > 0,
         "last_record_digest": last_record_digest,
         "corruption": (
             contracts.detached_json_copy(dict(corruption))
@@ -288,6 +313,8 @@ def _validate_event(
         if value[field] is not None:
             contracts.validate_identifier(value[field], field)
     contracts.validate_json_value(value["payload"])
+    if value["event_type"] == REPAIR_EVENT_TYPE:
+        _validate_repair_marker_event(value)
     if value["previous_record_digest"] != expected_previous_digest:
         raise LedgerError("previous_record_digest does not match the chain")
     if expected_previous_digest is not None:
@@ -311,12 +338,14 @@ def _read_records_bytes(
         return [], _integrity_report(
             valid=False,
             record_count=0,
+            repair_history_count=0,
             last_record_digest=None,
             corruption={"line": None, "reason": "ledger exceeds the byte bound"},
         )
     records: List[Mapping[str, object]] = []
     previous_digest: Optional[str] = None
     seen_event_ids: set = set()
+    repair_history_count = 0
     for line_number, raw_line in enumerate(
         data.splitlines(keepends=True), start=1
     ):
@@ -324,6 +353,7 @@ def _read_records_bytes(
             return records, _integrity_report(
                 valid=False,
                 record_count=len(records),
+                repair_history_count=repair_history_count,
                 last_record_digest=previous_digest,
                 corruption={
                     "line": line_number,
@@ -334,6 +364,7 @@ def _read_records_bytes(
             return records, _integrity_report(
                 valid=False,
                 record_count=len(records),
+                repair_history_count=repair_history_count,
                 last_record_digest=previous_digest,
                 corruption={
                     "line": line_number,
@@ -344,6 +375,7 @@ def _read_records_bytes(
             return records, _integrity_report(
                 valid=False,
                 record_count=len(records),
+                repair_history_count=repair_history_count,
                 last_record_digest=previous_digest,
                 corruption={
                     "line": line_number,
@@ -374,14 +406,18 @@ def _read_records_bytes(
             return records, _integrity_report(
                 valid=False,
                 record_count=len(records),
+                repair_history_count=repair_history_count,
                 last_record_digest=previous_digest,
                 corruption={"line": line_number, "reason": str(exc)},
             )
         records.append(event)
+        if event["event_type"] == REPAIR_EVENT_TYPE:
+            repair_history_count += 1
         previous_digest = event["record_digest"]  # type: ignore[assignment]
     return records, _integrity_report(
         valid=True,
         record_count=len(records),
+        repair_history_count=repair_history_count,
         last_record_digest=previous_digest,
         corruption=None,
     )
@@ -417,6 +453,110 @@ def _intent_digest(value: Mapping[str, object]) -> str:
     return contracts.digest_json(unsigned)
 
 
+def _repair_intent_id(before_digest: object) -> str:
+    digest = contracts.validate_digest(before_digest, "before_digest")
+    return "repair-" + digest.split(":", 1)[1]
+
+
+def _repair_marker_event_id(intent_id: object) -> str:
+    selected = contracts.validate_identifier(intent_id, "intent_id")
+    return "marker-" + selected.split("-", 1)[1]
+
+
+def _validate_repair_marker_event(value: Mapping[str, object]) -> None:
+    payload = value["payload"]
+    if not isinstance(payload, dict) or set(payload) != REPAIR_EVENT_PAYLOAD_FIELDS:
+        raise LedgerError("repair marker payload fields do not match schema")
+    intent_id = contracts.validate_identifier(payload["intent_id"], "intent_id")
+    before_digest = contracts.validate_digest(
+        payload["before_digest"], "before_digest"
+    )
+    if intent_id != _repair_intent_id(before_digest):
+        raise LedgerError("repair marker intent_id is not derived from before_digest")
+    if value["event_id"] != _repair_marker_event_id(intent_id):
+        raise LedgerError("repair marker event_id does not match intent identity")
+    if value["runtime_status"] != REPAIR_RUNTIME_STATUS:
+        raise LedgerError("repair marker runtime_status must be repaired")
+    if value["delegation_id"] is not None or value["task_id"] is not None:
+        raise LedgerError("repair marker cannot bind a delegation or task")
+    contracts.validate_digest(
+        payload["discarded_tail_digest"], "discarded_tail_digest"
+    )
+    for field in (
+        "discarded_tail_byte_count",
+        "valid_prefix_record_count",
+        "valid_prefix_byte_count",
+    ):
+        number = payload[field]
+        if isinstance(number, bool) or not isinstance(number, int) or number < 0:
+            raise LedgerError(
+                "repair marker {} must be a non-negative integer".format(field)
+            )
+    if payload["discarded_tail_byte_count"] <= 0:
+        raise LedgerError("repair marker must bind a non-empty discarded tail")
+    if payload["valid_prefix_record_count"] + 1 != value["sequence"]:
+        raise LedgerError("repair marker sequence does not follow its bound prefix")
+    if payload["valid_prefix_record_count"] > MAX_RECORDS - 1:
+        raise LedgerError("repair marker prefix record count exceeds capacity")
+    if payload["valid_prefix_byte_count"] > MAX_LEDGER_BYTES:
+        raise LedgerError("repair marker prefix byte count exceeds capacity")
+    if payload["structural_classification"] not in REPAIR_CLASSIFICATIONS:
+        raise LedgerError("repair marker classification is unsupported")
+    extractable_sequence = payload["extractable_sequence"]
+    if extractable_sequence is not None and (
+        isinstance(extractable_sequence, bool)
+        or not isinstance(extractable_sequence, int)
+        or extractable_sequence != value["sequence"]
+    ):
+        raise LedgerError("repair marker extractable sequence is invalid")
+    quarantine_ref = payload["quarantine_ref"]
+    if quarantine_ref is not None:
+        selected_ref = contracts.validate_reference(
+            quarantine_ref, "quarantine_ref"
+        )
+        expected_ref = "repair-quarantine/{}.bin".format(
+            before_digest.split(":", 1)[1]
+        )
+        if selected_ref != expected_ref:
+            raise LedgerError(
+                "repair marker quarantine reference does not match before_digest"
+            )
+
+
+def _build_repair_marker(
+    intent: Mapping[str, object],
+) -> tuple[Dict[str, object], bytes]:
+    payload: Dict[str, object] = {
+        "intent_id": intent["intent_id"],
+        "before_digest": intent["before_digest"],
+        "discarded_tail_digest": intent["discarded_tail_digest"],
+        "discarded_tail_byte_count": intent["discarded_tail_byte_count"],
+        "structural_classification": intent["structural_classification"],
+        "valid_prefix_record_count": intent["valid_prefix_record_count"],
+        "valid_prefix_byte_count": intent["valid_prefix_byte_count"],
+        "extractable_sequence": intent["extractable_sequence"],
+        "quarantine_ref": intent["quarantine_ref"],
+    }
+    marker: Dict[str, object] = {
+        "schema_version": contracts.SCHEMA_VERSION,
+        "sequence": int(intent["valid_prefix_record_count"]) + 1,
+        "event_id": _repair_marker_event_id(intent["intent_id"]),
+        "run_id": intent["run_id"],
+        "event_type": REPAIR_EVENT_TYPE,
+        "recorded_at": intent["created_at"],
+        "delegation_id": None,
+        "task_id": None,
+        "runtime_status": REPAIR_RUNTIME_STATUS,
+        "payload": payload,
+        "previous_record_digest": intent["last_valid_record_digest"],
+    }
+    marker["record_digest"] = contracts.digest_json(marker)
+    raw = contracts.canonical_json(marker).encode("utf-8") + b"\n"
+    if len(raw) > MAX_LINE_BYTES:
+        raise LedgerError("repair marker exceeds the event line bound")
+    return marker, raw
+
+
 def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, object]:
     if not isinstance(value, dict) or set(value) != REPAIR_INTENT_FIELDS:
         raise LedgerError("repair intent fields do not match schema")
@@ -428,11 +568,15 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
     run_id = contracts.validate_storage_component(value["run_id"], "run_id")
     if run_id != expected_run_id:
         raise LedgerError("repair intent run_id does not match ledger")
+    intent_id = contracts.validate_identifier(value["intent_id"], "intent_id")
+    if intent_id != _repair_intent_id(value["before_digest"]):
+        raise LedgerError("repair intent identity is not derived from before_digest")
     contracts.validate_timestamp(value["created_at"], "created_at")
     for field in (
         "before_digest",
         "discarded_tail_digest",
         "candidate_repaired_digest",
+        "candidate_last_record_digest",
         "intent_digest",
     ):
         contracts.validate_digest(value[field], field)
@@ -440,6 +584,8 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
         "valid_prefix_byte_count",
         "valid_prefix_record_count",
         "discarded_tail_byte_count",
+        "candidate_byte_count",
+        "candidate_record_count",
     ):
         number = value[field]
         if isinstance(number, bool) or not isinstance(number, int) or number < 0:
@@ -448,6 +594,16 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
         raise LedgerError("repair intent prefix exceeds ledger capacity")
     if value["valid_prefix_record_count"] > MAX_RECORDS:
         raise LedgerError("repair intent record count exceeds capacity")
+    if value["candidate_record_count"] > MAX_RECORDS:
+        raise LedgerError("repair intent candidate record count exceeds capacity")
+    if value["candidate_record_count"] != value["valid_prefix_record_count"] + 1:
+        raise LedgerError(
+            "repair intent candidate must add exactly one repair marker"
+        )
+    if value["candidate_byte_count"] > MAX_LEDGER_BYTES:
+        raise LedgerError("repair intent candidate exceeds ledger capacity")
+    if value["candidate_byte_count"] <= value["valid_prefix_byte_count"]:
+        raise LedgerError("repair intent candidate does not contain a repair marker")
     if value["discarded_tail_byte_count"] <= 0:
         raise LedgerError("repair intent must discard a non-empty tail")
     if (
@@ -882,12 +1038,39 @@ def _validate_candidate_bytes(
     candidate: bytes,
     run_id: str,
 ) -> List[Mapping[str, object]]:
-    if len(candidate) != intent["valid_prefix_byte_count"]:
+    if len(candidate) != intent["candidate_byte_count"]:
         raise LedgerError(
-            "repair candidate length does not match intent prefix length"
+            "repair candidate length does not match intent candidate length"
         )
     if contracts.digest_bytes(candidate) != intent["candidate_repaired_digest"]:
         raise LedgerError("repair candidate digest does not match intent")
+    prefix_length = intent["valid_prefix_byte_count"]
+    if not isinstance(prefix_length, int):
+        raise LedgerError("repair candidate prefix length is invalid")
+    prefix = candidate[:prefix_length]
+    prefix_records, prefix_report = _read_records_bytes(prefix, run_id)
+    if not prefix_report["valid"]:
+        raise LedgerError(
+            "repair candidate prefix is not a canonical valid ledger: {}".format(
+                prefix_report["corruption"]
+            )
+        )
+    if len(prefix_records) != intent["valid_prefix_record_count"]:
+        raise LedgerError(
+            "repair candidate prefix record count does not match intent"
+        )
+    prefix_last_digest = (
+        prefix_records[-1]["record_digest"] if prefix_records else None
+    )
+    if prefix_last_digest != intent["last_valid_record_digest"]:
+        raise LedgerError(
+            "repair candidate prefix last digest does not match intent"
+        )
+    marker, marker_raw = _build_repair_marker(intent)
+    if candidate != prefix + marker_raw:
+        raise LedgerError(
+            "repair candidate is not the exact prefix plus canonical repair marker"
+        )
     records, report = _read_records_bytes(candidate, run_id)
     if not report["valid"]:
         raise LedgerError(
@@ -895,27 +1078,17 @@ def _validate_candidate_bytes(
                 report["corruption"]
             )
         )
-    if len(records) != intent["valid_prefix_record_count"]:
+    if len(records) != intent["candidate_record_count"]:
         raise LedgerError(
             "repair candidate record count does not match intent"
         )
     last_digest = records[-1]["record_digest"] if records else None
-    if last_digest != intent["last_valid_record_digest"]:
+    if last_digest != intent["candidate_last_record_digest"]:
         raise LedgerError(
             "repair candidate last digest does not match intent"
         )
-    next_sequence = len(records) + 1
-    if next_sequence > MAX_RECORDS:
-        raise LedgerError(
-            "repair candidate has no reachable next sequence within capacity"
-        )
-    if (
-        intent["extractable_sequence"] is not None
-        and intent["extractable_sequence"] != next_sequence
-    ):
-        raise LedgerError(
-            "repair intent extractable sequence is not candidate next sequence"
-        )
+    if records[-1] != marker:
+        raise LedgerError("repair candidate does not end with the exact marker")
     return records
 
 
@@ -985,6 +1158,8 @@ def _validate_intent_relation(
         prefix, tail, classification, sequence, prefix_records = (
             _classify_torn_tail(current, run_id)
         )
+        marker, marker_raw = _build_repair_marker(intent)
+        candidate = prefix + marker_raw
         expected = {
             "valid_prefix_byte_count": len(prefix),
             "valid_prefix_record_count": len(prefix_records),
@@ -997,7 +1172,10 @@ def _validate_intent_relation(
             "discarded_tail_byte_count": len(tail),
             "structural_classification": classification,
             "extractable_sequence": sequence,
-            "candidate_repaired_digest": contracts.digest_bytes(prefix),
+            "candidate_repaired_digest": contracts.digest_bytes(candidate),
+            "candidate_byte_count": len(candidate),
+            "candidate_record_count": len(prefix_records) + 1,
+            "candidate_last_record_digest": marker["record_digest"],
         }
         for field, expected_value in expected.items():
             if intent[field] != expected_value:
@@ -1006,14 +1184,14 @@ def _validate_intent_relation(
                     "state".format(field)
                 )
         if candidate_path.exists():
-            candidate = _read_repair_artifact(
+            prepared = _read_repair_artifact(
                 candidate_path, "repair candidate"
             )
-            if candidate != prefix:
+            if prepared != candidate:
                 raise LedgerError(
-                    "repair candidate is not the exact reachable prefix"
+                    "repair candidate is not the exact reachable prefix plus marker"
                 )
-            _validate_candidate_bytes(intent, candidate, run_id)
+            _validate_candidate_bytes(intent, prepared, run_id)
         _validate_quarantine_relation(
             intent,
             directory,
@@ -1027,12 +1205,12 @@ def _validate_intent_relation(
             "prefix_records": prefix_records,
         }
 
-    prefix_length = intent["valid_prefix_byte_count"]
-    if not isinstance(prefix_length, int) or len(current) < prefix_length:
+    candidate_length = intent["candidate_byte_count"]
+    if not isinstance(candidate_length, int) or len(current) < candidate_length:
         raise LedgerError(
             "repair intent candidate prefix is unreachable from current ledger"
         )
-    candidate = current[:prefix_length]
+    candidate = current[:candidate_length]
     _validate_candidate_bytes(intent, candidate, run_id)
     if candidate_path.exists():
         prepared = _read_repair_artifact(
@@ -1045,7 +1223,7 @@ def _validate_intent_relation(
         _validate_candidate_bytes(intent, prepared, run_id)
 
     if (
-        len(current) == prefix_length
+        len(current) == candidate_length
         and current_digest == intent["candidate_repaired_digest"]
     ):
         state = "completed"
@@ -1056,7 +1234,7 @@ def _validate_intent_relation(
                 "later ledger bytes after repair are not a canonical valid "
                 "stream: {}".format(report["corruption"])
             )
-        if len(records) < intent["valid_prefix_record_count"]:
+        if len(records) < intent["candidate_record_count"]:
             raise LedgerError(
                 "later ledger stream has fewer records than repair candidate"
             )
@@ -1068,8 +1246,9 @@ def _validate_intent_relation(
         tail=None,
         required=True,
     )
+    valid_prefix = candidate[: int(intent["valid_prefix_byte_count"])]
     if quarantine is not None and contracts.digest_bytes(
-        candidate + quarantine
+        valid_prefix + quarantine
     ) != intent["before_digest"]:
         raise LedgerError(
             "repair candidate and quarantine do not reconstruct before_digest"
@@ -1123,7 +1302,13 @@ class RunLedger:
         event_id: Optional[str] = None,
         recorded_at: Optional[str] = None,
     ) -> Mapping[str, object]:
-        contracts.validate_identifier(event_type, "event_type")
+        selected_event_type = contracts.validate_identifier(
+            event_type, "event_type"
+        )
+        if selected_event_type == REPAIR_EVENT_TYPE:
+            raise LedgerError(
+                "repair event type is reserved for atomic torn-tail repair"
+            )
         contracts.validate_identifier(runtime_status, "runtime_status")
         if not isinstance(payload, dict):
             raise contracts.ContractError("event payload must be an object")
@@ -1157,7 +1342,7 @@ class RunLedger:
                 "sequence": len(records) + 1,
                 "event_id": selected_event_id,
                 "run_id": self.run_id,
-                "event_type": event_type,
+                "event_type": selected_event_type,
                 "recorded_at": selected_time,
                 "delegation_id": delegation_id,
                 "task_id": task_id,
@@ -1307,6 +1492,7 @@ class RunLedger:
             )
             proposed: Dict[str, object] = {
                 "schema_version": contracts.SCHEMA_VERSION,
+                "intent_id": _repair_intent_id(expected_digest),
                 "run_id": self.run_id,
                 "created_at": (
                     matching["created_at"] if matching is not None else utc_now()
@@ -1323,13 +1509,23 @@ class RunLedger:
                 "discarded_tail_byte_count": len(tail),
                 "structural_classification": classification,
                 "extractable_sequence": sequence,
-                "candidate_repaired_digest": contracts.digest_bytes(prefix),
                 "quarantine_ref": quarantine_ref,
                 "quarantine_digest": (
                     contracts.digest_bytes(tail) if quarantine else None
                 ),
             }
+            marker, marker_raw = _build_repair_marker(proposed)
+            candidate = prefix + marker_raw
+            proposed.update(
+                {
+                    "candidate_repaired_digest": contracts.digest_bytes(candidate),
+                    "candidate_byte_count": len(candidate),
+                    "candidate_record_count": len(prefix_records) + 1,
+                    "candidate_last_record_digest": marker["record_digest"],
+                }
+            )
             proposed["intent_digest"] = _intent_digest(proposed)
+            proposed = _validate_repair_intent(proposed, self.run_id)
             if matching is not None and matching != proposed:
                 raise LedgerError(
                     "existing repair intent conflicts with requested repair"
@@ -1404,7 +1600,7 @@ class RunLedger:
                     raise LedgerError(
                         "could not read repair candidate: {}".format(exc)
                     ) from exc
-                if candidate_bytes != prefix:
+                if candidate_bytes != candidate:
                     raise LedgerError(
                         "existing repair candidate conflicts with intent"
                     )
@@ -1412,7 +1608,7 @@ class RunLedger:
             else:
                 try:
                     with candidate_path.open("xb") as stream:
-                        stream.write(prefix)
+                        stream.write(candidate)
                         stream.flush()
                         os.fsync(stream.fileno())
                     _fsync_directory(self.directory)
@@ -1420,7 +1616,7 @@ class RunLedger:
                     raise LedgerError(
                         "could not persist repair candidate: {}".format(exc)
                     ) from exc
-            _validate_candidate_bytes(proposed, prefix, self.run_id)
+            _validate_candidate_bytes(proposed, candidate, self.run_id)
             _validate_quarantine_relation(
                 proposed,
                 self.directory,

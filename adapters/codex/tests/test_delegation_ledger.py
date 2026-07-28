@@ -221,21 +221,74 @@ def test_sensitive_or_oversized_payload_is_rejected_before_ledger_creation(
     assert not target.path.exists()
 
 
+def test_repair_event_type_is_reserved_from_ordinary_append(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "run-1")
+
+    with pytest.raises(delegation_ledger.LedgerError, match="reserved"):
+        target.append(
+            event_type=delegation_ledger.REPAIR_EVENT_TYPE,
+            runtime_status="repaired",
+            payload={},
+            event_id="forged-repair",
+            recorded_at=NOW,
+        )
+
+    assert not target.directory.exists()
+
+
+def test_canonical_round_trip_corpus_preserves_exact_code_points() -> None:
+    corpus = [
+        {"text": 'braces {}[] and quote " plus slash \\'},
+        {"escaped": 'prefix "quoted" suffix', "nested": [[1, 2], [3, 4]]},
+        {"unicode_escape_text": "\u20ac", "supplementary": "\U0001f680"},
+        {"composed": "\u00e9", "decomposed": "e\u0301"},
+    ]
+
+    for value in corpus:
+        first = contracts.canonical_json(value)
+        parsed = contracts.strict_json_loads(first)
+        second = contracts.canonical_json(parsed)
+        assert second == first
+
+    composed = contracts.canonical_json({"value": "\u00e9"})
+    decomposed = contracts.canonical_json({"value": "e\u0301"})
+    assert composed != decomposed
+    assert contracts.digest_text(composed) != contracts.digest_text(decomposed)
+
+
 @pytest.mark.skipif(os.name not in {"nt", "posix"}, reason="unsupported lock OS")
-def test_two_processes_append_with_contiguous_sequences(tmp_path: Path) -> None:
+def test_eight_processes_append_three_events_without_torn_lines(
+    tmp_path: Path,
+) -> None:
+    writer_count = 8
+    events_per_writer = 3
+    ready_directory = tmp_path / "writer-ready"
+    ready_directory.mkdir()
+    start_gate = tmp_path / "writer-start"
     script = """
 import sys
+import time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from adapters.codex.drydock.scripts.delegation_ledger import RunLedger
 target = RunLedger(Path(sys.argv[2]), "shared-run")
-target.append(
-    event_type="worker_event",
-    runtime_status="completed",
-    payload={"worker": sys.argv[3]},
-    event_id="event-" + sys.argv[3],
-    recorded_at="2026-07-28T12:00:00.000Z",
-)
+worker = sys.argv[3]
+(Path(sys.argv[5]) / worker).write_bytes(b"ready")
+deadline = time.monotonic() + 20
+while not Path(sys.argv[6]).exists():
+    if time.monotonic() >= deadline:
+        raise RuntimeError("writer start gate timed out")
+    time.sleep(0.01)
+for number in range(int(sys.argv[4])):
+    target.append(
+        event_type="worker_event",
+        runtime_status="completed",
+        payload={"worker": worker, "number": number},
+        event_id="event-" + worker + "-" + str(number),
+        recorded_at="2026-07-28T12:00:00.000Z",
+    )
 """
     processes = [
         subprocess.Popen(
@@ -245,26 +298,86 @@ target.append(
                 script,
                 str(REPOSITORY_ROOT),
                 str(tmp_path),
-                worker,
+                str(worker),
+                str(events_per_writer),
+                str(ready_directory),
+                str(start_gate),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        for worker in ("one", "two")
+        for worker in range(writer_count)
     ]
     failures = []
-    for process in processes:
-        stdout, stderr = process.communicate(timeout=40)
-        if process.returncode != 0:
-            failures.append((process.returncode, stdout, stderr))
+    try:
+        ready_deadline = time.monotonic() + 20
+        while len(list(ready_directory.iterdir())) != writer_count:
+            early_exits = [
+                process.returncode
+                for process in processes
+                if process.poll() is not None
+            ]
+            assert early_exits == [], "writer exited before contention gate"
+            assert time.monotonic() < ready_deadline, "writers did not become ready"
+            time.sleep(0.01)
+        start_gate.write_bytes(b"go")
+
+        deadline = time.monotonic() + 45
+        for process in processes:
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, (
+                "subprocess contention harness exceeded its bound"
+            )
+            stdout, stderr = process.communicate(timeout=remaining)
+            if process.returncode != 0:
+                failures.append((process.returncode, stdout, stderr))
+    finally:
+        unfinished = [process for process in processes if process.poll() is None]
+        for process in unfinished:
+            process.terminate()
+        for process in unfinished:
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=5)
     assert failures == []
+    assert [process.returncode for process in processes] == [0] * writer_count
 
     target = delegation_ledger.RunLedger(tmp_path, "shared-run")
     records = target.read_records()
-    assert [record["sequence"] for record in records] == [1, 2]
-    assert {record["payload"]["worker"] for record in records} == {"one", "two"}
-    assert target.verify()["valid"] is True
+    expected_count = writer_count * events_per_writer
+    sequences = [record["sequence"] for record in records]
+    event_ids = [record["event_id"] for record in records]
+    assert sequences == list(range(1, expected_count + 1))
+    assert len(sequences) == len(set(sequences)) == expected_count
+    assert len(event_ids) == len(set(event_ids)) == expected_count
+    assert set(event_ids) == {
+        "event-{}-{}".format(worker, number)
+        for worker in range(writer_count)
+        for number in range(events_per_writer)
+    }
+    raw = target.path.read_bytes()
+    lines = raw.splitlines(keepends=True)
+    assert len(lines) == expected_count
+    assert raw.endswith(b"\n")
+    assert all(
+        line.endswith(b"\n") and not line.endswith(b"\r\n")
+        for line in lines
+    )
+    assert all(
+        contracts.canonical_json(
+            contracts.strict_json_loads(line[:-1].decode("utf-8"))
+        ).encode("utf-8")
+        + b"\n"
+        == line
+        for line in lines
+    )
+    report = target.verify()
+    assert report["valid"] is True
+    assert report["record_count"] == expected_count
+    assert target.lock_path.read_bytes() == b"\0"
 
 
 def test_direct_cli_help_works_from_source_and_installed_scripts_layout(
@@ -346,6 +459,11 @@ with exclusive_file_lock(Path(sys.argv[2]), timeout_s=1.0):
     finally:
         process.terminate()
         process.communicate(timeout=10)
+    reacquired = False
+    with delegation_ledger.exclusive_file_lock(lock_path, timeout_s=1.0):
+        reacquired = True
+    assert reacquired is True
+    assert lock_path.read_bytes() == b"\0"
 
 
 @pytest.mark.parametrize(
@@ -375,22 +493,58 @@ def test_repair_replays_idempotently_after_every_durable_step(
             quarantine=quarantine,
             _fault_after=fault_step,
         )
+    if fault_step == "post_replace":
+        immediate = target.verify()
+        assert immediate["valid"] is True
+        assert immediate["repair_history_count"] == 1
+        assert target.read_records()[-1]["event_type"] == (
+            delegation_ledger.REPAIR_EVENT_TYPE
+        )
     repaired = target.repair_torn_tail(
         expected_digest=expected_digest,
         quarantine=quarantine,
     )
     assert repaired["status"] in {"repaired", "completed_replay"}
-    assert target.path.read_bytes() == valid_prefix
-    assert target.verify()["valid"] is True
+    repaired_bytes = target.path.read_bytes()
+    assert repaired_bytes.startswith(valid_prefix)
+    assert repaired_bytes != valid_prefix
+    records = target.read_records()
+    assert records[-1]["event_type"] == delegation_ledger.REPAIR_EVENT_TYPE
+    marker = records[-1]
+    report = target.verify()
+    assert report["valid"] is True
+    assert report["repair_history_count"] == 1
+    assert report["has_repair_history"] is True
 
     replay = target.repair_torn_tail(
         expected_digest=expected_digest,
         quarantine=quarantine,
     )
     assert replay["status"] == "completed_replay"
-    assert target.path.read_bytes() == valid_prefix
+    assert target.path.read_bytes() == repaired_bytes
     intents = list(target.intent_directory.glob("*.json"))
     assert len(intents) == 1
+    intent = contracts.strict_json_loads(
+        intents[0].read_text(encoding="utf-8")
+    )
+    assert isinstance(intent, dict)
+    assert marker["payload"] == {
+        "intent_id": intent["intent_id"],
+        "before_digest": intent["before_digest"],
+        "discarded_tail_digest": intent["discarded_tail_digest"],
+        "discarded_tail_byte_count": intent["discarded_tail_byte_count"],
+        "structural_classification": intent["structural_classification"],
+        "valid_prefix_record_count": intent["valid_prefix_record_count"],
+        "valid_prefix_byte_count": intent["valid_prefix_byte_count"],
+        "extractable_sequence": intent["extractable_sequence"],
+        "quarantine_ref": intent["quarantine_ref"],
+    }
+    assert intent["candidate_repaired_digest"] == contracts.digest_bytes(
+        repaired_bytes
+    )
+    assert intent["candidate_byte_count"] == len(repaired_bytes)
+    assert intent["candidate_record_count"] == len(records)
+    assert intent["candidate_last_record_digest"] == marker["record_digest"]
     if quarantine:
         quarantines = list(target.quarantine_directory.glob("*.bin"))
         assert len(quarantines) == 1
@@ -494,6 +648,68 @@ def test_torn_tail_classifier_returns_typed_error_for_adversarial_prefixes(
 
 
 @pytest.mark.parametrize(
+    "tail",
+    [
+        b'{"sequence":2,"payload":{"note":"braces }{[] and quote \\" open',
+        b'{"sequence":2,"payload":{"note":"truncated escape \\',
+        b'{"sequence":2,"payload":{"note":"unicode \\u12',
+        b'{"sequence":2,"payload":{"note":"surrogate \\ud83d\\u',
+        b'{"sequence":2,"payload":[[[["nested braces { in string',
+    ],
+)
+def test_bounded_string_escape_and_nested_array_truncations_are_repairable(
+    tmp_path: Path,
+    tail: bytes,
+) -> None:
+    target = delegation_ledger.RunLedger(
+        tmp_path / contracts.digest_bytes(tail)[-12:], "run-1"
+    )
+    append_event(target)
+    with target.path.open("ab") as stream:
+        stream.write(tail)
+        stream.flush()
+        os.fsync(stream.fileno())
+    expected = contracts.digest_bytes(target.path.read_bytes())
+
+    repaired = target.repair_torn_tail(expected_digest=expected)
+
+    assert repaired["structural_classification"] in {
+        "truncated_json",
+        "unterminated_string",
+    }
+    assert target.verify()["repair_history_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "malformed_line",
+    [
+        b'{"sequence":2,"payload":"unterminated}\n',
+        b'{"sequence":2,"payload":"bad\\q"}\n',
+        b'{"sequence":2,"payload":{"nested":[1,2}}\n',
+    ],
+)
+def test_mid_file_malformation_refuses_tail_repair(
+    tmp_path: Path,
+    malformed_line: bytes,
+) -> None:
+    target = delegation_ledger.RunLedger(
+        tmp_path / contracts.digest_bytes(malformed_line)[-12:], "run-1"
+    )
+    append_event(target)
+    with target.path.open("ab") as stream:
+        stream.write(malformed_line)
+        stream.write(b'{"sequence":3,"event_id":"terminal-torn')
+        stream.flush()
+        os.fsync(stream.fileno())
+    expected = contracts.digest_bytes(target.path.read_bytes())
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError, match="prefix is corrupt"):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
     ("tail", "classification"),
     [
         (
@@ -537,7 +753,11 @@ def test_genuine_terminal_truncation_and_v2_boundaries_remain_repairable(
 
     repaired = target.repair_torn_tail(expected_digest=expected)
     assert repaired["structural_classification"] == classification
-    assert target.path.read_bytes() == valid_prefix
+    assert target.path.read_bytes().startswith(valid_prefix)
+    assert target.path.read_bytes() != valid_prefix
+    assert target.read_records()[-1]["event_type"] == (
+        delegation_ledger.REPAIR_EVENT_TYPE
+    )
     assert target.verify()["valid"] is True
 
 
@@ -584,7 +804,11 @@ def _persist_intent(target: delegation_ledger.RunLedger, value: dict) -> None:
     [
         ("valid_prefix_byte_count", 0),
         ("valid_prefix_record_count", 0),
+        ("intent_id", "repair-" + ("0" * 64)),
         ("candidate_repaired_digest", "sha256:" + ("1" * 64)),
+        ("candidate_byte_count", 1),
+        ("candidate_record_count", 1),
+        ("candidate_last_record_digest", "sha256:" + ("3" * 64)),
         ("discarded_tail_digest", "sha256:" + ("2" * 64)),
         ("discarded_tail_byte_count", 1),
         ("structural_classification", "truncated_json"),
@@ -689,6 +913,30 @@ def test_repair_candidate_and_quarantine_are_relationally_verified(
     assert quarantine_target.path.read_bytes() == before
 
 
+def test_repair_marker_tamper_is_rejected_against_external_intent(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "run-repair")
+    expected = add_torn_tail(target)
+    target.repair_torn_tail(expected_digest=expected)
+    lines = target.path.read_bytes().splitlines(keepends=True)
+    marker = contracts.strict_json_loads(lines[-1][:-1].decode("utf-8"))
+    assert isinstance(marker, dict)
+    assert isinstance(marker["payload"], dict)
+    marker["payload"]["structural_classification"] = "truncated_json"
+    unsigned = dict(marker)
+    unsigned.pop("record_digest")
+    marker["record_digest"] = contracts.digest_json(unsigned)
+    lines[-1] = contracts.canonical_json(marker).encode("utf-8") + b"\n"
+    target.path.write_bytes(b"".join(lines))
+    assert target.verify()["valid"] is True
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError, match="candidate"):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
+
+
 def test_completed_quarantine_is_required_and_later_appends_are_verified(
     tmp_path: Path,
 ) -> None:
@@ -728,7 +976,7 @@ def test_later_noncanonical_stream_blocks_completed_repair_replay(
     target.repair_torn_tail(expected_digest=expected)
     append_event(target, 2)
     lines = target.path.read_bytes().splitlines(keepends=True)
-    target.path.write_bytes(lines[0] + b" " + lines[1])
+    target.path.write_bytes(lines[0] + lines[1] + b" " + lines[2])
     before = target.path.read_bytes()
 
     with pytest.raises(delegation_ledger.LedgerError, match="canonical valid"):
@@ -775,6 +1023,30 @@ def test_prebuilt_capacity_sample_full_verification_fits_lock_budget(
     assert report["valid"] is True
     assert report["record_count"] == delegation_ledger.MAX_RECORDS
     assert elapsed < delegation_ledger.DEFAULT_LOCK_TIMEOUT_S
+
+
+def test_repair_marker_can_fill_the_final_record_capacity(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "capacity-repair")
+    target.directory.mkdir(parents=True)
+    prefix = _prebuilt_ledger_bytes(
+        target.run_id, delegation_ledger.MAX_RECORDS - 1
+    )
+    tail = b'{"sequence":10000,"payload":'
+    target.path.write_bytes(prefix + tail)
+    expected = contracts.digest_bytes(target.path.read_bytes())
+
+    repaired = target.repair_torn_tail(expected_digest=expected)
+
+    assert repaired["status"] == "repaired"
+    report = target.verify()
+    assert report["valid"] is True
+    assert report["record_count"] == delegation_ledger.MAX_RECORDS
+    assert report["repair_history_count"] == 1
+    assert target.read_records()[-1]["sequence"] == delegation_ledger.MAX_RECORDS
+    with pytest.raises(delegation_ledger.LedgerError, match="record bound"):
+        append_event(target, delegation_ledger.MAX_RECORDS + 1)
 
 
 def test_sequential_append_timing_is_observational_not_a_correctness_gate(

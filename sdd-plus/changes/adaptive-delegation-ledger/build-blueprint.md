@@ -23,9 +23,11 @@ and Claude.
 5. The run-start capability profile remains frozen while shadow counts
    accumulate.
 6. The controller may append the resulting capability profile commit only
-   after recording terminal status `verified` and a safe verification evidence
-   reference. The store validates that assertion's shape and state transition;
-   the future live controller must establish the evidence's origin and result.
+   with `controller_asserted_status="passed"` and a safe
+   `asserted_verification_ref`. These are unauthenticated controller
+   assertions. The store validates only their shape and the state transition;
+   the future live controller must establish evidence existence/origin, an
+   actual pass result, and verifier independence.
 7. A future scheduler reads raw counts, aggregates, and confidence evidence to
    make an advisory routing recommendation.
 
@@ -34,8 +36,8 @@ and Claude.
 - Strict delegation, result, observation, and profile contracts.
 - Append-only, bounded, hash-linked run events.
 - Frozen profile snapshots and pure shadow reduction.
-- Append-only optimistic profile commit after a controller-recorded verified
-  terminal assertion.
+- Append-only optimistic profile commit after an unauthenticated
+  controller-recorded `passed` assertion.
 - Cross-platform, stdlib-only implementation and deterministic tests.
 
 ## 5. Non-Goals
@@ -52,11 +54,12 @@ and Claude.
 
 - `delegation_contracts.py`: strict immutable value contracts, normalization,
   canonical JSON, digests, bounds, and sensitive-field rejection.
-- `delegation_ledger.py`: serialized append, chain verification, and honest
-  integrity report.
+- `delegation_ledger.py`: serialized append, chain verification, honest
+  integrity reporting, and an atomic repair candidate containing a canonical
+  reserved in-chain marker.
 - `capability_profiles.py`: raw evidence aggregates, frozen snapshots, pure
   shadow reducer, immutable source samples, exact commit-time recomputation,
-  and controller-asserted verified-terminal commit log.
+  and unauthenticated controller-asserted `passed` commit log.
 - Focused adapter tests using only temporary directories and fake data.
 
 ## 7. Data Model Sketch
@@ -107,7 +110,8 @@ Runtime objective and repository inputs remain in the existing bounded adapter
 path. The ledger receives only their SHA-256 digests and safe metadata.
 
 Envelope -> start event -> normalized result -> outcome observation -> shadow
-reducer -> frozen comparison -> verified terminal commit -> future scheduler.
+reducer -> frozen comparison -> controller-asserted `passed` commit -> future
+scheduler.
 
 ## 9. API / Interface Boundaries
 
@@ -117,6 +121,14 @@ records are exact canonical JSONL: sorted-key, ASCII-escaped, compact
 serialization followed by one LF byte. Semantically equivalent whitespace,
 CRLF, key order, or escaping is corruption. No network listener or external
 API is added.
+
+The exact serializer is Python `json.dumps` with `sort_keys=True`,
+`separators=(",", ":")`, `ensure_ascii=True`, and `allow_nan=False`.
+Serialization preserves the exact Python code-point sequence without Unicode
+normalization; equivalent Unicode spellings remain different bytes and
+digests. Binary I/O emits exactly one LF. Numeric scope is finite Python JSON
+integers/floats under the schema bounds. This is not a cross-language
+canonicalization claim.
 
 Profile commits retain every full source triple and deterministic typed
 decision so replay starts empty and reconstructs indexes, aggregates,
@@ -129,6 +141,18 @@ The files are local, unsigned, and user-writable. Hash linking detects mutation,
 reordering, or sequence gaps within the observed file; it does not authenticate
 the writer or prove that a suffix was not deleted. The controller remains the
 single logical writer, while an OS file lock serializes physical appends.
+
+That lock is a sidecar file initialized with one NUL at byte zero, using binary
+`a+b` writer handles and existing-file `r+b` read handles without writes. Each
+attempt `seek(0)`. Windows applies custom nonblocking `msvcrt.LK_NBLCK` to the
+one-byte range at byte zero; POSIX applies
+`fcntl.flock(..., LOCK_EX | LOCK_NB)` to the sidecar file, independent of the
+seek offset. Attempts retry every 25 ms against a monotonic caller-selected
+timeout capped at 30 seconds. Initialization is performed after the selected
+lock is acquired under racing opens. Closing the OS handle, including process
+crash, releases the lock; there is no stale PID-file policy. Only the tested
+serialization/release behavior is shared; semantic identity between the OS
+primitives is not claimed.
 
 Capability evidence has no authority to change permission profiles, tool
 access, governance gates, convergence, reviewer independence, or Owner
@@ -156,18 +180,31 @@ packets. All tests are local and spend no quota.
 - A local unkeyed chain is corruption evidence, not adversarial attestation.
 - Torn-tail repair accepts only a bounded strict structural prefix. Every
   existing immutable intent must match reachable locked bytes: the exact
-  before-state classification or a canonical candidate prefix/current stream.
-  Candidate length/digest/count/last digest/next sequence are recomputed, and a
-  selected before-digest-derived quarantine is required for completed replay.
-- A `verified` string and safe evidence reference are state-machine inputs, not
-  proof that a verifier ran, passed, or was independent. That binding belongs
-  to the later live-controller integration packet.
+  before-state classification or the exact prefix-plus-marker candidate/current
+  stream.
+  The candidate is the exact valid prefix plus a canonical reserved
+  `drydock_repair` event. Its marker fields, length, digest, record count, final
+  digest, and any later stream are recomputed, and a selected
+  before-digest-derived quarantine is required for completed replay.
+- `controller_asserted_status="passed"` and
+  `asserted_verification_ref` are unauthenticated state-machine inputs, not
+  proof that evidence exists, has a particular origin, records a pass, or came
+  from an independent process. They grant no permission or authority.
+- Accepted run-ledger ceilings are 10,000 records, 16 MiB total, and 32 KiB
+  per line. Profile history ceilings are 32 commits and 64 submissions per
+  commit. Capacity overflow is a hard refusal, not truncation or throughput
+  evidence.
+- Default timestamps use the OS UTC wall clock to millisecond precision;
+  accepted caller timestamps use the same exact grammar but are not required
+  to be monotonic. File fsync applies on all supported OSes; parent-directory
+  fsync applies on POSIX only, so Windows power-loss durability is weaker even
+  though atomic replacement and crash replay remain tested behavior.
 
 ## 13. Implementation Phases
 
 1. Contracts and validators.
 2. Run ledger and verification.
-3. Capability profiles, shadow reducer, and verified commit log.
+3. Capability profiles, shadow reducer, and controller-asserted commit log.
 4. Focused/adversarial tests.
 5. Independent Codex verification.
 6. Claude peer review when available.
@@ -183,8 +220,8 @@ packets. All tests are local and spend no quota.
   lines.
 - Profile tests for frozen-state preservation, raw aggregate math, duplicate
   and conflict decision persistence, source/decision tamper, 32-commit and
-  64-submission ceilings, current-state conflicts, and unverified commit
-  refusal.
+  64-submission ceilings, current-state conflicts, non-`passed` refusal, and
+  fabricated controller assertion acceptance without authentication.
 - No mock test may assert only its own fixture; tests inspect persisted bytes
   and reconstruct state through public readers.
 
@@ -192,6 +229,15 @@ Fresh-checkout verification also rebuilds
 `project-scaffold.bundle.json` from Git-normalized LF source and refuses CRLF
 in text entries. The stale generated bundle predates this ledger remediation
 and is documented as a verification prerequisite, not a ledger-caused defect.
+The global `.gitattributes` rule `* text=auto eol=lf` already covers it; no
+duplicate path rule is needed. Because the bundle is consumed by the plugin,
+rollback rebuilds the bundle from deliberately reverted scaffold source rather
+than deleting the artifact.
+
+Existing `.github/workflows/ci.yml` already runs `tests/` and
+`adapters/codex/tests/` on Ubuntu and Windows with Python 3.9 and 3.12.
+Local commands/results are recorded separately in `verification.md`; no
+redundant CI workflow belongs in this packet.
 
 ## 15. LaunchGuardian Handoff
 
@@ -208,6 +254,7 @@ capacity scheduler after this substrate passes independent review. Use
 
 ## Architecture Result
 
-PASS WITH OPEN QUESTIONS. The local credential-free substrate is ready to
-implement. Claude peer review and routing calibration remain explicit pending
-gates and cannot be replaced by the implementer's report.
+PASS WITH OPEN QUESTIONS. The local credential-free substrate is implemented
+for this packet and awaits independent verification. Claude peer review and
+routing calibration remain explicit pending gates and cannot be replaced by
+the implementer's report.
