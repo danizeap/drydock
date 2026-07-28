@@ -43,12 +43,19 @@ orchestration-efficiency-hardening
   required corrections.
 - [x] Remediate the round-five blocker and all four required corrections with
   focused regression coverage.
-- [ ] Obtain implementation re-review convergence on the remediation commit.
+- [x] Obtain implementation re-review convergence on the remediation commit.
+- [x] Identify the task-state self-invalidation and clean-Windows-checkout proof
+  mismatch before candidate freeze.
+- [x] Obtain architecture convergence on the exact-blob, versioned v2
+  fingerprint correction.
+- [x] Implement exact committed-tree fingerprinting, task-state projection,
+  record-level v1 replay refusal, and proof-root tree equality checks.
+- [ ] Obtain implementation cross-review of the v2 fingerprint correction.
 - [ ] Freeze the candidate after cross-review.
 - [ ] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.
 
 ## Deferred Calibration
 
-- [ ] Collect multiple real dogfood observations before choosing automatic
-  default phase budgets or model-routing thresholds.
+- Deferred follow-up: collect multiple real dogfood observations before
+  choosing automatic default phase budgets or model-routing thresholds.

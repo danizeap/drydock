@@ -42,6 +42,11 @@ INJECTION_NAMES = frozenset(
     {"conftest.py", "sitecustomize.py", "usercustomize.py"}
 )
 BYTECODE_SUFFIXES = frozenset({".pyc", ".pyo"})
+FINGERPRINT_VERSION = "drydock-repository-fingerprint-v2"
+EXECUTABLE_DIGEST_DOMAIN = b"drydock executable surface v2\0"
+EVIDENCE_DIGEST_DOMAIN = b"drydock packet evidence v2\0"
+TASK_MARKER = re.compile(br"^([ \t]*-[ \t]*\[)([ xX])(\][ \t]+)")
+LEGACY_TASK_MARKER = re.compile(r"^\s*-\s*\[[ xX]\]\s+")
 AT_REST_SECRET = re.compile(
     r"(?i)(-----BEGIN [A-Z ]*PRIVATE KEY-----|"
     r"\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*"
@@ -793,10 +798,7 @@ class InvocationStore:
         }
 
 
-def _git(repo: Path, arguments: Sequence[str]) -> bytes:
-    executable = shutil.which("git")
-    if not executable:
-        raise EvidenceError("Git executable is unavailable")
+def _git_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for key in list(environment):
         if key.startswith("GIT_"):
@@ -808,14 +810,25 @@ def _git(repo: Path, arguments: Sequence[str]) -> bytes:
             "GIT_ATTR_NOSYSTEM": "1",
         }
     )
+    return environment
+
+
+def _git_executable() -> str:
+    executable = shutil.which("git")
+    if not executable:
+        raise EvidenceError("Git executable is unavailable")
+    return executable
+
+
+def _git(repo: Path, arguments: Sequence[str]) -> bytes:
     try:
         result = subprocess.run(
-            [executable, *arguments],
+            [_git_executable(), *arguments],
             cwd=repo,
             capture_output=True,
             timeout=60,
             check=False,
-            env=environment,
+            env=_git_environment(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise EvidenceError(f"Git command could not run: {exc}") from exc
@@ -823,6 +836,121 @@ def _git(repo: Path, arguments: Sequence[str]) -> bytes:
         detail = result.stderr.decode("utf-8", "replace")[-500:].strip()
         raise EvidenceError(f"Git command failed: {detail}")
     return result.stdout
+
+
+@dataclass(frozen=True)
+class GitTreeEntry:
+    path: str
+    path_bytes: bytes
+    mode: str
+    object_type: str
+    object_id: str
+    body: bytes
+
+    @property
+    def kind(self) -> bytes:
+        if self.mode in {"100644", "100755"} and self.object_type == "blob":
+            return b"file"
+        if self.mode == "120000" and self.object_type == "blob":
+            return b"symlink"
+        raise EvidenceError(
+            f"tracked path has an unsupported Git type/mode: "
+            f"{self.path} ({self.object_type} {self.mode})"
+        )
+
+
+def _git_tree_entries(repo: Path, commit: str = "HEAD") -> list[GitTreeEntry]:
+    raw = _git(repo, ["ls-tree", "-r", "-z", "--full-tree", commit])
+    metadata: list[tuple[bytes, str, str, str]] = []
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        try:
+            header, path_bytes = record.split(b"\t", 1)
+            mode_bytes, type_bytes, object_id_bytes = header.split(b" ", 2)
+            mode = mode_bytes.decode("ascii")
+            object_type = type_bytes.decode("ascii")
+            object_id = object_id_bytes.decode("ascii")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise EvidenceError("Git tree contains malformed metadata") from exc
+        path = path_bytes.decode("utf-8", "surrogateescape")
+        metadata.append((path_bytes, mode, object_type, object_id))
+
+    unsupported = [
+        path_bytes.decode("utf-8", "surrogateescape")
+        for path_bytes, mode, object_type, _ in metadata
+        if not (
+            object_type == "blob"
+            and mode in {"100644", "100755", "120000"}
+        )
+    ]
+    if unsupported:
+        raise EvidenceError(
+            "Git tree contains unsupported tracked types: "
+            + ", ".join(unsupported[:10])
+        )
+
+    request = b"".join(
+        object_id.encode("ascii") + b"\n"
+        for _, _, _, object_id in metadata
+    )
+    try:
+        result = subprocess.run(
+            [_git_executable(), "cat-file", "--batch"],
+            cwd=repo,
+            input=request,
+            capture_output=True,
+            timeout=60,
+            check=False,
+            env=_git_environment(),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise EvidenceError(f"Git object read could not run: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace")[-500:].strip()
+        raise EvidenceError(f"Git object read failed: {detail}")
+
+    bodies: list[bytes] = []
+    cursor = 0
+    for _, _, expected_type, expected_id in metadata:
+        header_end = result.stdout.find(b"\n", cursor)
+        if header_end < 0:
+            raise EvidenceError("Git object batch ended before its header")
+        header = result.stdout[cursor:header_end].split()
+        if len(header) != 3:
+            raise EvidenceError("Git object batch returned malformed metadata")
+        object_id, object_type, size_bytes = header
+        try:
+            size = int(size_bytes)
+        except ValueError as exc:
+            raise EvidenceError("Git object batch returned an invalid size") from exc
+        start = header_end + 1
+        end = start + size
+        if end >= len(result.stdout) or result.stdout[end : end + 1] != b"\n":
+            raise EvidenceError("Git object batch returned a truncated body")
+        if (
+            object_id.decode("ascii") != expected_id
+            or object_type.decode("ascii") != expected_type
+        ):
+            raise EvidenceError("Git object batch identity did not match the tree")
+        bodies.append(result.stdout[start:end])
+        cursor = end + 1
+    if cursor != len(result.stdout):
+        raise EvidenceError("Git object batch returned trailing data")
+
+    return [
+        GitTreeEntry(
+            path=path_bytes.decode("utf-8", "surrogateescape"),
+            path_bytes=path_bytes,
+            mode=mode,
+            object_type=object_type,
+            object_id=object_id,
+            body=body,
+        )
+        for (path_bytes, mode, object_type, object_id), body in zip(
+            metadata, bodies
+        )
+    ]
 
 
 def _packet_evidence_path(path: str, packet_root: str | None) -> bool:
@@ -900,14 +1028,66 @@ def _valid_final_verifier(value: object) -> bool:
     )
 
 
-def _valid_packet_json(path: Path) -> bool:
+def _valid_packet_json_bytes(name: str, body: bytes) -> bool:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        value = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return False
-    if path.name == "codex-final-verifier.json":
+    if PurePosixPath(name).name == "codex-final-verifier.json":
         return _valid_final_verifier(value)
     return _valid_peer_summary(value)
+
+
+def _canonical_repo_relative(value: str, label: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise EvidenceError(f"{label} must be a canonical repository-relative path")
+    pure = PurePosixPath(value)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise EvidenceError(f"{label} must be a canonical repository-relative path")
+    if pure.as_posix() != value:
+        raise EvidenceError(f"{label} must be a canonical repository-relative path")
+    return value
+
+
+def _update_tree_digest(
+    digest: object, entry: GitTreeEntry, body: bytes
+) -> None:
+    digest.update(entry.path_bytes)
+    digest.update(b"\0")
+    digest.update(entry.kind)
+    digest.update(b"\0")
+    digest.update(entry.mode.encode("ascii"))
+    digest.update(b"\0")
+    digest.update(body)
+    digest.update(b"\0")
+
+
+def _project_tasks(body: bytes) -> tuple[bytes | None, str]:
+    if body.startswith(b"\xef\xbb\xbf"):
+        return None, "leading UTF-8 BOM is not canonical"
+    if b"\r" in body:
+        return None, "CR bytes are not canonical"
+    try:
+        text_lines = body.decode("utf-8").split("\n")
+    except UnicodeDecodeError:
+        return None, "tasks bytes are not valid UTF-8"
+    byte_lines = body.split(b"\n")
+    normalized: list[bytes] = []
+    for byte_line, text_line in zip(byte_lines, text_lines):
+        canonical = TASK_MARKER.match(byte_line)
+        legacy = LEGACY_TASK_MARKER.match(text_line)
+        if legacy is not None and canonical is None:
+            return None, "legacy task marker is outside the canonical ASCII grammar"
+        if canonical is None:
+            normalized.append(byte_line)
+            continue
+        normalized.append(
+            canonical.group(1)
+            + b" "
+            + canonical.group(3)
+            + byte_line[canonical.end() :]
+        )
+    return b"\n".join(normalized), "applied"
 
 
 def repository_fingerprints(
@@ -924,11 +1104,14 @@ def repository_fingerprints(
     status = _git(
         root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]
     )
-    tracked = [
-        item.decode("utf-8", "surrogateescape")
-        for item in _git(root, ["ls-files", "-z"]).split(b"\0")
-        if item
-    ]
+    head = _git(root, ["rev-parse", "HEAD"]).decode("ascii").strip()
+    entries = _git_tree_entries(root, head)
+    if packet_root is not None:
+        packet_root = _canonical_repo_relative(packet_root, "packet root")
+    if exclude_evidence_path is not None:
+        exclude_evidence_path = _canonical_repo_relative(
+            exclude_evidence_path, "excluded evidence path"
+        )
     ignored = [
         item[3:].decode("utf-8", "surrogateescape")
         for item in _git(
@@ -943,47 +1126,88 @@ def repository_fingerprints(
         ).split(b"\0")
         if item.startswith(b"!! ")
     ]
-    executable = hashlib.sha256()
-    evidence = hashlib.sha256()
+    executable = hashlib.sha256(EXECUTABLE_DIGEST_DOMAIN)
+    evidence = hashlib.sha256(EVIDENCE_DIGEST_DOMAIN)
     tracked_bytecode: list[str] = []
     invalid_evidence: list[str] = []
-    for name in sorted(tracked):
-        path = root / PurePosixPath(name)
-        metadata = os.stat(path, follow_symlinks=False)
+    task_projection = {
+        "path": (
+            f"{packet_root}/tasks.md" if packet_root is not None else None
+        ),
+        "status": "not_requested",
+        "reason": "packet root was not supplied",
+    }
+    task_path = task_projection["path"]
+    task_matches = (
+        [
+            entry
+            for entry in entries
+            if task_path is not None
+            and entry.path.casefold() == str(task_path).casefold()
+        ]
+        if task_path is not None
+        else []
+    )
+    projected_task: GitTreeEntry | None = None
+    projected_body: bytes | None = None
+    if task_path is not None:
+        if len(task_matches) != 1 or task_matches[0].path != task_path:
+            task_projection = {
+                "path": task_path,
+                "status": "declined",
+                "reason": (
+                    "exact tracked tasks path is absent or has a case-fold "
+                    "equivalent conflict"
+                ),
+            }
+        elif task_matches[0].kind != b"file":
+            task_projection = {
+                "path": task_path,
+                "status": "declined",
+                "reason": "tracked tasks path is not a regular Git file",
+            }
+        else:
+            projected_body, reason = _project_tasks(task_matches[0].body)
+            if projected_body is None:
+                task_projection = {
+                    "path": task_path,
+                    "status": "declined",
+                    "reason": reason,
+                }
+            else:
+                projected_task = task_matches[0]
+                task_projection = {
+                    "path": task_path,
+                    "status": "applied",
+                    "reason": "canonical task state is lifecycle evidence",
+                }
+
+    for entry in sorted(entries, key=lambda item: item.path_bytes):
+        name = entry.path
         is_bytecode = (
             Path(name).suffix.casefold() in BYTECODE_SUFFIXES
             or "__pycache__" in PurePosixPath(name).parts
         )
         if is_bytecode:
             tracked_bytecode.append(name)
+        if projected_task is not None and name == projected_task.path:
+            _update_tree_digest(executable, entry, projected_body)
+            _update_tree_digest(evidence, entry, entry.body)
+            continue
+
         evidence_path = _packet_evidence_path(name, packet_root)
         if evidence_path and (
-            stat.S_ISLNK(metadata.st_mode)
-            or not stat.S_ISREG(metadata.st_mode)
-            or (path.suffix == ".json" and not _valid_packet_json(path))
+            entry.kind != b"file"
+            or (
+                PurePosixPath(name).suffix == ".json"
+                and not _valid_packet_json_bytes(name, entry.body)
+            )
         ):
             invalid_evidence.append(name)
             evidence_path = False
         if not (evidence_path and name == exclude_evidence_path):
             digest = evidence if evidence_path else executable
-            digest.update(name.encode("utf-8", "surrogateescape"))
-            digest.update(b"\0")
-            if stat.S_ISLNK(metadata.st_mode):
-                body = os.readlink(path).encode("utf-8", "surrogateescape")
-                kind = b"symlink"
-            elif stat.S_ISREG(metadata.st_mode):
-                body = path.read_bytes()
-                kind = b"file"
-            else:
-                raise EvidenceError(
-                    f"tracked path has an unsupported type: {name}"
-                )
-            digest.update(kind)
-            digest.update(b"\0")
-            digest.update(str(metadata.st_mode & 0o777).encode("ascii"))
-            digest.update(b"\0")
-            digest.update(body)
-            digest.update(b"\0")
+            _update_tree_digest(digest, entry, entry.body)
     ignored_injection = sorted(
         name
         for name in ignored
@@ -991,10 +1215,13 @@ def repository_fingerprints(
         or PurePosixPath(name.rstrip("/")).suffix.casefold() == ".pth"
     )
     return {
-        "head": _git(root, ["rev-parse", "HEAD"]).decode("ascii").strip(),
+        "head": head,
+        "fingerprint_version": FINGERPRINT_VERSION,
+        "fingerprint_source": "exact committed Git tree and blob bytes",
         "executable_surface_sha256": executable.hexdigest(),
         "packet_evidence_sha256": evidence.hexdigest(),
         "packet_evidence_excluded_path": exclude_evidence_path,
+        "task_projection": task_projection,
         "clean": not status,
         "tracked_bytecode": tracked_bytecode,
         "ignored_code_injection": ignored_injection,
@@ -1012,12 +1239,15 @@ def repository_fingerprints(
 
 @contextlib.contextmanager
 def fresh_proof_root(repo: Path, commit: str) -> Iterator[Path]:
+    tree = _git_tree_entries(repo, commit)
+    expected = {entry.path: entry for entry in tree}
     archive = _git(repo, ["archive", "--format=tar", commit])
     with tempfile.TemporaryDirectory(prefix="drydock-proof-") as temporary:
         root = Path(temporary).resolve(strict=True)
         archive_path = root / ".archive.tar"
         archive_path.write_bytes(archive)
         with tarfile.open(archive_path, mode="r:") as bundle:
+            observed: set[str] = set()
             for member in bundle.getmembers():
                 candidate = PurePosixPath(member.name)
                 if (
@@ -1029,6 +1259,29 @@ def fresh_proof_root(repo: Path, commit: str) -> Iterator[Path]:
                     or not (member.isfile() or member.isdir())
                 ):
                     raise EvidenceError("proof archive contains an unsafe path")
+                if member.isdir():
+                    continue
+                entry = expected.get(member.name)
+                if entry is None or entry.kind != b"file":
+                    raise EvidenceError(
+                        "proof archive path set differs from the committed Git tree"
+                    )
+                stream = bundle.extractfile(member)
+                if stream is None or stream.read() != entry.body:
+                    raise EvidenceError(
+                        "proof archive bytes differ from the committed Git blob"
+                    )
+                archive_executable = bool(member.mode & 0o111)
+                git_executable = entry.mode == "100755"
+                if archive_executable != git_executable:
+                    raise EvidenceError(
+                        "proof archive mode differs from the committed Git mode"
+                    )
+                observed.add(member.name)
+            if observed != set(expected):
+                raise EvidenceError(
+                    "proof archive path set differs from the committed Git tree"
+                )
             if "filter" in inspect.signature(bundle.extractall).parameters:
                 bundle.extractall(root, filter="fully_trusted")
             else:
@@ -1123,6 +1376,8 @@ def reusable_proof(
     environment_sha256: str,
 ) -> bool:
     return (
+        record.get("fingerprint_version") == FINGERPRINT_VERSION
+        and
         record.get("scope") == "intermediate"
         and record.get("terminal_status") == "passed"
         and record.get("executable_surface_sha256") == executable_fingerprint
@@ -1153,6 +1408,7 @@ class ProofStore:
                     "executable_surface_sha256": _require_digest(
                         executable_fingerprint, "executable fingerprint"
                     ),
+                    "fingerprint_version": FINGERPRINT_VERSION,
                     "command": list(command),
                     "environment_sha256": _require_digest(
                         environment_sha256, "environment fingerprint"
@@ -1181,7 +1437,8 @@ class ProofStore:
         ):
             raise EvidenceError("proof result lacks exact command/environment binding")
         record = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "fingerprint_version": FINGERPRINT_VERSION,
             "scope": scope,
             "executable_surface_sha256": _require_digest(
                 executable_fingerprint, "executable fingerprint"
@@ -1214,6 +1471,7 @@ class ProofStore:
         fingerprint = candidate_state.get("executable_surface_sha256")
         if (
             candidate_state.get("reuse_eligible") is not True
+            or candidate_state.get("fingerprint_version") != FINGERPRINT_VERSION
             or not isinstance(fingerprint, str)
         ):
             return {
@@ -1265,6 +1523,8 @@ def final_suite_acceptance(
     record: Mapping[str, object], *, executable_fingerprint: str
 ) -> dict[str, object]:
     accepted = (
+        record.get("fingerprint_version") == FINGERPRINT_VERSION
+        and
         record.get("scope") == "full_required_suite"
         and record.get("terminal_status") == "passed"
         and record.get("executable_surface_sha256") == executable_fingerprint

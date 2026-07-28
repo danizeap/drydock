@@ -154,7 +154,10 @@ budget
   `input_budget_exceeded`
 
 ### Requirement: Proof reuse is candidate- and command-bound
-The controller SHALL maintain two distinct digests:
+The controller SHALL maintain two distinct, domain-separated v2 digests under
+the explicit scheme identifier `drydock-repository-fingerprint-v2`. Both
+digests SHALL use exact committed Git-tree paths, modes, types, and blob bytes,
+not platform working-tree bytes:
 
 - an executable-surface fingerprint over all tracked source, tests,
   dependencies, configuration, generators, hooks, agent instructions, and
@@ -167,8 +170,37 @@ active packet root named `verification.md`,
 `claude-architecture-review-round-<positive-integer>.json`, or
 `codex-final-verifier.json`. JSON members SHALL pass their dedicated evidence
 schema at `specs/packet-evidence.schema.json`. Every other packet path,
-including brief, plan, tasks, decision log, specs, scripts, configuration, and
-unknown names, belongs to the executable surface for invalidation purposes.
+including brief, plan, decision log, specs, scripts, configuration, and unknown
+names, belongs to the executable surface for invalidation purposes.
+
+The single exact target path `<active-packet-root>/tasks.md` SHALL be
+dual-projected. Its raw committed bytes belong to packet-evidence identity. Its
+executable projection SHALL preserve every byte except the state byte in a
+canonical task marker, which SHALL be normalized to ASCII space. The canonical
+marker is a line prefix containing zero or more ASCII spaces or tabs, `-`, zero
+or more ASCII spaces or tabs, `[ ]`, `[x]`, or `[X]`, and one or more trailing
+ASCII spaces or tabs. Task wording, continuation lines, headings, ordering,
+non-state whitespace, added or removed tasks, and noncanonical state markers
+remain executable. The protocol is byte-based rather than CommonMark-based.
+Task templates and every other packet's tasks file remain fully executable.
+
+Projection SHALL use the committed blob after committed-tree sourcing is
+established. A BOM, CR byte, invalid UTF-8, legacy-recognized marker outside the
+canonical ASCII grammar, absent exact path, wrong Git type, or case-fold
+equivalent conflict SHALL decline projection with an explicit diagnostic and
+hash any present task file completely as executable. It SHALL NOT abort
+fingerprint computation or silently apply a best-effort normalization.
+
+Checkbox status is lifecycle and governance evidence. It can change Stop-hook,
+status, verification, and archive-gate outcomes without changing executable
+identity. Unchanged executable identity SHALL NOT be interpreted as unchanged
+governance state. Task-file existence remains a packet-governance input, and
+task text and ordering remain executable because lifecycle consumers inspect
+them.
+
+V1 proof records SHALL NOT satisfy v2 reuse or final acceptance. Reusable and
+final proof records SHALL carry and validate the explicit fingerprint scheme
+identifier in addition to digest equality.
 An allowlisted, schema-valid review summary records a reported result; it does
 not authenticate provenance, establish peer agreement, or satisfy a gate by
 itself.
@@ -181,6 +213,11 @@ dependency, configuration, hook, generator, loadable file, environment, or
 unknown relationship SHALL invalidate every affected proof. No cached result
 authorizes effects or replaces an independent verifier. Reuse is an
 intermediate-work optimization only.
+
+The fresh proof root SHALL contain exactly the committed regular-file path set,
+blob bytes, and executable-mode semantics described by v2 identity. An
+`export-ignore`, `export-subst`, gitlink, tracked link, unsupported mode, or
+other archive/tree divergence SHALL fail proof materialization.
 
 #### Scenario: Working tree is dirty or contains untracked files
 - **WHEN** Git reports any tracked modification or untracked path, including a
@@ -220,6 +257,25 @@ intermediate-work optimization only.
   irrelevant to a prior command
 - **THEN** that proof is invalidated and the command must run again
 
+#### Scenario: Clean checkout bytes differ from committed bytes
+- **WHEN** Git reports a clean checkout but platform newline conversion or file
+  modes make working-tree bytes differ from the committed tree
+- **THEN** v2 identity is computed from the committed tree and blob bytes that
+  the fresh proof root materializes, while checkout cleanliness remains a
+  separate gate
+
+#### Scenario: Only canonical task status changes
+- **WHEN** a committed change modifies only `[ ]`, `[x]`, or `[X]` state bytes
+  in the exact target packet task file
+- **THEN** executable identity remains stable, packet-evidence identity changes,
+  and current lifecycle gates evaluate the new status directly
+
+#### Scenario: Task contract or uncertain task syntax changes
+- **WHEN** task wording, ordering, continuation text, non-state whitespace,
+  membership, template content, another packet, or noncanonical syntax changes
+- **THEN** executable identity changes, or uncertain target syntax declines
+  projection and the complete target task file remains executable
+
 ### Requirement: Test execution follows a targeted-to-full ladder
 During mutation, the controller SHALL prefer the smallest checks that cover the
 changed behavior. It SHALL freeze a candidate before the full required suite
@@ -232,8 +288,10 @@ passing result in an allowlisted packet-evidence path changes only the
 packet-evidence fingerprint and SHALL NOT self-invalidate the executable proof.
 The final report SHALL disclose the exact executable-surface fingerprint and
 an exact packet-evidence-parent fingerprint computed over the allowlisted
-evidence set excluding the report record being written. It SHALL NOT claim a
-self-inclusive evidence digest.
+evidence set plus raw target task state, excluding the report record being
+written. It SHALL NOT claim a self-inclusive evidence digest. The verifier
+attests the executable candidate only; it does not attest its own later
+completion marker or the user-writable evidence digest.
 
 #### Scenario: Isolated intermediate failure is corrected
 - **WHEN** a focused correction produces a new intermediate fingerprint

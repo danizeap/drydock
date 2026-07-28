@@ -115,6 +115,31 @@ orchestration-efficiency-hardening
   scope-bound proof identity, critique-gate reporting, and tar extraction, and
   returned `converged: true` with no blockers. Its findings are faithfully
   summarized in `claude-architecture-review-round-6.json`.
+- [x] Pre-freeze inspection found two proof-identity defects not covered by the
+  round-six implementation range: task completion changed the executable
+  fingerprint after its own proof, and clean Windows checkout bytes/modes could
+  differ from the committed bytes materialized by `proof-run`.
+- [x] Automated Opus review rejected the first task dual-projection design with
+  four specification blockers. Its terminal result is summarized in
+  `claude-architecture-review-round-7.json`. A revised second automated call
+  timed out at 150 seconds; Windows Job Object cleanup, direct-process absence,
+  and drained output pipes were confirmed, but no verdict or convergence was
+  inferred.
+- [x] Owner-relayed Claude review inspected exact clean HEAD `594dad7`,
+  reproduced both defects, found 78 of 469 tracked paths with clean checkout
+  bytes differing from committed blobs, audited every task-state consumer, and
+  returned `converged: true` on the blob-sourced v2 design. Its findings and
+  required implementation points are faithfully summarized in
+  `claude-architecture-review-round-8.json`.
+- [x] V2 implementation sources exact committed Git tree/blob bytes, labels and
+  domain-separates both digests, rejects v1 records structurally, dual-projects
+  only the exact target packet task state, falls back to executable-only task
+  hashing with an explicit diagnostic, and checks proof archive paths, bytes,
+  and executable modes against the committed tree.
+- [x] Focused controller/evidence suite after the v2 correction:
+  `python -m pytest adapters/codex/tests/test_orchestrator.py
+  adapters/codex/tests/test_orchestration_evidence.py -q
+  -p no:cacheprovider` reported 67 passed.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -125,8 +150,9 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ARCHITECTURE AND IMPLEMENTATION RE-REVIEW CONVERGED; CANDIDATE FREEZE, FULL
-SUITES, AND SEPARATE VERIFICATION REMAIN PENDING. The implementation does not claim
+V2 PROOF-IDENTITY ARCHITECTURE CONVERGED AND FOCUSED TESTS PASS; V2
+IMPLEMENTATION CROSS-REVIEW, CANDIDATE FREEZE, FULL SUITES, AND SEPARATE
+VERIFICATION REMAIN PENDING. The implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
 checkout directly. Remaining disclosed risks include stacked unsynced deltas,

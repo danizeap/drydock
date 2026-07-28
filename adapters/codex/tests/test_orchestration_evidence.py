@@ -43,6 +43,7 @@ def _repo(tmp_path: Path) -> Path:
     (repo / "app.py").write_text("print('ok')\n", encoding="utf-8")
     packet = repo / "sdd-plus" / "changes" / "change"
     packet.mkdir(parents=True)
+    (packet / "tasks.md").write_text("- [ ] verify\n", encoding="utf-8")
     (packet / "verification.md").write_text("# Verification\n", encoding="utf-8")
     review = {
         "schema_version": 1,
@@ -431,6 +432,126 @@ def test_repository_fingerprints_partition_evidence_and_bytecode(
     assert injected["ignored_code_injection"] == ["conftest.py"]
 
 
+def test_v2_fingerprint_uses_committed_blobs_not_clean_checkout_bytes(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert baseline["fingerprint_version"] == evidence.FINGERPRINT_VERSION
+    assert baseline["fingerprint_source"] == "exact committed Git tree and blob bytes"
+    assert baseline["task_projection"]["status"] == "applied"
+
+    (repo / "app.py").write_bytes(b"print('ok')\r\n")
+    assert _git(repo, "status", "--porcelain") == ""
+    checkout_drift = evidence.repository_fingerprints(
+        repo, packet_root=packet_root
+    )
+    assert checkout_drift["clean"] is True
+    assert (
+        checkout_drift["executable_surface_sha256"]
+        == baseline["executable_surface_sha256"]
+    )
+
+
+def test_task_status_is_evidence_but_task_contract_stays_executable(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+
+    tasks = repo / packet_root / "tasks.md"
+    tasks.write_text("- [x] verify\n", encoding="utf-8")
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "complete task")
+    status_only = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert (
+        status_only["executable_surface_sha256"]
+        == baseline["executable_surface_sha256"]
+    )
+    assert (
+        status_only["packet_evidence_sha256"]
+        != baseline["packet_evidence_sha256"]
+    )
+
+    tasks.write_text("- [x] verify exact candidate\n", encoding="utf-8")
+    _git(repo, "add", packet_root + "/tasks.md")
+    _git(repo, "commit", "-m", "change task contract")
+    contract_change = evidence.repository_fingerprints(
+        repo, packet_root=packet_root
+    )
+    assert (
+        contract_change["executable_surface_sha256"]
+        != status_only["executable_surface_sha256"]
+    )
+
+
+def test_task_projection_is_exactly_scoped_and_declines_noncanonical_bytes(
+    tmp_path: Path,
+) -> None:
+    canonical = (
+        b"- [x] one\n"
+        b"\t- [X] two\n"
+        b"  - [ ] three\n"
+        b"> - [x] blockquote\n"
+        b"1. [x] ordered\n"
+        b"```\n- [x] protocol-marker-not-Markdown\n```\n"
+        b"- [~] noncanonical\n"
+    )
+    normalized, reason = evidence._project_tasks(canonical)
+    assert reason == "applied"
+    assert normalized == (
+        b"- [ ] one\n"
+        b"\t- [ ] two\n"
+        b"  - [ ] three\n"
+        b"> - [x] blockquote\n"
+        b"1. [x] ordered\n"
+        b"```\n- [ ] protocol-marker-not-Markdown\n```\n"
+        b"- [~] noncanonical\n"
+    )
+    assert evidence._project_tasks(normalized)[0] == normalized
+    assert evidence._project_tasks(b"\xef\xbb\xbf- [x] task\n")[0] is None
+    assert evidence._project_tasks(b"- [x] task\r\n")[0] is None
+    assert evidence._project_tasks("\u00a0- [x] task\n".encode("utf-8"))[0] is None
+
+    repo = _repo(tmp_path)
+    packet_root = "sdd-plus/changes/change"
+    template = repo / "sdd-plus" / "templates" / "tasks.md"
+    template.parent.mkdir(parents=True)
+    template.write_text("- [ ] template\n", encoding="utf-8")
+    _git(repo, "add", "sdd-plus/templates/tasks.md")
+    _git(repo, "commit", "-m", "add template")
+    baseline = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    template.write_text("- [x] template\n", encoding="utf-8")
+    _git(repo, "add", "sdd-plus/templates/tasks.md")
+    _git(repo, "commit", "-m", "change template status")
+    changed = evidence.repository_fingerprints(repo, packet_root=packet_root)
+    assert (
+        changed["executable_surface_sha256"]
+        != baseline["executable_surface_sha256"]
+    )
+
+
+@pytest.mark.parametrize("attribute", ["export-ignore", "export-subst"])
+def test_proof_archive_must_match_committed_tree(
+    tmp_path: Path, attribute: str
+) -> None:
+    repo = _repo(tmp_path)
+    if attribute == "export-subst":
+        (repo / "app.py").write_text(
+            "print('$Format:%H$')\n", encoding="utf-8"
+        )
+    with (repo / ".gitattributes").open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(f"app.py {attribute}\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", attribute)
+    commit = _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(evidence.EvidenceError, match="proof archive"):
+        with evidence.fresh_proof_root(repo, commit):
+            pass
+
+
 def test_untracked_and_tracked_bytecode_disable_reuse(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo / "notes.tmp").write_text("untracked\n", encoding="utf-8")
@@ -464,6 +585,7 @@ def test_fresh_proof_root_and_final_suite_binding(tmp_path: Path) -> None:
     ]
     full = {
         **result,
+        "fingerprint_version": evidence.FINGERPRINT_VERSION,
         "scope": "full_required_suite",
         "executable_surface_sha256": fingerprint,
     }
@@ -513,6 +635,7 @@ def test_reusable_proof_is_intermediate_and_exactly_bound() -> None:
     command = [sys.executable, "-m", "pytest", "-q"]
     environment_digest = DIGEST_B
     record = {
+        "fingerprint_version": evidence.FINGERPRINT_VERSION,
         "scope": "intermediate",
         "terminal_status": "passed",
         "executable_surface_sha256": DIGEST_A,
@@ -525,6 +648,14 @@ def test_reusable_proof_is_intermediate_and_exactly_bound() -> None:
         command=command,
         environment_sha256=environment_digest,
     )
+    record["fingerprint_version"] = "drydock-repository-fingerprint-v1"
+    assert not evidence.reusable_proof(
+        record,
+        executable_fingerprint=DIGEST_A,
+        command=command,
+        environment_sha256=environment_digest,
+    )
+    record["fingerprint_version"] = evidence.FINGERPRINT_VERSION
     record["scope"] = "full_required_suite"
     assert not evidence.reusable_proof(
         record,
@@ -556,6 +687,7 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
     dirty = store.intermediate(
         candidate_state={
             "reuse_eligible": False,
+            "fingerprint_version": evidence.FINGERPRINT_VERSION,
             "executable_surface_sha256": DIGEST_A,
         },
         command=command,
@@ -565,6 +697,7 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
     clean = store.intermediate(
         candidate_state={
             "reuse_eligible": True,
+            "fingerprint_version": evidence.FINGERPRINT_VERSION,
             "executable_surface_sha256": DIGEST_A,
         },
         command=command,

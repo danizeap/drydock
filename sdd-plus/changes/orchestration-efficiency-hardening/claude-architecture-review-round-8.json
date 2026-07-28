@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": true,
+  "overall": "Claude reviewed exact clean HEAD 594dad716fe4f00ea90692013d8167144b21c457, verified the round-six evidence commit, and independently reproduced both newly identified proof-identity defects. It found 78 of 469 tracked files whose clean Windows checkout bytes differed from committed blobs, confirmed git archive and fresh_proof_root use committed bytes, and confirmed v1 also hashed platform working-tree modes. It audited every tasks.md consumer and found checkbox state drives lifecycle accounting, Stop, verification, and archive gates rather than command, test, or source selection; task text and ordering remain behavior-relevant. It validated the proposed canonical task grammar against all 137 current marker lines with no legacy/canonical divergence. The blob-sourced, versioned, domain-separated v2 fingerprint and exact active-packet task dual projection were approved before candidate freeze, subject to the recorded implementation requirements.",
+  "blocking_concerns": [],
+  "gaps": [
+    "The consumer inventory must include packet_guard's packet-existence dependency and check_sync's raw task-template parity.",
+    "Status-only changes can alter Stop and archive outcomes without changing the executable digest, which must be stated explicitly.",
+    "BOM or CR task bytes must produce an explicit projection-declined diagnostic rather than a silent or aborting failure.",
+    "Only the exact target packet tasks.md is projected, so status changes in other packets remain conservatively executable.",
+    "Proof materialization must remain byte- and path-equal to the committed Git tree if export attributes or unsupported tracked types appear later."
+  ],
+  "risks": [
+    "Record-level fingerprint_version checks are required in addition to hash-domain prefixes.",
+    "Projection failure must fall back to hashing the complete tasks file as executable rather than aborting fingerprint computation.",
+    "The v2 digest describes the committed proof candidate, not checkout bytes.",
+    "The grammar audit proves current-corpus agreement but future parser changes can drift without pinned two-way tests.",
+    "V1 proof records intentionally become non-reusable after migration."
+  ],
+  "required_changes": [
+    "Land committed-blob sourcing with or before task projection.",
+    "Define projection failure as executable-only fallback with a named diagnostic.",
+    "Store and enforce fingerprint_version in reusable and final proof records.",
+    "Require proof archive paths, bytes, and relevant modes to match the committed Git tree.",
+    "Project only the exact active packet tasks path and prove task templates remain executable.",
+    "Document packet_guard, check_sync, task-text and ordering consumers.",
+    "State that governance state may change while executable identity remains stable."
+  ]
+}

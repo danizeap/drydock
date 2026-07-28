@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": false,
+  "overall": "An automated Opus architecture review agreed that byte-for-byte hashing of tasks.md made final lifecycle completion self-invalidating, but rejected the first dual-projection proposal as underspecified. It required a complete checkbox-consumer inventory, a terminal-state protocol that does not move the self-reference into the evidence digest, an exact byte grammar, and versioned domain separation that prevents v1 proof replay. It recommended separating task contract from lifecycle state and warned that a normalizer would become trusted proof code.",
+  "blocking_concerns": [
+    "The proposal had not proven that no executable consumer branches on checkbox state or bound those consumers to lifecycle evidence.",
+    "The proposal moved the final transition into the evidence digest without defining that digest as non-attesting and non-self-gating.",
+    "The task-marker normalization grammar was not specified byte-for-byte.",
+    "The new digest projections lacked explicit scheme versioning and domain separation from v1."
+  ],
+  "gaps": [
+    "The implementation and freeze ordering was not explicit.",
+    "The active packet path scope and case-equivalent path handling were unspecified.",
+    "Tests did not yet cover grammar idempotency, newline and BOM behavior, domain separation, or v1 replay.",
+    "The independent verifier's relationship to executable and evidence identities was unspecified."
+  ],
+  "risks": [
+    "A task normalizer becomes trusted proof-boundary code.",
+    "Multiple unlabeled digests create reviewer-confusion and substitution risk.",
+    "Windows newline and encoding drift can make byte identities platform-dependent.",
+    "The lifecycle-evidence category could widen beyond its intended closed scope."
+  ],
+  "required_changes": [
+    "Inventory every tasks.md consumer and classify exactly what it reads.",
+    "Define terminal lifecycle state as non-attesting evidence rather than verifier-attested executable behavior.",
+    "Specify a closed byte grammar if dual projection remains necessary.",
+    "Add versioned domain separation and reject old-scheme replay."
+  ]
+}
