@@ -6,11 +6,18 @@ orchestration-efficiency-hardening
 
 ## Automated Checks
 
-- [x] Packet evidence schema and all three Claude review summaries validated
+- [x] Packet evidence schema and all four Claude review summaries validated
   with `jsonschema.Draft202012Validator`.
 - [x] `python scripts/sdd.py verify orchestration-efficiency-hardening`.
 - [x] `git diff --check`.
-- [ ] Focused controller/evidence tests.
+- [x] Focused controller/evidence tests:
+  `python -m pytest adapters/codex/tests/test_orchestrator.py
+  adapters/codex/tests/test_orchestration_evidence.py -q
+  -p no:cacheprovider` reported 57 passed on Python 3.11.
+- [x] Python 3.12 compiled the controller, evidence module, and both focused
+  test files with an out-of-tree bytecode cache. Python 3.12 pytest execution
+  was unavailable because that interpreter has no pytest installation; this is
+  not reported as a passing test run.
 - [ ] Full Codex adapter suite after candidate freeze.
 - [ ] Legacy suite after candidate freeze.
 - [ ] Root/scaffold, hook, bundle, release-version, packet, and diff parity.
@@ -69,6 +76,24 @@ orchestration-efficiency-hardening
   code-injection paths, identifies the dirty-tree bytecode case as untracked
   and non-ignored, and states that schema-valid summaries do not establish peer
   agreement or satisfy gates.
+- [x] The fixed-root broad implementation worker was stopped after eight
+  minutes with zero file writes and no result; its process tree was confirmed
+  absent and its worktree remained unchanged.
+- [x] The reshaped three-file fail-closed worker returned after about seven and
+  a half minutes with 37 worker-reported passing tests and exact usage evidence:
+  914,677 input tokens, 806,144 cached input tokens, 20,985 output tokens, and
+  13,545 reasoning-output tokens. The runner classified the result
+  `ignored_artifacts` because pytest created `.pytest_cache` and bytecode
+  caches, so the worker claim was not trusted.
+- [x] The pilot independently reran that focused three-file result with
+  bytecode writes and pytest caching disabled: 37 passed. After integrating the
+  remaining bounded controller/state work, the combined focused suite reports
+  57 passed.
+- [x] Implementation now includes the fail-closed availability allowlist,
+  input preflight, objective-property critique trigger, cumulative envelopes,
+  single-flight and bounded terminal recovery, executable/evidence
+  fingerprints, fresh proof roots, intermediate proof reuse, and final-suite
+  exact-fingerprint binding.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -79,10 +104,12 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ARCHITECTURE CONVERGED IN ROUND FOUR; IMPLEMENTATION AND VERIFICATION REMAIN
-PENDING. No runtime code has changed at this checkpoint. The packet still
-carries disclosed risks: stacked unsynced deltas, pre-mutation objective
-classification remains a judgment, oversized or secret-bearing terminal output
-can require a new Owner-approved call, evidence state is user-writable rather
-than attested, proof-root test behavior may differ from a Git checkout, and
-default envelopes remain uncalibrated.
+ARCHITECTURE CONVERGED AND THE BOUNDED IMPLEMENTATION IS FOCUSED-TEST GREEN;
+CROSS-REVIEW, CANDIDATE FREEZE, FULL SUITES, AND SEPARATE VERIFICATION REMAIN
+PENDING. The implementation does not claim fixed-root mutation containment:
+after the measured runner failures above, the pilot edited the scoped Owner
+checkout directly. Remaining disclosed risks include stacked unsynced deltas,
+pre-mutation objective classification remains a judgment, oversized or
+secret-bearing terminal output can require a new Owner-approved call, evidence
+state is user-writable rather than attested, proof-root test behavior may differ
+from a Git checkout, and default envelopes remain uncalibrated.

@@ -87,6 +87,10 @@ def main() -> int:
         "total_cost_usd": float(os.environ.get("DRYDOCK_FAKE_CLAUDE_COST", "0.05")),
         "modelUsage": {model: {"inputTokens": 10, "outputTokens": 10}},
     }
+    if os.environ.get("DRYDOCK_FAKE_CLAUDE_NO_SUBTYPE") == "1":
+        envelope.pop("subtype")
+    if os.environ.get("DRYDOCK_FAKE_CLAUDE_NO_STRUCTURED_OUTPUT") == "1":
+        envelope.pop("structured_output")
     if os.environ.get("DRYDOCK_FAKE_CLAUDE_NO_MODEL_USAGE") == "1":
         envelope.pop("modelUsage")
     if os.environ.get("DRYDOCK_FAKE_CLAUDE_NO_COST") == "1":

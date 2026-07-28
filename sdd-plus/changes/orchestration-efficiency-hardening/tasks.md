@@ -25,19 +25,20 @@ orchestration-efficiency-hardening
 
 ## Implementation
 
-- [ ] Replace peer-failure fallback with a benign-availability allowlist and
+- [x] Replace peer-failure fallback with a benign-availability allowlist and
   regress both budget ceiling and an invented subtype to `return_to_owner`.
-- [ ] Add executable/evidence fingerprints, ignored-loadable cleanliness, and
+- [x] Add executable/evidence fingerprints, ignored-loadable cleanliness, and
   single-flight invocation state.
-- [ ] Add durable screened terminal capture, no-auto-restart lease recovery,
+- [x] Add durable screened terminal capture, no-auto-restart lease recovery,
   freshness/retention bounds, and out-of-tree storage.
-- [ ] Add per-phase and cumulative run envelopes with advisory-only
+- [x] Add per-phase and cumulative run envelopes with advisory-only
   post-exhaustion model routing.
-- [ ] Add input-budget preflight and actionable oversized-review routing.
-- [ ] Add clean-tree command/candidate-bound intermediate proof reuse with
+- [x] Add input-budget preflight and actionable oversized-review routing.
+- [x] Add clean-tree command/candidate-bound intermediate proof reuse with
   conservative invalidation and a final exact-fingerprint full-suite rule.
-- [ ] Update the orchestration skill and operator guidance.
-- [ ] Run focused checks during implementation and freeze the candidate.
+- [x] Update the orchestration skill and operator guidance.
+- [x] Run focused checks during implementation.
+- [ ] Freeze the candidate after cross-review.
 - [ ] Run one final full adapter/legacy/parity pass.
 - [ ] Obtain independent verification against the frozen commit.
 

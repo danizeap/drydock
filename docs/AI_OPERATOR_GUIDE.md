@@ -150,18 +150,39 @@ Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a
 successful schema-validated live peer round. Claude is optional: its absence
 removes cross-model agreement, not Codex-hosted lifecycle governance.
-An operational failure such as absence, authentication loss, timeout, process
-failure, service unavailability, or an explicit supported rate-limit marker
-returns a machine-readable `continue_codex_only` decision. The pilot may then
-continue the ordinary packet, approval, mutation, review, and verification
-gates in `single_pilot` mode, while reporting
-`peer_convergence: not_established`. This is continuity of governance, not a
-substitute claim of cross-model agreement. Malformed output, model mismatch,
-missing model or cost proof, and budget violations instead return
-`return_to_owner`; they are contract or control failures and do not authorize
-automatic continuation. Rate limiting is identified only from exact supported
-structured markers or explicit rate-limit phrases, not from generic
-`rate`, `quota`, or `usage` substrings.
+Single-pilot continuation is fail-closed to four proven benign availability
+cases: authentication unavailable before provider spawn, an exact supported
+rate-limit marker, timeout with bounded cleanup, or a bare non-zero exit with
+no subtype/contract output plus requested-model evidence and finite
+`total_cost_usd` exactly equal to zero. The pilot may then continue the ordinary
+packet, approval, mutation, review, and verification gates in `single_pilot`
+mode while reporting `peer_convergence: not_established`. This is continuity
+of governance, not a substitute claim of cross-model agreement. Budget
+ceilings, policy/refusal/context-limit failures, unknown structured subtypes,
+malformed output, model mismatch, and missing, malformed, negative, or positive
+cost instead return `return_to_owner`. Rate limiting is identified only from
+exact supported structured markers or explicit rate-limit phrases, not from
+generic `rate`, `quota`, or `usage` substrings.
+
+Each Owner objective receives one durable run ID. Starting another process or
+resuming the task does not reset its cumulative envelope; only an explicit
+recorded Owner action may supersede it. `start-run`, `phase-start`, and
+`phase-finish` enforce configured elapsed-time, call, outbound-byte, and
+provider-budget ceilings across `plan_peer`, `mutation`, `cross_review`,
+`verification`, and `integration`. Token/account usage remains `unknown` when
+the provider exposes no trustworthy evidence. Exhaustion starts no new
+automatic call and can route a cheaper model only as advisory output that
+satisfies no gate. The shipped defaults are configurable and explicitly
+uncalibrated.
+
+Peer requests are preflighted against the phase input ceiling before any Claude
+process starts. Equivalent calls are single-flight through user-writable local
+state outside the repository: a live call is reported instead of duplicated,
+a fresh eligible result may be recovered, and an interrupted lease never
+restarts automatically. Stored terminal bodies are canonical, at most 64 KiB,
+secret-screened, and logically expire within 24 hours. The records and their
+digests identify state; they do not authenticate it or attest provider
+provenance.
 
 Peer subprocess cleanup can exceed the requested peer deadline by a bounded
 cleanup allowance of five seconds plus a one-second output drain. On Windows,
@@ -169,6 +190,18 @@ the adapter starts the peer suspended, assigns it to a kill-on-close Job
 Object, and only then resumes it; failure to establish that boundary refuses
 the call. On POSIX, process-group cleanup is best effort and does not prove
 containment against a deliberately escaping descendant.
+
+Candidate proof uses separate executable-surface and packet-evidence
+fingerprints. `proof-run` requires a clean committed candidate, blocks ordinary
+untracked files, tracked bytecode, and ignored `conftest.py`,
+`sitecustomize.py`, `usercustomize.py`, or `*.pth` injection paths. Ordinary
+ignored bytecode caches in the Owner checkout do not block: the command runs in
+a fresh root materialized from the exact commit after confirming that root is
+bytecode-free, with bytecode writes disabled. Reused proof accelerates
+intermediate work only. Final acceptance requires one complete required-suite
+pass against the exact frozen executable fingerprint; schema-valid review
+summaries and verification records remain non-attesting and cannot establish a
+gate by themselves.
 
 Codex hook coverage is currently narrow: canonical local `Bash` and
 `apply_patch` only. MCP, hosted, specialized, renamed, and other unmatched

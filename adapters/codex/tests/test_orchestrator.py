@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator
+import orchestration_evidence as evidence
 
 
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
@@ -36,6 +37,15 @@ def _peer(tmp_path: Path, **kwargs: object) -> orchestrator.ClaudePeer:
         _fake_executable(tmp_path),
         timeout=int(kwargs.get("timeout", 20)),
         budget_usd=float(kwargs.get("budget_usd", 1.0)),
+        review_input_bytes=int(
+            kwargs.get(
+                "review_input_bytes",
+                orchestrator.DEFAULT_REVIEW_INPUT_BYTES,
+            )
+        ),
+        invocation_store=kwargs.get("invocation_store"),
+        run_ledger=kwargs.get("run_ledger"),
+        candidate_fingerprint=kwargs.get("candidate_fingerprint"),
     )
 
 
@@ -59,6 +69,26 @@ def test_empty_and_secret_plans_refuse_before_peer_spawn(
         controller.one_round("  ", 1)
     with pytest.raises(orchestrator.OrchestratorError, match="secret policy"):
         controller.one_round("api_key=abcdefghijklmnop", 1)
+    assert not log.exists()
+
+
+def test_phase_input_budget_refuses_before_any_peer_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "claude-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    result = _peer(tmp_path, review_input_bytes=64).critique(
+        "A bounded but non-empty plan.",
+        round_number=1,
+        round_cap=2,
+    )
+    assert result["stage"] == "input_budget_exceeded"
+    assert result["provider_spawned"] is False
+    assert result["routes"] == [
+        "repository_aware_owner_relay",
+        "separately_approved_digest_bound_snapshot",
+        "smaller_review_with_omissions_disclosed",
+    ]
     assert not log.exists()
 
 
@@ -112,6 +142,64 @@ def test_peer_call_uses_only_structured_output_tool_and_stdin(
     assert plan in call["prompt"]
     assert "untrusted DATA" in call["prompt"]
     assert Path(call["cwd"]) != Path.cwd()
+
+
+def test_durable_peer_result_is_recovered_without_second_model_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "claude-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    root = evidence.state_root(tmp_path / "state")
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest="a" * 64,
+        owner_action_digest="b" * 64,
+    )
+    store = evidence.InvocationStore(root)
+    peer = _peer(
+        tmp_path,
+        invocation_store=store,
+        run_ledger=ledger,
+        candidate_fingerprint="c" * 64,
+    )
+    first = peer.critique("A real plan.", round_number=1, round_cap=2)
+    assert first["ok"] is True
+    assert first["invocation"]["status"] == "persisted"
+    second = peer.critique("A real plan.", round_number=1, round_cap=2)
+    assert second["ok"] is True
+    assert second["recovery"]["recovered"] is True
+    calls = _log_lines(log)
+    assert len([call for call in calls if call["prompt"]]) == 1
+    assert ledger.read()["usage"]["calls"] == 1
+
+
+def test_phase_envelope_exhaustion_stops_before_second_model_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "claude-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    root = evidence.state_root(tmp_path / "state")
+    phase_limit = evidence.Envelope(60, 1, 20000, 2)
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest="a" * 64,
+        owner_action_digest="b" * 64,
+        phase_envelopes={"plan_peer": phase_limit},
+    )
+    peer = _peer(
+        tmp_path,
+        invocation_store=evidence.InvocationStore(root),
+        run_ledger=ledger,
+        candidate_fingerprint="c" * 64,
+    )
+    first = peer.critique("First plan.", round_number=1, round_cap=2)
+    assert first["ok"] is True
+    second = orchestrator.NegotiationController(peer).one_round(
+        "Different plan.", 1
+    )
+    assert second["stage"] == "envelope_exhausted"
+    assert second["workflow"]["action"] == "return_to_owner"
+    assert len([call for call in _log_lines(log) if call["prompt"]]) == 1
 
 
 def test_peer_schema_stays_within_claude_supported_subset() -> None:
@@ -182,7 +270,7 @@ def test_generic_keyword_fragments_are_not_rate_limit_evidence(
         "A real plan.", round_number=1, round_cap=2
     )
     assert result["stage"] == "process_failure"
-    assert result["failure_classification"] == "no_explicit_rate_limit_marker"
+    assert result["failure_classification"] == "structured_subtype_not_allowlisted"
 
 
 @pytest.mark.parametrize(
@@ -246,6 +334,84 @@ def test_operational_peer_failure_continues_single_pilot_without_convergence(
     }
 
 
+def test_budget_control_failure_returns_to_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SUBTYPE", "error_max_budget_usd")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "budget_violation"
+    assert result["workflow"]["action"] == "return_to_owner"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
+def test_unknown_structured_subtype_returns_to_owner_without_raw_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_result = "private provider failure detail"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_IS_ERROR", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_SUBTYPE", "invented_provider_abort")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_RESULT", raw_result)
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "unmapped_control_failure"
+    assert result["workflow"]["action"] == "return_to_owner"
+    assert raw_result not in json.dumps(result)
+
+
+def test_bare_zero_cost_nonzero_exit_continues_single_pilot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_NO_SUBTYPE", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_NO_STRUCTURED_OUTPUT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_COST", "0")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "process_failure"
+    assert result["failure_classification"] == "ordinary_nonzero_zero_cost"
+    assert result["workflow"] == {
+        "action": "continue_codex_only",
+        "mode": "single_pilot",
+        "peer_convergence": "not_established",
+        "reason": "peer operationally unavailable; Codex governance remains active",
+    }
+
+
+@pytest.mark.parametrize(
+    ("missing_cost", "cost"),
+    [(True, None), (False, "0.01")],
+)
+def test_bare_nonzero_exit_without_proven_zero_cost_returns_to_owner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    missing_cost: bool,
+    cost: str | None,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_EXIT", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_NO_SUBTYPE", "1")
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_NO_STRUCTURED_OUTPUT", "1")
+    if missing_cost:
+        monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_NO_COST", "1")
+    else:
+        assert cost is not None
+        monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_COST", cost)
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["workflow"]["action"] == "return_to_owner"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
 def test_absent_peer_continues_codex_governance_without_peer_claim(
     tmp_path: Path,
 ) -> None:
@@ -261,6 +427,35 @@ def test_absent_peer_continues_codex_governance_without_peer_claim(
     ).one_round("A real plan.", 1)
     assert result["stage"] == "peer_unavailable"
     assert result["peer"]["status"] == "absent"
+    assert result["workflow"]["action"] == "continue_codex_only"
+    assert result["workflow"]["peer_convergence"] == "not_established"
+
+
+def test_high_impact_objective_discloses_skipped_critique(
+    tmp_path: Path,
+) -> None:
+    peer = orchestrator.ClaudePeer(tmp_path / "missing-claude")
+    result = orchestrator.NegotiationController(
+        peer,
+        objective_properties=["process_boundaries"],
+    ).one_round("A real plan.", 1)
+    disclosure = result["pre_mutation_critique"]
+    assert disclosure["critique_skipped"] is True
+    assert disclosure["peer_convergence"] == "not_established"
+    assert disclosure["gate_satisfied"] is False
+    assert disclosure["trigger"]["mode"] == "FULL"
+
+
+def test_unauthenticated_peer_continues_without_claiming_agreement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_AUTH", "0")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A real plan.", 1)
+    assert result["stage"] == "peer_unavailable"
+    assert result["peer"]["status"] == "unauthenticated"
     assert result["workflow"]["action"] == "continue_codex_only"
     assert result["workflow"]["peer_convergence"] == "not_established"
 

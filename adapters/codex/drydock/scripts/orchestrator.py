@@ -18,6 +18,23 @@ import time
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from orchestration_evidence import (
+    DEFAULT_PHASE_ENVELOPE,
+    DEFAULT_RUN_ENVELOPE,
+    Envelope,
+    EvidenceError,
+    HIGH_IMPACT_PROPERTIES,
+    InvocationStore,
+    PHASES,
+    ProofStore,
+    RunLedger,
+    critique_skipped,
+    objective_critique_requirement,
+    repository_fingerprints,
+    run_proof_command,
+    state_root,
+)
+
 
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_ROUND_CAP = 2
@@ -25,6 +42,7 @@ DEFAULT_TIMEOUT = 180
 MAX_TIMEOUT = 600
 DEFAULT_BUDGET_USD = 1.0
 MAX_PLAN_BYTES = 512 * 1024
+DEFAULT_REVIEW_INPUT_BYTES = 64 * 1024
 PROCESS_CLEANUP_TIMEOUT_S = 5.0
 OUTPUT_DRAIN_TIMEOUT_S = 1.0
 SECRET_INPUT = re.compile(
@@ -43,8 +61,16 @@ EXPLICIT_RATE_LIMIT_PHRASE = re.compile(
     r"|session rate limited"
     r")\b"
 )
-SINGLE_PILOT_FAILURE_STAGES = frozenset(
-    {"peer_unavailable", "process_failure", "rate_limited", "timeout"}
+AUTH_UNAVAILABLE_STATUSES = frozenset({"absent", "unauthenticated"})
+RATE_LIMIT_FAILURE_CLASSIFICATIONS = frozenset(
+    {
+        "structured_subtype",
+        "structured_error_type",
+        "explicit_result_phrase",
+    }
+)
+KNOWN_NON_BENIGN_SUBTYPES = frozenset(
+    {"success", "failure", "error_max_budget_usd"}
 )
 CRITIQUE_SCHEMA = {
     "additionalProperties": False,
@@ -364,24 +390,106 @@ def classify_peer_failure(
     envelope: dict[str, object],
 ) -> tuple[str, str]:
     subtype = envelope.get("subtype")
-    if isinstance(subtype, str) and subtype in RATE_LIMIT_SUBTYPES:
-        return "rate_limited", "structured_subtype"
+    if "subtype" in envelope:
+        if not isinstance(subtype, str):
+            return "unmapped_control_failure", "invalid_structured_subtype"
+        if subtype == "error_max_budget_usd":
+            return "budget_violation", "structured_budget_ceiling"
+        if subtype in RATE_LIMIT_SUBTYPES:
+            return "rate_limited", "structured_subtype"
+        if subtype not in KNOWN_NON_BENIGN_SUBTYPES:
+            return "unmapped_control_failure", "unknown_structured_subtype"
     error = envelope.get("error")
-    if (
-        isinstance(error, dict)
-        and isinstance(error.get("type"), str)
-        and error["type"] in RATE_LIMIT_SUBTYPES
-    ):
-        return "rate_limited", "structured_error_type"
+    if "error" in envelope:
+        if not isinstance(error, dict) or not isinstance(error.get("type"), str):
+            return "unmapped_control_failure", "invalid_structured_error"
+        error_type = error["type"]
+        if error_type == "error_max_budget_usd":
+            return "budget_violation", "structured_budget_ceiling"
+        if error_type in RATE_LIMIT_SUBTYPES:
+            return "rate_limited", "structured_error_type"
+        return "unmapped_control_failure", "unknown_structured_error"
     result = envelope.get("result")
     if isinstance(result, str) and EXPLICIT_RATE_LIMIT_PHRASE.search(result):
         return "rate_limited", "explicit_result_phrase"
-    return "process_failure", "no_explicit_rate_limit_marker"
+    if "subtype" in envelope:
+        return "process_failure", "structured_subtype_not_allowlisted"
+    return "process_failure", "no_structured_provider_failure"
+
+
+def classify_ordinary_process_exit(
+    envelope: dict[str, object], *, requested_model: str, exit_code: int | None
+) -> tuple[str, str]:
+    """Allow only an unstructured, proven-zero-cost nonzero exit."""
+    if (
+        not isinstance(exit_code, int)
+        or isinstance(exit_code, bool)
+        or exit_code == 0
+    ):
+        return "unmapped_control_failure", "ordinary_nonzero_exit_not_observed"
+    if "structured_output" in envelope:
+        return "unmapped_control_failure", "structured_output_present"
+    if "result" in envelope:
+        raw_result = envelope["result"]
+        if not isinstance(raw_result, str):
+            return "unmapped_control_failure", "structured_result_present"
+        try:
+            _strict_json_loads(raw_result)
+        except ValueError:
+            pass
+        else:
+            return "unmapped_control_failure", "structured_result_present"
+    models = envelope.get("modelUsage")
+    if not isinstance(models, dict) or not models:
+        return "model_unproven", "model_usage_unproven"
+    if (
+        requested_model not in models
+        or not isinstance(models[requested_model], dict)
+    ):
+        return "model_mismatch", "requested_model_not_observed"
+    cost = envelope.get("total_cost_usd")
+    if (
+        not isinstance(cost, (int, float))
+        or isinstance(cost, bool)
+        or not math.isfinite(cost)
+        or cost < 0
+        or math.copysign(1.0, float(cost)) < 0
+    ):
+        return "cost_unproven", "zero_cost_unproven"
+    if cost != 0:
+        return "process_failure", "zero_cost_not_proven"
+    return "process_failure", "ordinary_nonzero_zero_cost"
 
 
 def peer_failure_workflow(result: dict[str, object]) -> dict[str, object]:
     stage = result.get("stage")
-    if stage in SINGLE_PILOT_FAILURE_STAGES:
+    peer = result.get("peer")
+    peer_status = peer.get("status") if isinstance(peer, dict) else None
+    classification = result.get("failure_classification")
+    timeout_cleanup = result.get("cleanup")
+    is_allowlisted = (
+        (
+            stage == "peer_unavailable"
+            and peer_status in AUTH_UNAVAILABLE_STATUSES
+        )
+        or (
+            stage == "rate_limited"
+            and classification in RATE_LIMIT_FAILURE_CLASSIFICATIONS
+        )
+        or (
+            stage == "timeout"
+            and isinstance(timeout_cleanup, dict)
+            and timeout_cleanup.get("attempted") is True
+            and timeout_cleanup.get("boundary_terminated") is True
+            and timeout_cleanup.get("direct_process_absent") is True
+            and timeout_cleanup.get("output_pipes_drained") is True
+        )
+        or (
+            stage == "process_failure"
+            and classification == "ordinary_nonzero_zero_cost"
+        )
+    )
+    if is_allowlisted:
         return {
             "action": "continue_codex_only",
             "mode": "single_pilot",
@@ -648,6 +756,10 @@ class ClaudePeer:
         model: str = DEFAULT_MODEL,
         timeout: int = DEFAULT_TIMEOUT,
         budget_usd: float = DEFAULT_BUDGET_USD,
+        review_input_bytes: int = DEFAULT_REVIEW_INPUT_BYTES,
+        invocation_store: InvocationStore | None = None,
+        run_ledger: RunLedger | None = None,
+        candidate_fingerprint: str | None = None,
     ):
         self.executable = executable or discover_claude()
         if not SAFE_MODEL.fullmatch(model):
@@ -663,9 +775,34 @@ class ClaudePeer:
             or budget_usd <= 0
         ):
             raise OrchestratorError("Claude usage ceiling must be positive")
+        if (
+            isinstance(review_input_bytes, bool)
+            or not isinstance(review_input_bytes, int)
+            or review_input_bytes < 1
+            or review_input_bytes > MAX_PLAN_BYTES
+        ):
+            raise OrchestratorError(
+                "Claude review input ceiling must be a positive bounded integer"
+            )
+        if (invocation_store is None) != (run_ledger is None):
+            raise OrchestratorError(
+                "durable invocation state and run ledger must be configured together"
+            )
+        if invocation_store is not None:
+            if (
+                not isinstance(candidate_fingerprint, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", candidate_fingerprint)
+            ):
+                raise OrchestratorError(
+                    "durable peer calls require an exact candidate fingerprint"
+                )
         self.model = model
         self.timeout = timeout
         self.budget_usd = budget_usd
+        self.review_input_bytes = review_input_bytes
+        self.invocation_store = invocation_store
+        self.run_ledger = run_ledger
+        self.candidate_fingerprint = candidate_fingerprint
 
     def status(self) -> dict[str, object]:
         if self.executable is None or not self.executable.is_file():
@@ -727,6 +864,25 @@ class ClaudePeer:
         plan = _validate_plan(plan)
         if round_number < 1 or round_cap < 1 or round_number > round_cap:
             raise OrchestratorError("round numbers are outside the bounded contract")
+        prompt = build_peer_prompt(plan, round_number, round_cap)
+        schema = json.dumps(CRITIQUE_SCHEMA, separators=(",", ":"), sort_keys=True)
+        outbound_bytes = len(prompt.encode("utf-8"))
+        if outbound_bytes > self.review_input_bytes:
+            return {
+                "ok": False,
+                "stage": "input_budget_exceeded",
+                "round": round_number,
+                "cap": round_cap,
+                "outbound_input_bytes": outbound_bytes,
+                "input_ceiling_bytes": self.review_input_bytes,
+                "omitted_scope": "the bounded request was not sent or truncated",
+                "routes": [
+                    "repository_aware_owner_relay",
+                    "separately_approved_digest_bound_snapshot",
+                    "smaller_review_with_omissions_disclosed",
+                ],
+                "provider_spawned": False,
+            }
         status = self.status()
         if status.get("status") != "auth_ready":
             return {
@@ -735,9 +891,144 @@ class ClaudePeer:
                 "peer": status,
                 "round": round_number,
                 "cap": round_cap,
+                "provider_spawned": False,
             }
-        prompt = build_peer_prompt(plan, round_number, round_cap)
-        schema = json.dumps(CRITIQUE_SCHEMA, separators=(",", ":"), sort_keys=True)
+
+        invocation_fingerprint: str | None = None
+        if self.invocation_store is not None and self.run_ledger is not None:
+            request_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            schema_digest = hashlib.sha256(schema.encode("utf-8")).hexdigest()
+            configuration_digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "budget_usd": self.budget_usd,
+                        "input_ceiling_bytes": self.review_input_bytes,
+                        "round": round_number,
+                        "round_cap": round_cap,
+                        "timeout": self.timeout,
+                        "tool": "StructuredOutput",
+                        "permission_mode": "default",
+                        "safe_mode": True,
+                        "strict_mcp": True,
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            invocation_fingerprint = self.invocation_store.fingerprint(
+                candidate=self.candidate_fingerprint or "",
+                request_digest=request_digest,
+                model=self.model,
+                schema_digest=schema_digest,
+                configuration_digest=configuration_digest,
+                run_id=self.run_ledger.run_id,
+            )
+            prepared = self.invocation_store.prepare(
+                invocation_fingerprint,
+                lease_seconds=self.timeout
+                + PROCESS_CLEANUP_TIMEOUT_S
+                + OUTPUT_DRAIN_TIMEOUT_S,
+            )
+            action = prepared.get("action")
+            if action == "recover":
+                body = prepared.get("body")
+                if not isinstance(body, dict):
+                    return {
+                        "ok": False,
+                        "stage": "recovered_result_malformed",
+                        "round": round_number,
+                        "cap": round_cap,
+                    }
+                return {
+                    **body,
+                    "recovery": {
+                        "recovered": True,
+                        "observed_at": prepared.get("observed_at"),
+                        "authenticated": False,
+                    },
+                }
+            if action != "start":
+                return {
+                    "ok": False,
+                    "stage": prepared.get("stage", "single_flight_blocked"),
+                    "round": round_number,
+                    "cap": round_cap,
+                    "single_flight": prepared,
+                    "provider_spawned": False,
+                }
+
+        reservation_id: str | None = None
+        if self.run_ledger is not None:
+            reservation = self.run_ledger.reserve(
+                "plan_peer",
+                input_bytes=outbound_bytes,
+                configured_provider_usd=self.budget_usd,
+                model=self.model,
+            )
+            if not reservation.get("ok"):
+                result = {
+                    "ok": False,
+                    "stage": reservation.get("stage", "envelope_exhausted"),
+                    "round": round_number,
+                    "cap": round_cap,
+                    "envelope": reservation,
+                    "provider_spawned": False,
+                }
+                if (
+                    self.invocation_store is not None
+                    and invocation_fingerprint is not None
+                ):
+                    self.invocation_store.terminal(
+                        invocation_fingerprint,
+                        result,
+                        classification=str(result["stage"]),
+                        reason="resource envelope refused the provider call",
+                    )
+                return result
+            reservation_id = str(reservation["reservation_id"])
+
+        def finish(
+            result: dict[str, object],
+            *,
+            observed_provider_usd: float | None = None,
+            token_usage: object = None,
+        ) -> dict[str, object]:
+            completed = dict(result)
+            try:
+                if self.run_ledger is not None and reservation_id is not None:
+                    completed["envelope"] = self.run_ledger.complete(
+                        reservation_id,
+                        observed_provider_usd=observed_provider_usd,
+                        token_usage=token_usage,
+                    )
+                if (
+                    self.invocation_store is not None
+                    and invocation_fingerprint is not None
+                ):
+                    persisted = self.invocation_store.terminal(
+                        invocation_fingerprint,
+                        completed,
+                        classification=str(
+                            completed.get("stage", "peer_result")
+                        ),
+                        reason="bounded peer invocation reached a terminal result",
+                    )
+                    completed["invocation"] = {
+                        **persisted,
+                        "fingerprint": invocation_fingerprint,
+                        "authenticated": False,
+                    }
+            except EvidenceError as exc:
+                return {
+                    "ok": False,
+                    "stage": "orchestration_state_failure",
+                    "error": str(exc),
+                    "round": round_number,
+                    "cap": round_cap,
+                    "peer_convergence": "not_established",
+                }
+            return completed
+
         arguments = [
             str(self.executable),
             "--print",
@@ -768,81 +1059,121 @@ class ClaudePeer:
                 timeout=self.timeout,
             )
         if timed_out:
-            return {
-                "ok": False,
-                "stage": "timeout",
-                "peer": status,
-                "round": round_number,
-                "cap": round_cap,
-                "cleanup": cleanup,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "timeout",
+                    "peer": status,
+                    "round": round_number,
+                    "cap": round_cap,
+                    "cleanup": cleanup,
+                }
+            )
         try:
             envelope = _strict_json_loads(stdout)
         except ValueError:
-            return {
-                "ok": False,
-                "stage": "malformed_envelope",
-                "peer": status,
-                "exit_code": exit_code,
-                "stderr_tail": stderr[-500:],
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "malformed_envelope",
+                    "peer": status,
+                    "exit_code": exit_code,
+                    "stderr_tail": stderr[-500:],
+                    "round": round_number,
+                    "cap": round_cap,
+                }
+            )
         if not isinstance(envelope, dict):
-            return {
-                "ok": False,
-                "stage": "malformed_envelope",
-                "peer": status,
-                "exit_code": exit_code,
-                "stderr_tail": stderr[-500:],
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "malformed_envelope",
+                    "peer": status,
+                    "exit_code": exit_code,
+                    "stderr_tail": stderr[-500:],
+                    "round": round_number,
+                    "cap": round_cap,
+                }
+            )
+        raw_cost = envelope.get("total_cost_usd")
+        observed_cost = (
+            float(raw_cost)
+            if isinstance(raw_cost, (int, float))
+            and not isinstance(raw_cost, bool)
+            and math.isfinite(raw_cost)
+            and raw_cost >= 0
+            else None
+        )
+        observed_tokens = envelope.get("modelUsage")
         if exit_code != 0 or envelope.get("is_error") is not False:
             failure, classification = classify_peer_failure(envelope)
-            return {
-                "ok": False,
-                "stage": failure,
-                "failure_classification": classification,
-                "peer": status,
-                "exit_code": exit_code,
-                "is_error": envelope.get("is_error"),
-                "subtype": envelope.get("subtype"),
-                "round": round_number,
-                "cap": round_cap,
-            }
+            if (
+                failure == "process_failure"
+                and classification == "no_structured_provider_failure"
+            ):
+                failure, classification = classify_ordinary_process_exit(
+                    envelope,
+                    requested_model=self.model,
+                    exit_code=exit_code,
+                )
+            return finish(
+                {
+                    "ok": False,
+                    "stage": failure,
+                    "failure_classification": classification,
+                    "peer": status,
+                    "exit_code": exit_code,
+                    "is_error": envelope.get("is_error"),
+                    "subtype": envelope.get("subtype"),
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                observed_provider_usd=observed_cost,
+                token_usage=observed_tokens,
+            )
         candidate = extract_structured_critique(envelope)
         try:
             critique = validate_critique(candidate)
         except OrchestratorError as exc:
-            return {
-                "ok": False,
-                "stage": "malformed_critique",
-                "error": str(exc),
-                "wire_shape": envelope_shape(envelope),
-                "peer": status,
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "malformed_critique",
+                    "error": str(exc),
+                    "wire_shape": envelope_shape(envelope),
+                    "peer": status,
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                observed_provider_usd=observed_cost,
+                token_usage=observed_tokens,
+            )
         models = envelope.get("modelUsage")
         if not isinstance(models, dict) or not models:
-            return {
-                "ok": False,
-                "stage": "model_unproven",
-                "peer": status,
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "model_unproven",
+                    "peer": status,
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                observed_provider_usd=observed_cost,
+            )
         requested_model_observed = self.model in models
         if not requested_model_observed:
-            return {
-                "ok": False,
-                "stage": "model_mismatch",
-                "peer": status,
-                "observed_models": sorted(models),
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "model_mismatch",
+                    "peer": status,
+                    "observed_models": sorted(models),
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                observed_provider_usd=observed_cost,
+                token_usage=models,
+            )
         cost = envelope.get("total_cost_usd")
         if (
             not isinstance(cost, (int, float))
@@ -850,52 +1181,73 @@ class ClaudePeer:
             or not math.isfinite(cost)
             or cost < 0
         ):
-            return {
-                "ok": False,
-                "stage": "cost_unproven",
-                "peer": status,
-                "round": round_number,
-                "cap": round_cap,
-            }
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "cost_unproven",
+                    "peer": status,
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                token_usage=models,
+            )
         if cost > self.budget_usd:
-            return {
-                "ok": False,
-                "stage": "budget_violation",
-                "peer": status,
-                "cost_usd": cost,
-                "ceiling_usd": self.budget_usd,
+            return finish(
+                {
+                    "ok": False,
+                    "stage": "budget_violation",
+                    "peer": status,
+                    "cost_usd": cost,
+                    "ceiling_usd": self.budget_usd,
+                    "round": round_number,
+                    "cap": round_cap,
+                },
+                observed_provider_usd=float(cost),
+                token_usage=models,
+            )
+        return finish(
+            {
+                "ok": True,
+                "peer": {
+                    **status,
+                    "status": "operational_ready",
+                    "operational": "ready",
+                },
                 "round": round_number,
                 "cap": round_cap,
-            }
-        return {
-            "ok": True,
-            "peer": {
-                **status,
-                "status": "operational_ready",
-                "operational": "ready",
+                "critique": critique,
+                "loop": loop_decision(critique, round_number, round_cap),
+                "usage": {
+                    "cost_usd": cost,
+                    "model_usage": models,
+                    "requested_model_observed": requested_model_observed,
+                    "additional_models_observed": sorted(
+                        model for model in models if model != self.model
+                    ),
+                    "ceiling_usd": self.budget_usd,
+                    "outbound_input_bytes": outbound_bytes,
+                },
             },
-            "round": round_number,
-            "cap": round_cap,
-            "critique": critique,
-            "loop": loop_decision(critique, round_number, round_cap),
-            "usage": {
-                "cost_usd": cost,
-                "model_usage": models,
-                "requested_model_observed": requested_model_observed,
-                "additional_models_observed": sorted(
-                    model for model in models if model != self.model
-                ),
-                "ceiling_usd": self.budget_usd,
-            },
-        }
+            observed_provider_usd=float(cost),
+            token_usage=models,
+        )
 
 
 class NegotiationController:
-    def __init__(self, peer: Peer, round_cap: int = DEFAULT_ROUND_CAP):
+    def __init__(
+        self,
+        peer: Peer,
+        round_cap: int = DEFAULT_ROUND_CAP,
+        *,
+        objective_properties: Sequence[str] = (),
+    ):
         if round_cap < 1 or round_cap > 10:
             raise OrchestratorError("round cap must be between 1 and 10")
         self.peer = peer
         self.round_cap = round_cap
+        self.critique_requirement = objective_critique_requirement(
+            objective_properties
+        )
 
     def one_round(self, plan: str, round_number: int) -> dict[str, object]:
         plan = _validate_plan(plan)
@@ -905,13 +1257,35 @@ class NegotiationController:
             plan, round_number=round_number, round_cap=self.round_cap
         )
         if not result.get("ok"):
-            return {
+            governed = {
                 **result,
                 "workflow": peer_failure_workflow(result),
             }
+            if (
+                self.critique_requirement["critique_required"]
+                and governed["workflow"]["action"] == "continue_codex_only"
+            ):
+                governed["pre_mutation_critique"] = {
+                    **critique_skipped(
+                        str(result.get("stage", "peer unavailable"))
+                    ),
+                    "trigger": self.critique_requirement,
+                }
+            return governed
         critique = result.get("critique")
         decision = loop_decision(critique, round_number, self.round_cap)
-        return {**result, "loop": decision}
+        return {
+            **result,
+            "loop": decision,
+            "pre_mutation_critique": {
+                "critique_skipped": False,
+                "trigger": self.critique_requirement,
+                "peer_convergence": (
+                    "established" if decision["converged"] else "not_established"
+                ),
+                "gate_satisfied": bool(decision["converged"]),
+            },
+        }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -919,6 +1293,66 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     status_parser = subparsers.add_parser("peer-status")
     status_parser.add_argument("--model", default=DEFAULT_MODEL)
+    digest_parser = subparsers.add_parser("digest-owner-action")
+    digest_parser.add_argument(
+        "--text",
+        help="Owner-authorized text; omit to read stdin and keep it out of argv",
+    )
+    start_parser = subparsers.add_parser("start-run")
+    start_parser.add_argument("--objective-digest", required=True)
+    start_parser.add_argument("--owner-action-digest", required=True)
+    start_parser.add_argument("--previous-run-id")
+    start_parser.add_argument("--state-dir", type=Path)
+    for prefix, defaults in (
+        ("phase", DEFAULT_PHASE_ENVELOPE),
+        ("run", DEFAULT_RUN_ENVELOPE),
+    ):
+        start_parser.add_argument(
+            f"--{prefix}-elapsed-seconds",
+            type=float,
+            default=defaults.elapsed_seconds,
+        )
+        start_parser.add_argument(
+            f"--{prefix}-calls", type=int, default=defaults.calls
+        )
+        start_parser.add_argument(
+            f"--{prefix}-input-bytes", type=int, default=defaults.input_bytes
+        )
+        start_parser.add_argument(
+            f"--{prefix}-provider-usd",
+            type=float,
+            default=defaults.provider_usd,
+        )
+    fingerprint_parser = subparsers.add_parser("fingerprint")
+    fingerprint_parser.add_argument("--repo", type=Path, default=Path.cwd())
+    fingerprint_parser.add_argument("--packet-root")
+    fingerprint_parser.add_argument("--exclude-evidence-path")
+    phase_start_parser = subparsers.add_parser("phase-start")
+    phase_start_parser.add_argument("--run-id", required=True)
+    phase_start_parser.add_argument("--phase", choices=PHASES, required=True)
+    phase_start_parser.add_argument("--input-bytes", type=int, required=True)
+    phase_start_parser.add_argument(
+        "--provider-budget-usd", type=float, required=True
+    )
+    phase_start_parser.add_argument("--model", required=True)
+    phase_start_parser.add_argument("--state-dir", type=Path)
+    phase_finish_parser = subparsers.add_parser("phase-finish")
+    phase_finish_parser.add_argument("--run-id", required=True)
+    phase_finish_parser.add_argument("--reservation-id", required=True)
+    phase_finish_parser.add_argument("--provider-cost-usd", type=float)
+    phase_finish_parser.add_argument("--state-dir", type=Path)
+    proof_parser = subparsers.add_parser("proof-run")
+    proof_parser.add_argument("--repo", type=Path, default=Path.cwd())
+    proof_parser.add_argument("--commit", required=True)
+    proof_parser.add_argument(
+        "--scope",
+        choices=["intermediate", "full_required_suite"],
+        required=True,
+    )
+    proof_parser.add_argument("--packet-root")
+    proof_parser.add_argument("--state-dir", type=Path)
+    proof_parser.add_argument("--timeout", type=int, default=900)
+    proof_parser.add_argument("proof_command", nargs=argparse.REMAINDER)
     critique_parser = subparsers.add_parser("critique")
     critique_parser.add_argument("--file", type=Path)
     critique_parser.add_argument("--round", type=int, default=1)
@@ -928,26 +1362,157 @@ def main(argv: list[str] | None = None) -> int:
     critique_parser.add_argument(
         "--budget-usd", type=float, default=DEFAULT_BUDGET_USD
     )
+    critique_parser.add_argument(
+        "--review-input-bytes",
+        type=int,
+        default=DEFAULT_REVIEW_INPUT_BYTES,
+    )
+    critique_parser.add_argument("--state-dir", type=Path)
+    critique_parser.add_argument("--run-id", required=True)
+    critique_parser.add_argument("--candidate-fingerprint", required=True)
+    critique_parser.add_argument(
+        "--objective-property",
+        action="append",
+        choices=sorted(HIGH_IMPACT_PROPERTIES),
+        default=[],
+    )
     args = parser.parse_args(argv)
     try:
-        peer = ClaudePeer(
-            model=args.model,
-            timeout=getattr(args, "timeout", DEFAULT_TIMEOUT),
-            budget_usd=getattr(args, "budget_usd", DEFAULT_BUDGET_USD),
-        )
         if args.command == "peer-status":
+            peer = ClaudePeer(model=args.model)
             result = peer.status()
             ok = result.get("status") == "auth_ready"
+        elif args.command == "digest-owner-action":
+            text = args.text if args.text is not None else sys.stdin.read()
+            if not text:
+                raise OrchestratorError("Owner action text must not be empty")
+            result = {
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "raw_text_retained": False,
+            }
+            ok = True
+        elif args.command == "start-run":
+            root = state_root(args.state_dir, repository_root=Path.cwd())
+            phase_limit = Envelope(
+                args.phase_elapsed_seconds,
+                args.phase_calls,
+                args.phase_input_bytes,
+                args.phase_provider_usd,
+            )
+            run_limit = Envelope(
+                args.run_elapsed_seconds,
+                args.run_calls,
+                args.run_input_bytes,
+                args.run_provider_usd,
+            )
+            ledger = RunLedger.start(
+                root,
+                objective_digest=args.objective_digest,
+                owner_action_digest=args.owner_action_digest,
+                previous_run_id=args.previous_run_id,
+                phase_envelopes={
+                    phase: phase_limit for phase in PHASES
+                },
+                run_envelope=run_limit,
+            )
+            result = {
+                "ok": True,
+                "run_id": ledger.run_id,
+                "status": "active",
+                "state_root": str(root),
+                "defaults_calibrated": False,
+            }
+            ok = True
+        elif args.command == "fingerprint":
+            result = repository_fingerprints(
+                args.repo,
+                packet_root=args.packet_root,
+                exclude_evidence_path=args.exclude_evidence_path,
+            )
+            ok = True
+        elif args.command == "phase-start":
+            root = state_root(args.state_dir, repository_root=Path.cwd())
+            result = RunLedger(root, args.run_id).reserve(
+                args.phase,
+                input_bytes=args.input_bytes,
+                configured_provider_usd=args.provider_budget_usd,
+                model=args.model,
+            )
+            ok = bool(result.get("ok"))
+        elif args.command == "phase-finish":
+            root = state_root(args.state_dir, repository_root=Path.cwd())
+            result = {
+                "ok": True,
+                "envelope": RunLedger(root, args.run_id).complete(
+                    args.reservation_id,
+                    observed_provider_usd=args.provider_cost_usd,
+                ),
+            }
+            ok = True
+        elif args.command == "proof-run":
+            command = list(args.proof_command)
+            if command and command[0] == "--":
+                command = command[1:]
+            candidate = repository_fingerprints(
+                args.repo, packet_root=args.packet_root
+            )
+            if candidate.get("reuse_eligible") is not True:
+                raise OrchestratorError(
+                    "proof execution requires a clean committed candidate "
+                    "without tracked bytecode or ignored code-injection paths"
+                )
+            if candidate.get("head") != args.commit:
+                raise OrchestratorError(
+                    "proof commit does not match the current clean candidate"
+                )
+            proof = run_proof_command(
+                args.repo,
+                commit=args.commit,
+                command=command,
+                timeout=args.timeout,
+            )
+            root = state_root(args.state_dir, repository_root=args.repo)
+            record = ProofStore(root).record(
+                executable_fingerprint=str(
+                    candidate["executable_surface_sha256"]
+                ),
+                result=proof,
+                scope=args.scope,
+            )
+            result = {
+                "ok": proof["terminal_status"] == "passed",
+                "candidate": candidate,
+                "proof": record,
+                "fresh_root": True,
+                "bytecode_writes_disabled": True,
+            }
+            ok = bool(result["ok"])
         else:
             plan = (
                 args.file.read_text(encoding="utf-8-sig")
                 if args.file is not None
                 else sys.stdin.read()
             )
-            controller = NegotiationController(peer, args.cap)
+            root = state_root(args.state_dir, repository_root=Path.cwd())
+            ledger = RunLedger(root, args.run_id)
+            ledger.read()
+            peer = ClaudePeer(
+                model=args.model,
+                timeout=args.timeout,
+                budget_usd=args.budget_usd,
+                review_input_bytes=args.review_input_bytes,
+                invocation_store=InvocationStore(root),
+                run_ledger=ledger,
+                candidate_fingerprint=args.candidate_fingerprint,
+            )
+            controller = NegotiationController(
+                peer,
+                args.cap,
+                objective_properties=args.objective_property,
+            )
             result = controller.one_round(plan, args.round)
             ok = bool(result.get("ok"))
-    except (OSError, OrchestratorError) as exc:
+    except (OSError, EvidenceError, OrchestratorError) as exc:
         result = {"ok": False, "stage": "input_error", "error": str(exc)}
         ok = False
     print(json.dumps(result, indent=2, sort_keys=True))
