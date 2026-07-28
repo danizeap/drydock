@@ -6,7 +6,7 @@ orchestration-efficiency-hardening
 
 ## Automated Checks
 
-- [x] Packet evidence schema and all four Claude review summaries validated
+- [x] Packet evidence schema and all eight Claude review summaries validated
   with `jsonschema.Draft202012Validator`.
 - [x] `python scripts/sdd.py verify orchestration-efficiency-hardening`.
 - [x] `git diff --check`.
@@ -136,6 +136,15 @@ orchestration-efficiency-hardening
   only the exact target packet task state, falls back to executable-only task
   hashing with an explicit diagnostic, and checks proof archive paths, bytes,
   and executable modes against the committed tree.
+- [x] A trusted `apply_patch` attempt was denied mid-task after the
+  host-supplied `PLUGIN_ROOT` contract disappeared. The inline verifier refused
+  before runtime execution. This is recorded as a separate Codex
+  host/bootstrap environment defect; no repository/cache/`PATH` root discovery
+  or other fail-open fallback was added.
+- [x] On continuation, a same-content `apply_patch` probe against
+  `docs/AI_OPERATOR_GUIDE.md` succeeded. Its normalized worktree and HEAD blob
+  IDs both remained `9e6d339f7e7b3210100473a67fe71bb7cb6eb394`, and no probe
+  content diff remained before the requested edits.
 - [x] Focused controller/evidence suite after the v2 correction:
   `python -m pytest adapters/codex/tests/test_orchestrator.py
   adapters/codex/tests/test_orchestration_evidence.py -q

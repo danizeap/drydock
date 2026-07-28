@@ -78,6 +78,15 @@ semantics, while the explicit one-tool allowlist is the authority boundary.
    writes. Reused proof is intermediate only. Final acceptance still requires
    one `full_required_suite` record on the exact frozen executable fingerprint;
    an evidence-only record never establishes peer agreement or attestation.
+   Fingerprint v2 binds exact committed Git-tree paths, types, modes, and blob
+   bytes. Only the exact active packet's canonical task-checkbox state is
+   projected out of executable identity; its raw task bytes remain evidence,
+   while task wording, ordering, noncanonical markers, templates, and other
+   packets remain executable. Unsafe projection leaves the complete task file
+   executable and reports why. Checkbox state can therefore change status,
+   Stop, verification, or archive outcomes without changing executable
+   identity. Never equate unchanged executable identity with unchanged
+   governance state.
 11. Integrate sequentially only after the packet gates and Owner authorization
    that apply to the requested workflow. Commit, merge, push, deploy, and
    destructive cleanup remain separate actions; none is implied by a green

@@ -209,6 +209,20 @@ pass against the exact frozen executable fingerprint; schema-valid review
 summaries and verification records remain non-attesting and cannot establish a
 gate by themselves.
 
+Fingerprint v2 hashes exact committed Git-tree paths, types, modes, and blob
+bytes under a versioned, domain-separated scheme; it does not identify
+checkout-normalized bytes. Only the exact active packet's `tasks.md` is
+dual-projected: raw committed bytes remain packet-evidence identity while the
+state byte in a canonical `[ ]`, `[x]`, or `[X]` task marker is normalized out
+of executable identity. Task wording, ordering, additions and removals,
+noncanonical markers, templates, and every other packet's task file remain
+executable. Unsafe projection is declined explicitly and leaves the complete
+task file executable. A canonical checkbox change can therefore alter status,
+Stop-hook, verification, or archive-gate outcomes while executable identity
+remains stable. Never interpret unchanged executable identity as unchanged
+governance state; packet evidence identifies that state but does not attest it
+or satisfy a gate by itself.
+
 Codex hook coverage is currently narrow: canonical local `Bash` and
 `apply_patch` only. MCP, hosted, specialized, renamed, and other unmatched
 paths are uncovered. Mutation uses a separate ephemeral `workspace-write`
