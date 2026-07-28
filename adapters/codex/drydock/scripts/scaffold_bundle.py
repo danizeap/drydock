@@ -31,6 +31,7 @@ EXCLUDED_PATHS = frozenset(
         ".codex/hooks/drydock_guard.py",
     }
 )
+BINARY_SUFFIXES = frozenset({".gif", ".ico", ".jpeg", ".jpg", ".pdf", ".png"})
 
 
 class BundleError(ValueError):
@@ -66,6 +67,15 @@ def _tree_digest(entries: Iterable[BundleEntry]) -> str:
     return digest.hexdigest()
 
 
+def _validate_text_line_endings(path: str, content: bytes) -> None:
+    if PurePosixPath(path).suffix.lower() in BINARY_SUFFIXES:
+        return
+    if b"\r\n" in content:
+        raise BundleError(
+            f"text bundle entry contains CRLF instead of repository LF: {path}"
+        )
+
+
 def collect_source(source: Path) -> list[BundleEntry]:
     """Collect an allowlisted, deterministic view of a scaffold source tree."""
     source = source.resolve(strict=True)
@@ -95,6 +105,7 @@ def collect_source(source: Path) -> list[BundleEntry]:
         content = path.read_bytes()
         if len(content) > MAX_FILE_BYTES:
             raise BundleError(f"scaffold file exceeds size limit: {relative}")
+        _validate_text_line_endings(relative, content)
         total += len(content)
         if total > MAX_TOTAL_BYTES:
             raise BundleError("scaffold exceeds total size limit")
@@ -180,6 +191,7 @@ def load_bundle_bytes(raw: bytes) -> list[BundleEntry]:
         actual_digest = hashlib.sha256(content).hexdigest()
         if actual_digest != declared_digest:
             raise BundleError(f"digest mismatch for {path}")
+        _validate_text_line_endings(path, content)
         entries.append(BundleEntry(path, declared_digest, content))
 
     if [entry.path for entry in entries] != sorted(entry.path for entry in entries):

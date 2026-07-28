@@ -66,7 +66,7 @@ and Claude.
 - run/delegation/task identifiers;
 - task class and role;
 - provider, model, reasoning effort, and requested permission profile;
-- deterministic idempotency key;
+- canonical request-binding digest (not an idempotency claim);
 - attempt bounds;
 - objective and input digests;
 - optional capacity-snapshot digest;
@@ -75,6 +75,8 @@ and Claude.
 `DelegationResult`:
 
 - delegation ID and normalized terminal status;
+- controller-observed runtime status, separate from optional untrusted claimed
+  terminal status and untrusted nested error detail;
 - duration;
 - normalized token counts with missing values preserved as `null`;
 - bounded artifact/evidence references;
@@ -82,7 +84,8 @@ and Claude.
 
 `OutcomeObservation`:
 
-- unique observation and delegation IDs;
+- unique observation and delegation IDs plus run ID and the canonical full
+  envelope/result digests;
 - observer kind;
 - acceptance/revision/rejection/unavailable state;
 - independent verification state;
@@ -95,7 +98,8 @@ and Claude.
 
 The profile stores raw sample, completion, timeout, invalid-output,
 verification-pass/fail, revision, rejection, finding, regression, token, and
-duration counts. It does not store authority or a final routing score.
+duration counts. Duplicate and binding/content conflicts are typed durable
+rejection counters. It does not store authority or a final routing score.
 
 ## 8. Data Flow
 
@@ -109,7 +113,15 @@ reducer -> frozen comparison -> verified terminal commit -> future scheduler.
 
 The modules expose local Python functions and dataclasses only. Unknown fields
 enter only through strict `from_dict` methods and are rejected. Persistent
-records are canonical JSONL. No network listener or external API is added.
+records are exact canonical JSONL: sorted-key, ASCII-escaped, compact
+serialization followed by one LF byte. Semantically equivalent whitespace,
+CRLF, key order, or escaping is corruption. No network listener or external
+API is added.
+
+Profile commits retain every full source triple and deterministic typed
+decision so replay starts empty and reconstructs indexes, aggregates,
+snapshots, and final bytes. The hard profile limits are 32 commits and 64
+source submissions per commit.
 
 ## 10. Auth & Permissions Assumptions
 
@@ -142,6 +154,11 @@ packets. All tests are local and spend no quota.
   source observations, so this is correctness checking rather than
   authenticated attestation.
 - A local unkeyed chain is corruption evidence, not adversarial attestation.
+- Torn-tail repair accepts only a bounded strict structural prefix. Every
+  existing immutable intent must match reachable locked bytes: the exact
+  before-state classification or a canonical candidate prefix/current stream.
+  Candidate length/digest/count/last digest/next sequence are recomputed, and a
+  selected before-digest-derived quarantine is required for completed replay.
 - A `verified` string and safe evidence reference are state-machine inputs, not
   proof that a verifier ran, passed, or was independent. That binding belongs
   to the later live-controller integration packet.
@@ -161,11 +178,20 @@ packets. All tests are local and spend no quota.
 - Unit tests for every enum, bound, digest, ID, usage, reference, unknown-field,
   non-finite, and sensitive-field rule.
 - Storage tests for append, concurrent sequence allocation, mutation,
-  reordering, truncation disclosure, malformed JSON, and oversized lines.
+  reordering, every noncanonical byte representation, truncation disclosure,
+  malformed JSON, relational intent/candidate/quarantine replay, and oversized
+  lines.
 - Profile tests for frozen-state preservation, raw aggregate math, duplicate
-  observation refusal, current-state conflicts, and unverified commit refusal.
+  and conflict decision persistence, source/decision tamper, 32-commit and
+  64-submission ceilings, current-state conflicts, and unverified commit
+  refusal.
 - No mock test may assert only its own fixture; tests inspect persisted bytes
   and reconstruct state through public readers.
+
+Fresh-checkout verification also rebuilds
+`project-scaffold.bundle.json` from Git-normalized LF source and refuses CRLF
+in text entries. The stale generated bundle predates this ledger remediation
+and is documented as a verification prerequisite, not a ledger-caused defect.
 
 ## 15. LaunchGuardian Handoff
 

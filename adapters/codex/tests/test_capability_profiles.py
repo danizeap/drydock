@@ -255,8 +255,11 @@ def test_later_observation_changes_only_observation_domain(
     assert store.rebuild_snapshot() == later_shadow.snapshot
 
 
-def test_same_batch_duplicate_and_result_conflict_are_durable() -> None:
-    start = capability_profiles.ProfileSnapshot.empty()
+def test_same_batch_duplicate_and_result_conflict_are_durable(
+    tmp_path: Path,
+) -> None:
+    store = capability_profiles.CapabilityProfileStore(tmp_path)
+    start = store.current_snapshot()
     first = one_submission()
     selected_envelope, selected_result, selected_observation = first
     changed_result = result(selected_envelope, duration_ms=3000)
@@ -288,6 +291,15 @@ def test_same_batch_duplicate_and_result_conflict_are_durable() -> None:
     assert profile.duplicate_observation_id_count == 1
     assert profile.delegation_id_conflict_count == 1
     assert profile.result_digest_conflict_count == 1
+    persisted = commit(store, start, shadow)
+    reread = store.read_commits()
+    assert reread == [persisted]
+    assert [item["disposition"] for item in reread[0]["decisions"]] == [
+        "accepted_sample",
+        "rejected",
+        "rejected",
+    ]
+    assert store.rebuild_snapshot() == shadow.snapshot
 
 
 def test_cross_commit_duplicate_and_observation_content_conflict_persist(
@@ -481,6 +493,84 @@ def test_store_persists_full_sources_and_rebuilds_byte_for_byte(
     )
 
 
+def _noncanonical_profile_line(raw: bytes, mutation: str) -> bytes:
+    if mutation == "leading_whitespace":
+        return b" " + raw
+    if mutation == "trailing_whitespace":
+        return raw[:-1] + b" \n"
+    if mutation == "interior_whitespace":
+        return raw.replace(b":", b": ", 1)
+    if mutation == "crlf":
+        return raw[:-1] + b"\r\n"
+    if mutation == "key_order":
+        value = contracts.strict_json_loads(raw[:-1].decode("utf-8"))
+        assert isinstance(value, dict)
+        reordered = {
+            key: value[key] for key in reversed(tuple(value))
+        }
+        return (
+            json.dumps(
+                reordered,
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+    if mutation == "escaping":
+        assert b"/" in raw
+        return raw.replace(b"/", b"\\/", 1)
+    if mutation == "source_whitespace":
+        assert b'"envelope":{' in raw
+        return raw.replace(b'"envelope":{', b'"envelope": {', 1)
+    if mutation == "decision_whitespace":
+        assert b'"decisions":[' in raw
+        return raw.replace(b'"decisions":[', b'"decisions": [', 1)
+    raise AssertionError("unknown mutation")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "leading_whitespace",
+        "trailing_whitespace",
+        "interior_whitespace",
+        "crlf",
+        "key_order",
+        "escaping",
+        "source_whitespace",
+        "decision_whitespace",
+    ],
+)
+def test_noncanonical_profile_bytes_block_replay_and_commit(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    store = capability_profiles.CapabilityProfileStore(tmp_path / mutation)
+    start = store.current_snapshot()
+    commit(
+        store,
+        start,
+        capability_profiles.shadow_reduce(start, [one_submission()]),
+    )
+    current = store.current_snapshot()
+    next_shadow = capability_profiles.shadow_reduce(
+        current,
+        [one_submission("delegation-2", "observation-2")],
+    )
+    store.path.write_bytes(
+        _noncanonical_profile_line(store.path.read_bytes(), mutation)
+    )
+
+    report = store.verify()
+    assert report["valid"] is False
+    assert "canonical JSON" in report["corruption"]["reason"]
+    before = store.path.read_bytes()
+    with pytest.raises(capability_profiles.ProfileError, match="corrupt"):
+        commit(store, current, next_shadow, "profile-run-2")
+    assert store.path.read_bytes() == before
+
+
 def test_profile_commit_round_trips_nested_untrusted_error_claim(
     tmp_path: Path,
 ) -> None:
@@ -540,6 +630,14 @@ def test_profile_snapshot_can_exceed_generic_array_bound_within_schema_limit(
                 ),
             )
         )
+    with pytest.raises(
+        capability_profiles.ProfileError,
+        match="commit bound",
+    ):
+        capability_profiles.shadow_reduce(
+            start,
+            first_batch + [first_batch[0]],
+        )
     first_shadow = capability_profiles.shadow_reduce(start, first_batch)
     commit(store, start, first_shadow)
 
@@ -566,7 +664,44 @@ def test_profile_snapshot_can_exceed_generic_array_bound_within_schema_limit(
     assert store.verify()["valid"] is True
 
 
-def test_profile_replay_detects_tampered_source_or_decision(
+def test_profile_history_accepts_exactly_32_commits(
+    tmp_path: Path,
+) -> None:
+    store = capability_profiles.CapabilityProfileStore(tmp_path)
+    source = one_submission()
+    for number in range(capability_profiles.MAX_PROFILE_COMMITS):
+        current = store.current_snapshot()
+        shadow = capability_profiles.shadow_reduce(current, [source])
+        commit(
+            store,
+            current,
+            shadow,
+            "profile-run-{}".format(number + 1),
+        )
+
+    assert len(store.read_commits()) == capability_profiles.MAX_PROFILE_COMMITS
+    current = store.current_snapshot()
+    overflow = capability_profiles.shadow_reduce(current, [source])
+    before = store.path.read_bytes()
+    with pytest.raises(capability_profiles.ProfileError, match="commit bound"):
+        commit(store, current, overflow, "profile-run-overflow")
+    assert store.path.read_bytes() == before
+
+
+def _write_canonical_commit(
+    store: capability_profiles.CapabilityProfileStore,
+    value: dict,
+) -> None:
+    unsigned = dict(value)
+    unsigned.pop("record_digest", None)
+    value["record_digest"] = capability_profiles._profile_digest(unsigned)
+    store.path.write_bytes(
+        capability_profiles._canonical_profile_json(value).encode("utf-8")
+        + b"\n"
+    )
+
+
+def test_profile_replay_detects_independently_tampered_decision(
     tmp_path: Path,
 ) -> None:
     store = capability_profiles.CapabilityProfileStore(tmp_path)
@@ -578,7 +713,26 @@ def test_profile_replay_detects_tampered_source_or_decision(
     )
     value = json.loads(store.path.read_text(encoding="utf-8"))
     value["decisions"][0]["disposition"] = "accepted_observation"
-    store.path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+    _write_canonical_commit(store, value)
+
+    report = store.verify()
+    assert report["valid"] is False
+    assert "decisions do not match" in report["corruption"]["reason"]
+
+
+def test_profile_replay_detects_independently_tampered_retained_source(
+    tmp_path: Path,
+) -> None:
+    store = capability_profiles.CapabilityProfileStore(tmp_path)
+    start = store.current_snapshot()
+    commit(
+        store,
+        start,
+        capability_profiles.shadow_reduce(start, [one_submission()]),
+    )
+    value = json.loads(store.path.read_text(encoding="utf-8"))
+    value["source_submissions"][0]["result"]["duration_ms"] = 3000
+    _write_canonical_commit(store, value)
 
     report = store.verify()
     assert report["valid"] is False

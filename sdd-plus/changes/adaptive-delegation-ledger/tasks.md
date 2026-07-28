@@ -37,24 +37,32 @@ adaptive-delegation-ledger
 
 ## Accepted Schema-v2 Remediation
 
-- [ ] Replace persisted ledger/profile contracts with schema v2 and explicitly
+- [x] Replace persisted ledger/profile contracts with schema v2 and explicitly
   refuse v1.
-- [ ] Bound strict JSON depth, integer digits, floats, constants, duplicate
+- [x] Bound strict JSON depth, integer digits, floats, constants, duplicate
   keys, and millisecond UTC timestamp grammar with boundary tests.
-- [ ] Deeply detach generic payloads and untrusted nested error claims from
+- [x] Deeply detach generic payloads and untrusted nested error claims from
   caller-owned objects.
-- [ ] Replace idempotency and bare terminal/error names with request-binding,
+- [x] Replace idempotency and bare terminal/error names with request-binding,
   trusted-runtime, and explicit untrusted-claim semantics.
-- [ ] Add explicit token usage, reasoning-token, and cost evidence bases.
-- [ ] Count one delegation execution once and accept multiple digest-bound
+- [x] Add explicit token usage, reasoning-token, and cost evidence bases.
+- [x] Count one delegation execution once and accept multiple digest-bound
   observations without replaying execution aggregates.
-- [ ] Persist full replayable submissions plus typed duplicate/conflict
+- [x] Persist full replayable submissions plus typed duplicate/conflict
   decisions and durable per-profile rejection counters.
-- [ ] Enforce the single-writer 30-second lock model, mutation-free reads, full
+- [x] Enforce the single-writer 30-second lock model, mutation-free reads, full
   observed-stream verification, and qualified sibling imports.
-- [ ] Implement explicit digest-bound torn-tail repair with immutable external
+- [x] Require exact canonical JSON serialization plus LF for every observed
+  ledger/profile line; block append/commit on byte-equivalent mutations.
+- [x] Implement explicit digest-bound torn-tail repair with immutable external
   intent, fsync ordering, atomic replacement, and deterministic crash replay.
-- [ ] Add strict boundary, same-batch/cross-commit conflict, integration,
+- [x] Recompute every intent's before/candidate/completed/later-stream relation
+  and require exact selected quarantine metadata before completed replay.
+- [x] Support direct source and installed-plugin `scripts/` CLI execution
+  through a root-pinned qualified package bootstrap.
+- [x] Add strict boundary, same-batch/cross-commit conflict, integration,
   repair fault-injection/replay, and deterministic capacity/performance tests.
+- [x] Regenerate the scaffold bundle from fresh LF source and add a direct CRLF
+  text-entry rejection invariant as a pre-existing checkout prerequisite.
 - [ ] Run focused tests on supported local interpreters and the Codex adapter
   suite if feasible; keep independent verification incomplete.

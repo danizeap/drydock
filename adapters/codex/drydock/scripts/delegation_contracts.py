@@ -178,7 +178,7 @@ def strict_json_loads(raw: str) -> object:
         raise ContractError(
             "invalid JSON: nesting exceeds the parser/depth bound"
         ) from exc
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise ContractError("invalid JSON: {}".format(exc)) from exc
 
 

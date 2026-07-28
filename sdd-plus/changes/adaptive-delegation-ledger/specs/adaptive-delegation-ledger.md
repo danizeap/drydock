@@ -73,7 +73,15 @@ stream verification.
 
 Read-only verify/read calls SHALL NOT create a root, directory, ledger, lock
 file, repair directory, or any other filesystem entry. Modules SHALL use
-package-qualified sibling imports.
+package-qualified sibling imports. Direct execution of the ledger script SHALL
+bootstrap a private qualified package pinned to that script's actual plugin
+root; it SHALL NOT resolve an unqualified ambient sibling module.
+
+Every observed event line SHALL equal the exact canonical schema-v2
+serialization followed by one LF byte. Leading, trailing, or interior
+whitespace; CRLF; alternate key order; and alternate JSON escaping SHALL be
+corruption even when they decode to the same value. Corruption SHALL block
+normal append.
 
 The hard limits are conjunctive capacity ceilings, not throughput guarantees:
 a run ledger accepts at most 10,000 records, 16 MiB total, and 32 KiB per line.
@@ -88,6 +96,19 @@ a run ledger accepts at most 10,000 records, 16 MiB total, and 32 KiB per line.
 - **WHEN** any earlier observed byte no longer satisfies canonical schema,
   sequence, run binding, predecessor digest, or record digest
 - **THEN** verify reports corruption and normal append refuses the stream
+
+#### Scenario: JSON meaning is unchanged but bytes differ
+
+- **WHEN** an event line uses whitespace, CRLF, different key order, or an
+  equivalent escape spelling
+- **THEN** verify reports corruption and append leaves the stream unchanged
+
+#### Scenario: Ledger CLI runs outside package import context
+
+- **WHEN** the source script or an installed plugin-root `scripts/` copy is
+  executed directly with `--help`
+- **THEN** its qualified sibling contract import resolves from that exact
+  plugin root and the command exits successfully
 
 ### Requirement: Integrity reports do not claim authentication
 
@@ -190,9 +211,22 @@ The store SHALL commit only when the durable current state digest equals the
 frozen start digest and commit-time reduction of the retained source contracts
 exactly matches the supplied shadow snapshot and decisions.
 
+Every observed profile-commit line SHALL equal its exact canonical schema-v2
+serialization followed by one LF byte. This comparison includes retained
+sources and decisions; any whitespace, CRLF, alternate key order, or alternate
+escaping SHALL be corruption and SHALL block another commit.
+
 Profile history accepts at most 32 commits, 128 MiB total, 4 MiB per commit, 64
 source submissions per commit, and 256 profile keys. These are capacity
 ceilings, not latency or throughput promises.
+
+#### Scenario: Same-batch conflicts survive replay
+
+- **WHEN** a batch contains an accepted source, an identical duplicate, and a
+  conflicting result binding
+- **THEN** the store commits all three full sources and typed decisions
+- **AND** rereading decisions and rebuilding from empty state produces the
+  committed snapshot exactly
 
 ### Requirement: Torn-tail repair is explicit, digest-bound, and crash-replayable
 
@@ -210,6 +244,11 @@ classifiable as truncated JSON after a fully valid prefix. It SHALL refuse a
 newline-terminated invalid record, interior corruption, a complete
 missing-newline record, semantic contract/digest corruption, an ambiguous or
 wrong extractable next sequence, or malformed/conflicting repair metadata.
+The incomplete-JSON classifier SHALL be bounded independently of the standard
+recursive decoder. It SHALL apply schema-v2 depth, integer digit/magnitude,
+finite float, constant, integer, and duplicate completed-object-key rules and
+convert every parser/bound failure to `LedgerError`. Genuine terminal JSON,
+string, and UTF-8-codepoint truncation SHALL remain classifiable.
 
 Before replacing data, repair SHALL exclusively create, flush, and fsync an
 immutable external intent recording schema/run binding, before digest, valid
@@ -224,6 +263,24 @@ Retry SHALL be idempotent before intent, after intent, after optional
 quarantine, after candidate preparation, and after replacement. A current
 ledger digest equal to the intent candidate digest establishes completed
 replay.
+
+Under the lock, every existing intent SHALL be validated against reachable
+bytes, not only its self-digest. If current bytes are the before state, repair
+SHALL recompute and compare the exact structural classification, prefix
+byte/record counts, last record digest, candidate digest, discarded-tail
+digest/count, next/extractable sequence, and quarantine selection. A prepared
+or completed candidate SHALL be canonical and match exact
+length/digest/record-count/last-digest/next-sequence relations. A later stream
+SHALL begin with the exact candidate bytes and the complete current stream
+SHALL verify canonically.
+
+If quarantine is selected, its reference SHALL be exactly
+`repair-quarantine/<before-sha256-hex>.bin`, its digest SHALL equal the
+discarded-tail digest, and its bytes SHALL match the reachable tail. Absence is
+allowed only while still in the pre-quarantine before state. Completed replay
+SHALL require and verify the selected quarantine. Any impossible, malformed,
+conflicting, orphaned, or stale relation SHALL block automated repair for
+manual recovery.
 
 #### Scenario: Operator intent is stale
 
@@ -252,3 +309,14 @@ against the 30-second writer lock budget. Sequential append timing SHALL be
 recorded as an observation but SHALL not be a host-sensitive correctness
 assertion. Capacity/latency documentation SHALL not advertise throughput
 guarantees.
+
+### Requirement: Fresh-checkout scaffold bundle preserves repository LF
+
+The generated Codex project-scaffold bundle SHALL be rebuilt from the
+LF-normalized `assets/project-scaffold` source. Every non-binary bundled text
+entry SHALL be free of CRLF. Bundle load and rebuild checks SHALL fail directly
+if a text entry embeds CRLF, even when its entry and tree digests were updated.
+
+This bundle correction is a pre-existing fresh-checkout verification
+prerequisite exposed by the LF worktree. It is not caused by delegation-ledger
+runtime behavior.

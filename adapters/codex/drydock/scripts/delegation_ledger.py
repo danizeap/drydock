@@ -4,17 +4,41 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
+import sys
 import time
+import types
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO, Dict, Iterator, List, Mapping, Optional, Sequence
 
-from . import delegation_contracts as contracts
+if __package__:
+    from . import delegation_contracts as contracts
+else:
+    # Direct execution has no package context. Build a private qualified
+    # namespace pinned to this exact plugin's root so an unrelated ambient
+    # ``scripts`` or ``delegation_contracts`` module cannot satisfy the import.
+    _SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+    _PLUGIN_DIRECTORY = _SCRIPT_DIRECTORY.parent
+    _BOOTSTRAP_ROOT = "_drydock_direct_plugin"
+    _BOOTSTRAP_SCRIPTS = _BOOTSTRAP_ROOT + ".scripts"
+
+    root_package = types.ModuleType(_BOOTSTRAP_ROOT)
+    root_package.__path__ = [str(_PLUGIN_DIRECTORY)]  # type: ignore[attr-defined]
+    root_package.__package__ = _BOOTSTRAP_ROOT
+    scripts_package = types.ModuleType(_BOOTSTRAP_SCRIPTS)
+    scripts_package.__path__ = [str(_SCRIPT_DIRECTORY)]  # type: ignore[attr-defined]
+    scripts_package.__package__ = _BOOTSTRAP_SCRIPTS
+    sys.modules[_BOOTSTRAP_ROOT] = root_package
+    sys.modules[_BOOTSTRAP_SCRIPTS] = scripts_package
+    contracts = importlib.import_module(
+        _BOOTSTRAP_SCRIPTS + ".delegation_contracts"
+    )
 
 
 MAX_LEDGER_BYTES = 16 * 1024 * 1024
@@ -335,6 +359,13 @@ def _read_records_bytes(
                 expected_previous_digest=previous_digest,
                 seen_event_ids=seen_event_ids,
             )
+            if (
+                contracts.canonical_json(event).encode("utf-8") + b"\n"
+                != raw_line
+            ):
+                raise LedgerError(
+                    "event line is not exact canonical JSON followed by LF"
+                )
         except (
             UnicodeDecodeError,
             contracts.ContractError,
@@ -419,6 +450,11 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
         raise LedgerError("repair intent record count exceeds capacity")
     if value["discarded_tail_byte_count"] <= 0:
         raise LedgerError("repair intent must discard a non-empty tail")
+    if (
+        value["valid_prefix_byte_count"] + value["discarded_tail_byte_count"]
+        > MAX_LEDGER_BYTES
+    ):
+        raise LedgerError("repair intent before state exceeds ledger capacity")
     if value["structural_classification"] not in REPAIR_CLASSIFICATIONS:
         raise LedgerError("repair intent classification is unsupported")
     sequence = value["extractable_sequence"]
@@ -433,6 +469,16 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
         contracts.validate_digest(
             value["last_valid_record_digest"], "last_valid_record_digest"
         )
+    if (value["valid_prefix_record_count"] == 0) != (
+        value["last_valid_record_digest"] is None
+    ):
+        raise LedgerError(
+            "repair intent prefix count and last digest are inconsistent"
+        )
+    if sequence is not None and sequence != value["valid_prefix_record_count"] + 1:
+        raise LedgerError(
+            "repair intent extractable_sequence is not the exact next sequence"
+        )
     quarantine_ref = value["quarantine_ref"]
     quarantine_digest = value["quarantine_digest"]
     if (quarantine_ref is None) != (quarantine_digest is None):
@@ -440,6 +486,17 @@ def _validate_repair_intent(value: object, expected_run_id: str) -> Dict[str, ob
     if quarantine_ref is not None:
         contracts.validate_reference(quarantine_ref, "quarantine_ref")
         contracts.validate_digest(quarantine_digest, "quarantine_digest")
+        expected_ref = "repair-quarantine/{}.bin".format(
+            str(value["before_digest"]).split(":", 1)[1]
+        )
+        if quarantine_ref != expected_ref:
+            raise LedgerError(
+                "repair quarantine reference is not derived from before_digest"
+            )
+        if quarantine_digest != value["discarded_tail_digest"]:
+            raise LedgerError(
+                "repair quarantine digest does not equal discarded tail digest"
+            )
     if _intent_digest(value) != value["intent_digest"]:
         raise LedgerError("repair intent self-digest does not match")
     return dict(value)
@@ -454,11 +511,297 @@ def _read_intent(path: Path, run_id: str) -> Dict[str, object]:
         raise LedgerError("repair intent is not newline-terminated")
     try:
         value = contracts.strict_json_loads(raw[:-1].decode("utf-8"))
-        return _validate_repair_intent(value, run_id)
+        intent = _validate_repair_intent(value, run_id)
+        expected_name = "{}.json".format(
+            str(intent["before_digest"]).split(":", 1)[1]
+        )
+        if path.name != expected_name:
+            raise LedgerError(
+                "repair intent filename is not derived from before_digest"
+            )
+        if contracts.canonical_json(intent).encode("utf-8") + b"\n" != raw:
+            raise LedgerError(
+                "repair intent is not exact canonical JSON followed by LF"
+            )
+        return intent
     except (UnicodeDecodeError, contracts.ContractError, LedgerError) as exc:
         raise LedgerError(
             "malformed repair intent {}: {}".format(path.name, exc)
         ) from exc
+
+
+class _IncompleteJson(Exception):
+    def __init__(self, classification: str) -> None:
+        super().__init__(classification)
+        self.classification = classification
+
+
+_JSON_NUMBER = re.compile(
+    r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?"
+)
+_INCOMPLETE_JSON_NUMBER = re.compile(
+    r"(?:-|-?(?:0|[1-9][0-9]*)\.|"
+    r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?[eE][+-]?)"
+)
+
+
+class _StructuralPrefixScanner:
+    """Recognize only a bounded prefix of one strict JSON object.
+
+    This scanner never asks CPython's recursive JSON decoder to classify an
+    incomplete document. Completed scalar tokens still pass through the v2
+    strict loader so integer, float, constant, and string behavior stays
+    aligned with persisted contracts.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.index = 0
+        self.sequence: Optional[int] = None
+
+    def scan(self) -> tuple[str, Optional[int]]:
+        if not self.text or self.text[0] != "{":
+            raise LedgerError(
+                "repair refused because torn tail is not a JSON object prefix"
+            )
+        try:
+            self._parse_value(0)
+        except _IncompleteJson as exc:
+            return exc.classification, self.sequence
+        except contracts.ContractError as exc:
+            raise LedgerError(
+                "repair refused because torn tail violates strict JSON: {}".format(
+                    exc
+                )
+            ) from exc
+        except (RecursionError, ValueError, OverflowError) as exc:
+            raise LedgerError(
+                "repair refused because torn tail exceeds strict JSON bounds"
+            ) from exc
+        if self.index != len(self.text):
+            raise LedgerError(
+                "repair refused because tail contains trailing corruption"
+            )
+        raise LedgerError(
+            "repair refused because a complete record missing only newline is ambiguous"
+        )
+
+    def _parse_value(self, depth: int, *, require_integer: bool = False) -> object:
+        if depth > contracts.MAX_JSON_DEPTH:
+            raise LedgerError(
+                "repair refused because torn tail exceeds the JSON depth bound"
+            )
+        if self.index >= len(self.text):
+            raise _IncompleteJson("truncated_json")
+        char = self.text[self.index]
+        if require_integer and not char.isdigit():
+            raise LedgerError(
+                "repair refused because extractable sequence is not an integer"
+            )
+        if char == "{":
+            if require_integer:
+                raise LedgerError(
+                    "repair refused because extractable sequence is not an integer"
+                )
+            return self._parse_object(depth)
+        if char == "[":
+            if require_integer:
+                raise LedgerError(
+                    "repair refused because extractable sequence is not an integer"
+                )
+            return self._parse_array(depth)
+        if char == '"':
+            if require_integer:
+                raise LedgerError(
+                    "repair refused because extractable sequence is not an integer"
+                )
+            return self._parse_string()
+        if char in "-0123456789":
+            return self._parse_number(require_integer=require_integer)
+        if require_integer:
+            raise LedgerError(
+                "repair refused because extractable sequence is not an integer"
+            )
+        if char == "t":
+            return self._parse_literal("true", True)
+        if char == "f":
+            return self._parse_literal("false", False)
+        if char == "n":
+            return self._parse_literal("null", None)
+        if char in "NI":
+            raise LedgerError(
+                "repair refused because tail contains a non-finite JSON constant"
+            )
+        raise LedgerError(
+            "repair refused because tail corruption is not terminal/structural"
+        )
+
+    def _parse_object(self, depth: int) -> Dict[str, object]:
+        self.index += 1
+        result: Dict[str, object] = {}
+        if self.index >= len(self.text):
+            raise _IncompleteJson("truncated_json")
+        if self.text[self.index] == "}":
+            self.index += 1
+            return result
+        while True:
+            if self.index >= len(self.text):
+                raise _IncompleteJson("truncated_json")
+            if self.text[self.index] != '"':
+                raise LedgerError(
+                    "repair refused because object key syntax is invalid"
+                )
+            key = self._parse_string()
+            if not isinstance(key, str):
+                raise LedgerError("repair refused because object key is not text")
+            if key in result:
+                raise LedgerError(
+                    "repair refused because torn tail has duplicate completed "
+                    "object key {!r}".format(key)
+                )
+            # Record a completed key before parsing its value so a duplicate is
+            # rejected even when the containing object remains incomplete.
+            result[key] = None
+            if self.index >= len(self.text):
+                raise _IncompleteJson("truncated_json")
+            if self.text[self.index] != ":":
+                raise LedgerError(
+                    "repair refused because object key is not followed by colon"
+                )
+            self.index += 1
+            is_root_sequence = depth == 0 and key == "sequence"
+            value = self._parse_value(
+                depth + 1,
+                require_integer=is_root_sequence,
+            )
+            result[key] = value
+            if is_root_sequence:
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value <= 0
+                    or value > MAX_RECORDS
+                ):
+                    raise LedgerError(
+                        "repair refused because extractable sequence is invalid"
+                    )
+                self.sequence = value
+            if self.index >= len(self.text):
+                raise _IncompleteJson("truncated_json")
+            delimiter = self.text[self.index]
+            if delimiter == "}":
+                self.index += 1
+                return result
+            if delimiter != ",":
+                raise LedgerError(
+                    "repair refused because object delimiter is invalid"
+                )
+            self.index += 1
+
+    def _parse_array(self, depth: int) -> List[object]:
+        self.index += 1
+        result: List[object] = []
+        if self.index >= len(self.text):
+            raise _IncompleteJson("truncated_json")
+        if self.text[self.index] == "]":
+            self.index += 1
+            return result
+        while True:
+            result.append(self._parse_value(depth + 1))
+            if self.index >= len(self.text):
+                raise _IncompleteJson("truncated_json")
+            delimiter = self.text[self.index]
+            if delimiter == "]":
+                self.index += 1
+                return result
+            if delimiter != ",":
+                raise LedgerError(
+                    "repair refused because array delimiter is invalid"
+                )
+            self.index += 1
+
+    def _parse_string(self) -> str:
+        start = self.index
+        self.index += 1
+        while self.index < len(self.text):
+            char = self.text[self.index]
+            if char == '"':
+                self.index += 1
+                token = self.text[start : self.index]
+                value = contracts.strict_json_loads(token)
+                if not isinstance(value, str):
+                    raise LedgerError("repair refused because string token is invalid")
+                return value
+            if ord(char) < 0x20:
+                raise LedgerError(
+                    "repair refused because string contains a control character"
+                )
+            if char != "\\":
+                self.index += 1
+                continue
+            self.index += 1
+            if self.index >= len(self.text):
+                raise _IncompleteJson("unterminated_string")
+            escape = self.text[self.index]
+            if escape not in '"\\/bfnrtu':
+                raise LedgerError(
+                    "repair refused because string escape is invalid"
+                )
+            if escape != "u":
+                self.index += 1
+                continue
+            available = len(self.text) - (self.index + 1)
+            count = min(4, available)
+            digits = self.text[self.index + 1 : self.index + 1 + count]
+            if any(char not in "0123456789abcdefABCDEF" for char in digits):
+                raise LedgerError(
+                    "repair refused because Unicode escape is invalid"
+                )
+            if available < 4:
+                raise _IncompleteJson("unterminated_string")
+            self.index += 5
+        raise _IncompleteJson("unterminated_string")
+
+    def _parse_literal(self, token: str, value: object) -> object:
+        remaining = self.text[self.index :]
+        if len(remaining) < len(token):
+            if token.startswith(remaining):
+                raise _IncompleteJson("truncated_json")
+            raise LedgerError(
+                "repair refused because JSON literal is invalid"
+            )
+        if not remaining.startswith(token):
+            raise LedgerError("repair refused because JSON literal is invalid")
+        self.index += len(token)
+        return value
+
+    def _parse_number(self, *, require_integer: bool) -> object:
+        start = self.index
+        while (
+            self.index < len(self.text)
+            and self.text[self.index] not in ",]}"
+        ):
+            self.index += 1
+        token = self.text[start : self.index]
+        at_end = self.index == len(self.text)
+        if require_integer and any(char not in "0123456789" for char in token):
+            raise LedgerError(
+                "repair refused because extractable sequence is not an integer"
+            )
+        if _JSON_NUMBER.fullmatch(token):
+            value = contracts.strict_json_loads(token)
+            if require_integer and (
+                isinstance(value, bool) or not isinstance(value, int)
+            ):
+                raise LedgerError(
+                    "repair refused because extractable sequence is not an integer"
+                )
+            return value
+        if at_end and _INCOMPLETE_JSON_NUMBER.fullmatch(token):
+            raise _IncompleteJson("truncated_json")
+        raise LedgerError(
+            "repair refused because JSON number is invalid"
+        )
 
 
 def _classify_torn_tail(
@@ -481,16 +824,6 @@ def _classify_torn_tail(
     if len(tail) > MAX_LINE_BYTES:
         raise LedgerError("repair refused because the torn tail exceeds line capacity")
 
-    extractable = re.findall(rb'"sequence"\s*:\s*(\d+)', tail)
-    if len(extractable) > 1:
-        raise LedgerError("repair refused because tail sequence is ambiguous")
-    sequence = int(extractable[0]) if extractable else None
-    expected_sequence = len(prefix_records) + 1
-    if sequence is not None and sequence != expected_sequence:
-        raise LedgerError(
-            "repair refused because extractable sequence is not the next record"
-        )
-
     try:
         text = tail.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -498,6 +831,24 @@ def _classify_torn_tail(
             raise LedgerError(
                 "repair refused because tail UTF-8 corruption is not terminal"
             ) from exc
+        decoded_prefix = tail[: exc.start].decode("utf-8")
+        classification, sequence = _StructuralPrefixScanner(
+            decoded_prefix
+        ).scan()
+        if classification != "unterminated_string":
+            raise LedgerError(
+                "repair refused because terminal UTF-8 truncation is not "
+                "inside a structurally valid string"
+            )
+        expected_sequence = len(prefix_records) + 1
+        if expected_sequence > MAX_RECORDS:
+            raise LedgerError(
+                "repair refused because the next sequence exceeds capacity"
+            )
+        if sequence is not None and sequence != expected_sequence:
+            raise LedgerError(
+                "repair refused because extractable sequence is not the next record"
+            )
         return (
             prefix,
             tail,
@@ -506,27 +857,229 @@ def _classify_torn_tail(
             prefix_records,
         )
 
-    if re.search(r"(?<![A-Za-z0-9_])(?:NaN|-?Infinity)(?![A-Za-z0-9_])", text):
-        raise LedgerError("repair refused because tail contains non-finite JSON")
-    decoder = json.JSONDecoder()
-    try:
-        _, end = decoder.raw_decode(text)
-    except json.JSONDecodeError as exc:
-        if exc.msg == "Unterminated string starting at":
-            classification = "unterminated_string"
-        elif exc.pos >= max(0, len(text) - 1):
-            classification = "truncated_json"
-        else:
-            raise LedgerError(
-                "repair refused because tail corruption is not terminal/structural"
-            ) from exc
-    else:
-        if not text[end:].strip():
-            raise LedgerError(
-                "repair refused because a complete record missing only newline is ambiguous"
-            )
-        raise LedgerError("repair refused because tail contains trailing corruption")
+    classification, sequence = _StructuralPrefixScanner(text).scan()
+    expected_sequence = len(prefix_records) + 1
+    if expected_sequence > MAX_RECORDS:
+        raise LedgerError(
+            "repair refused because the next sequence exceeds capacity"
+        )
+    if sequence is not None and sequence != expected_sequence:
+        raise LedgerError(
+            "repair refused because extractable sequence is not the next record"
+        )
     return prefix, tail, classification, sequence, prefix_records
+
+
+def _read_repair_artifact(path: Path, label: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise LedgerError("could not read {}: {}".format(label, exc)) from exc
+
+
+def _validate_candidate_bytes(
+    intent: Mapping[str, object],
+    candidate: bytes,
+    run_id: str,
+) -> List[Mapping[str, object]]:
+    if len(candidate) != intent["valid_prefix_byte_count"]:
+        raise LedgerError(
+            "repair candidate length does not match intent prefix length"
+        )
+    if contracts.digest_bytes(candidate) != intent["candidate_repaired_digest"]:
+        raise LedgerError("repair candidate digest does not match intent")
+    records, report = _read_records_bytes(candidate, run_id)
+    if not report["valid"]:
+        raise LedgerError(
+            "repair candidate is not a canonical valid ledger: {}".format(
+                report["corruption"]
+            )
+        )
+    if len(records) != intent["valid_prefix_record_count"]:
+        raise LedgerError(
+            "repair candidate record count does not match intent"
+        )
+    last_digest = records[-1]["record_digest"] if records else None
+    if last_digest != intent["last_valid_record_digest"]:
+        raise LedgerError(
+            "repair candidate last digest does not match intent"
+        )
+    next_sequence = len(records) + 1
+    if next_sequence > MAX_RECORDS:
+        raise LedgerError(
+            "repair candidate has no reachable next sequence within capacity"
+        )
+    if (
+        intent["extractable_sequence"] is not None
+        and intent["extractable_sequence"] != next_sequence
+    ):
+        raise LedgerError(
+            "repair intent extractable sequence is not candidate next sequence"
+        )
+    return records
+
+
+def _validate_quarantine_relation(
+    intent: Mapping[str, object],
+    directory: Path,
+    *,
+    tail: Optional[bytes],
+    required: bool,
+) -> Optional[bytes]:
+    before_hex = str(intent["before_digest"]).split(":", 1)[1]
+    expected_ref = "repair-quarantine/{}.bin".format(before_hex)
+    expected_path = directory / expected_ref
+    selected_ref = intent["quarantine_ref"]
+    if selected_ref is None:
+        if expected_path.exists():
+            raise LedgerError(
+                "unselected repair quarantine conflicts with intent"
+            )
+        return None
+    if selected_ref != expected_ref:
+        raise LedgerError(
+            "repair quarantine path does not match before_digest"
+        )
+    if intent["quarantine_digest"] != intent["discarded_tail_digest"]:
+        raise LedgerError(
+            "repair quarantine digest does not match discarded tail"
+        )
+    if not expected_path.exists():
+        if required:
+            raise LedgerError(
+                "repair quarantine is required before completed replay"
+            )
+        return None
+    quarantine = _read_repair_artifact(
+        expected_path, "repair quarantine"
+    )
+    if len(quarantine) != intent["discarded_tail_byte_count"]:
+        raise LedgerError(
+            "repair quarantine length does not match discarded tail"
+        )
+    if contracts.digest_bytes(quarantine) != intent["discarded_tail_digest"]:
+        raise LedgerError(
+            "repair quarantine digest does not match discarded tail"
+        )
+    if tail is not None and quarantine != tail:
+        raise LedgerError(
+            "repair quarantine bytes do not match reachable discarded tail"
+        )
+    return quarantine
+
+
+def _validate_intent_relation(
+    intent: Mapping[str, object],
+    current: bytes,
+    run_id: str,
+    directory: Path,
+) -> Dict[str, object]:
+    """Prove one immutable intent is reachable from the exact current bytes."""
+    before_hex = str(intent["before_digest"]).split(":", 1)[1]
+    candidate_path = directory / (
+        "events.repair-{}.candidate".format(before_hex)
+    )
+    current_digest = contracts.digest_bytes(current)
+
+    if current_digest == intent["before_digest"]:
+        prefix, tail, classification, sequence, prefix_records = (
+            _classify_torn_tail(current, run_id)
+        )
+        expected = {
+            "valid_prefix_byte_count": len(prefix),
+            "valid_prefix_record_count": len(prefix_records),
+            "last_valid_record_digest": (
+                prefix_records[-1]["record_digest"]
+                if prefix_records
+                else None
+            ),
+            "discarded_tail_digest": contracts.digest_bytes(tail),
+            "discarded_tail_byte_count": len(tail),
+            "structural_classification": classification,
+            "extractable_sequence": sequence,
+            "candidate_repaired_digest": contracts.digest_bytes(prefix),
+        }
+        for field, expected_value in expected.items():
+            if intent[field] != expected_value:
+                raise LedgerError(
+                    "repair intent {} does not match reachable before "
+                    "state".format(field)
+                )
+        if candidate_path.exists():
+            candidate = _read_repair_artifact(
+                candidate_path, "repair candidate"
+            )
+            if candidate != prefix:
+                raise LedgerError(
+                    "repair candidate is not the exact reachable prefix"
+                )
+            _validate_candidate_bytes(intent, candidate, run_id)
+        _validate_quarantine_relation(
+            intent,
+            directory,
+            tail=tail,
+            required=candidate_path.exists(),
+        )
+        return {
+            "state": "before",
+            "prefix": prefix,
+            "tail": tail,
+            "prefix_records": prefix_records,
+        }
+
+    prefix_length = intent["valid_prefix_byte_count"]
+    if not isinstance(prefix_length, int) or len(current) < prefix_length:
+        raise LedgerError(
+            "repair intent candidate prefix is unreachable from current ledger"
+        )
+    candidate = current[:prefix_length]
+    _validate_candidate_bytes(intent, candidate, run_id)
+    if candidate_path.exists():
+        prepared = _read_repair_artifact(
+            candidate_path, "repair candidate"
+        )
+        if prepared != candidate:
+            raise LedgerError(
+                "prepared repair candidate conflicts with current prefix"
+            )
+        _validate_candidate_bytes(intent, prepared, run_id)
+
+    if (
+        len(current) == prefix_length
+        and current_digest == intent["candidate_repaired_digest"]
+    ):
+        state = "completed"
+    else:
+        records, report = _read_records_bytes(current, run_id)
+        if not report["valid"]:
+            raise LedgerError(
+                "later ledger bytes after repair are not a canonical valid "
+                "stream: {}".format(report["corruption"])
+            )
+        if len(records) < intent["valid_prefix_record_count"]:
+            raise LedgerError(
+                "later ledger stream has fewer records than repair candidate"
+            )
+        state = "appended"
+
+    quarantine = _validate_quarantine_relation(
+        intent,
+        directory,
+        tail=None,
+        required=True,
+    )
+    if quarantine is not None and contracts.digest_bytes(
+        candidate + quarantine
+    ) != intent["before_digest"]:
+        raise LedgerError(
+            "repair candidate and quarantine do not reconstruct before_digest"
+        )
+    return {
+        "state": state,
+        "prefix": candidate,
+        "tail": quarantine,
+        "prefix_records": (),
+    }
 
 
 def _fault(step: str, selected: Optional[str]) -> None:
@@ -668,45 +1221,50 @@ class RunLedger:
                 raise LedgerError("could not read ledger for repair: {}".format(exc)) from exc
             current_digest = contracts.digest_bytes(data)
 
-            intents: List[Dict[str, object]] = []
+            intents: List[
+                tuple[Dict[str, object], Dict[str, object]]
+            ] = []
             if self.intent_directory.exists():
                 try:
-                    intent_paths = sorted(self.intent_directory.glob("*.json"))
+                    intent_entries = sorted(self.intent_directory.iterdir())
                 except OSError as exc:
                     raise LedgerError(
                         "could not enumerate repair intents: {}".format(exc)
                     ) from exc
-                for intent_path in intent_paths:
+                if any(
+                    not entry.is_file() or entry.suffix != ".json"
+                    for entry in intent_entries
+                ):
+                    raise LedgerError(
+                        "unexpected repair-intent artifact blocks manual recovery"
+                    )
+                for intent_path in intent_entries:
                     intent = _read_intent(intent_path, self.run_id)
-                    intents.append(intent)
-                    prefix_length = intent["valid_prefix_byte_count"]
-                    candidate_digest = intent["candidate_repaired_digest"]
-                    if current_digest not in (
-                        intent["before_digest"],
-                        candidate_digest,
-                    ):
-                        if (
-                            not isinstance(prefix_length, int)
-                            or len(data) < prefix_length
-                            or contracts.digest_bytes(data[:prefix_length])
-                            != candidate_digest
-                        ):
-                            raise LedgerError(
-                                "existing repair intent conflicts with current ledger"
-                            )
+                    relation = _validate_intent_relation(
+                        intent,
+                        data,
+                        self.run_id,
+                        self.directory,
+                    )
+                    intents.append((intent, relation))
 
-            matching = next(
+            matching_pair = next(
                 (
-                    intent
-                    for intent in intents
+                    (intent, relation)
+                    for intent, relation in intents
                     if intent["before_digest"] == expected_digest
                 ),
                 None,
             )
+            matching = matching_pair[0] if matching_pair is not None else None
+            matching_relation = (
+                matching_pair[1] if matching_pair is not None else None
+            )
             if current_digest != expected_digest:
                 if (
                     matching is not None
-                    and current_digest == matching["candidate_repaired_digest"]
+                    and matching_relation is not None
+                    and matching_relation["state"] in {"completed", "appended"}
                 ):
                     _fsync_directory(self.directory)
                     return {
@@ -719,9 +1277,28 @@ class RunLedger:
                     "stale repair intent: current ledger digest does not match expected"
                 )
 
-            prefix, tail, classification, sequence, prefix_records = (
-                _classify_torn_tail(data, self.run_id)
-            )
+            if matching_relation is not None:
+                if matching_relation["state"] != "before":
+                    raise LedgerError(
+                        "matching repair intent is not in a reachable before state"
+                    )
+                prefix = matching_relation["prefix"]
+                tail = matching_relation["tail"]
+                prefix_records = matching_relation["prefix_records"]
+                if not isinstance(prefix, bytes) or not isinstance(tail, bytes):
+                    raise LedgerError(
+                        "matching repair intent has impossible reachable bytes"
+                    )
+                if not isinstance(prefix_records, list):
+                    raise LedgerError(
+                        "matching repair intent has impossible prefix records"
+                    )
+                classification = str(matching["structural_classification"])
+                sequence = matching["extractable_sequence"]
+            else:
+                prefix, tail, classification, sequence, prefix_records = (
+                    _classify_torn_tail(data, self.run_id)
+                )
             before_hex = expected_digest.split(":", 1)[1]
             quarantine_ref = (
                 "repair-quarantine/{}.bin".format(before_hex)
@@ -760,7 +1337,17 @@ class RunLedger:
 
             _fault("pre_intent", _fault_after)
             intent_path = self.intent_directory / "{}.json".format(before_hex)
+            candidate_path = self.directory / (
+                "events.repair-{}.candidate".format(before_hex)
+            )
+            derived_quarantine_path = self.quarantine_directory / (
+                "{}.bin".format(before_hex)
+            )
             if matching is None:
+                if candidate_path.exists() or derived_quarantine_path.exists():
+                    raise LedgerError(
+                        "orphaned repair artifact blocks manual recovery"
+                    )
                 self.intent_directory.mkdir(parents=True, exist_ok=True)
                 raw_intent = (
                     contracts.canonical_json(proposed).encode("utf-8") + b"\n"
@@ -810,9 +1397,6 @@ class RunLedger:
                         ) from exc
                 _fault("post_quarantine", _fault_after)
 
-            candidate_path = self.directory / (
-                "events.repair-{}.candidate".format(before_hex)
-            )
             if candidate_path.exists():
                 try:
                     candidate_bytes = candidate_path.read_bytes()
@@ -824,6 +1408,7 @@ class RunLedger:
                     raise LedgerError(
                         "existing repair candidate conflicts with intent"
                     )
+                _validate_candidate_bytes(proposed, candidate_bytes, self.run_id)
             else:
                 try:
                     with candidate_path.open("xb") as stream:
@@ -835,6 +1420,13 @@ class RunLedger:
                     raise LedgerError(
                         "could not persist repair candidate: {}".format(exc)
                     ) from exc
+            _validate_candidate_bytes(proposed, prefix, self.run_id)
+            _validate_quarantine_relation(
+                proposed,
+                self.directory,
+                tail=tail,
+                required=True,
+            )
             _fault("post_candidate", _fault_after)
             try:
                 os.replace(str(candidate_path), str(self.path))

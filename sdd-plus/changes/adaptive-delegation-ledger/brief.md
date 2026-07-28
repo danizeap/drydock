@@ -11,6 +11,10 @@ Mode: FULL framework architecture and implementation. Primary skill:
 learning boundaries require adversarial contract, corruption, replay, and
 commit-gate proof.
 
+The 2026-07-28 schema-v2 remediation is a bounded FULL backend repair.
+`backend` is primary and `testing` supports the corruption, recovery, and
+capacity proof. It does not authorize archive, release, or self-verification.
+
 ## User Need
 
 Let Drydock learn which provider/model combinations are reliable and efficient
@@ -47,6 +51,13 @@ In scope:
 - Frozen profile snapshots, duplicate-resistant shadow reduction, and a
   verified-terminal-only append commit.
 - Deterministic Windows/macOS/Linux tests with no provider calls or quota use.
+- Strict schema-v2 request binding, controller-observed runtime status, and
+  explicitly untrusted claimed terminal/error detail.
+- Durable full source submissions with typed accepted, duplicate, and conflict
+  decisions that replay into the exact same profile state.
+- Exact canonical JSON bytes plus LF for every accepted ledger/profile line.
+- Explicit relational torn-tail repair whose immutable intent, candidate,
+  optional quarantine, and later reachable ledger bytes must agree.
 
 Out of scope:
 
@@ -87,6 +98,17 @@ Out of scope:
   reviewer remain required before archive or release.
 - [ ] Claude later reviews the contracts, adversarial boundaries, and
   calibration plan when usage returns.
+- [ ] Profile history enforces exactly 32 commits, at most 64 submitted source
+  triples per commit, and typed persisted rejections for duplicate/conflicting
+  evidence.
+- [ ] Whitespace, CRLF, key-order, or escaping mutations make a ledger/profile
+  stream corrupt and block append/commit.
+- [ ] Torn-tail classification is bounded and never leaks raw parser recursion
+  or integer-conversion exceptions; existing repair metadata is relationally
+  checked before replay.
+- [ ] The generated scaffold bundle is rebuilt from LF source and rejects CRLF
+  in text entries. This is a fresh-checkout verification prerequisite caused
+  by the pre-existing committed bundle, not by delegation-ledger behavior.
 
 ## Impact Areas
 

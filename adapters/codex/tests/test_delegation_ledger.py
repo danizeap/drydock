@@ -137,6 +137,71 @@ def test_reordering_and_incomplete_final_line_fail_closed(
     assert "newline-terminated" in report["corruption"]["reason"]
 
 
+def _noncanonical_line(raw: bytes, mutation: str) -> bytes:
+    if mutation == "leading_whitespace":
+        return b" " + raw
+    if mutation == "trailing_whitespace":
+        return raw[:-1] + b" \n"
+    if mutation == "interior_whitespace":
+        return raw.replace(b":", b": ", 1)
+    if mutation == "crlf":
+        return raw[:-1] + b"\r\n"
+    if mutation == "key_order":
+        value = contracts.strict_json_loads(raw[:-1].decode("utf-8"))
+        assert isinstance(value, dict)
+        reordered = {
+            key: value[key] for key in reversed(tuple(value))
+        }
+        return (
+            json.dumps(
+                reordered,
+                ensure_ascii=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+    if mutation == "escaping":
+        assert b"safe/path" in raw
+        return raw.replace(b"safe/path", b"safe\\/path", 1)
+    raise AssertionError("unknown mutation")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "leading_whitespace",
+        "trailing_whitespace",
+        "interior_whitespace",
+        "crlf",
+        "key_order",
+        "escaping",
+    ],
+)
+def test_noncanonical_event_bytes_block_replay_and_append(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path / mutation, "run-1")
+    target.append(
+        event_type="delegation_event",
+        runtime_status="completed",
+        payload={"label": "safe/path"},
+        event_id="event-1",
+        recorded_at=NOW,
+    )
+    mutated = _noncanonical_line(target.path.read_bytes(), mutation)
+    target.path.write_bytes(mutated)
+
+    report = target.verify()
+    assert report["valid"] is False
+    assert "canonical JSON" in report["corruption"]["reason"]
+    before = target.path.read_bytes()
+    with pytest.raises(delegation_ledger.LedgerError, match="corrupt"):
+        append_event(target, 2)
+    assert target.path.read_bytes() == before
+
+
 def test_sensitive_or_oversized_payload_is_rejected_before_ledger_creation(
     tmp_path: Path,
 ) -> None:
@@ -200,6 +265,87 @@ target.append(
     assert [record["sequence"] for record in records] == [1, 2]
     assert {record["payload"]["worker"] for record in records} == {"one", "two"}
     assert target.verify()["valid"] is True
+
+
+def test_direct_cli_help_works_from_source_and_installed_scripts_layout(
+    tmp_path: Path,
+) -> None:
+    source_scripts = Path(delegation_ledger.__file__).resolve().parent
+    installed_scripts = tmp_path / "plugin-root" / "scripts"
+    installed_scripts.mkdir(parents=True)
+    for name in ("delegation_contracts.py", "delegation_ledger.py"):
+        (installed_scripts / name).write_bytes(
+            (source_scripts / name).read_bytes()
+        )
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+
+    for script in (
+        source_scripts / "delegation_ledger.py",
+        installed_scripts / "delegation_ledger.py",
+    ):
+        completed = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert "repair-torn-tail" in completed.stdout
+        assert "ImportError" not in completed.stderr
+
+
+@pytest.mark.skipif(os.name not in {"nt", "posix"}, reason="unsupported lock OS")
+def test_real_lock_contention_times_out_deterministically(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / "contention" / ".events.lock"
+    marker = tmp_path / "lock-held"
+    script = """
+import sys
+import time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from adapters.codex.drydock.scripts.delegation_ledger import exclusive_file_lock
+with exclusive_file_lock(Path(sys.argv[2]), timeout_s=1.0):
+    Path(sys.argv[3]).write_text("held", encoding="utf-8")
+    time.sleep(5)
+"""
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(REPOSITORY_ROOT),
+            str(lock_path),
+            str(marker),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and process.poll() is None:
+            if time.monotonic() >= deadline:
+                pytest.fail("lock holder did not become ready")
+            time.sleep(0.01)
+        if process.poll() is not None:
+            stdout, stderr = process.communicate()
+            pytest.fail(
+                "lock holder exited early: {!r} {!r}".format(stdout, stderr)
+            )
+        with pytest.raises(delegation_ledger.LedgerError, match="timed out"):
+            with delegation_ledger.exclusive_file_lock(
+                lock_path, timeout_s=0.1
+            ):
+                pytest.fail("contended lock was acquired")
+    finally:
+        process.terminate()
+        process.communicate(timeout=10)
 
 
 @pytest.mark.parametrize(
@@ -319,6 +465,82 @@ def test_repair_refuses_newline_semantic_interior_and_ambiguous_tail(
         sequence_target.repair_torn_tail(expected_digest=sequence_digest)
 
 
+@pytest.mark.parametrize(
+    "tail",
+    [
+        b'{"sequence":2,"payload":1e400',
+        b'{"sequence":' + (b"9" * 5000),
+        b'{"sequence":2,"sequence":',
+        b'{"sequence":2,"payload":'
+        + (b"[" * (contracts.MAX_JSON_DEPTH + 1)),
+    ],
+)
+def test_torn_tail_classifier_returns_typed_error_for_adversarial_prefixes(
+    tmp_path: Path,
+    tail: bytes,
+) -> None:
+    target = delegation_ledger.RunLedger(
+        tmp_path / contracts.digest_bytes(tail)[-12:], "run-1"
+    )
+    append_event(target)
+    with target.path.open("ab") as stream:
+        stream.write(tail)
+    expected = contracts.digest_bytes(target.path.read_bytes())
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("tail", "classification"),
+    [
+        (
+            b'{"sequence":2,"payload":',
+            "truncated_json",
+        ),
+        (
+            b'{"sequence":2,"payload":{"note":"torn',
+            "unterminated_string",
+        ),
+        (
+            b'{"sequence":2,"payload":{"note":"'
+            + "\u20ac".encode("utf-8")[:2],
+            "truncated_utf8_codepoint",
+        ),
+        (
+            b'{"sequence":2,"payload":'
+            + (b"[" * contracts.MAX_JSON_DEPTH),
+            "truncated_json",
+        ),
+        (
+            b'{"sequence":2,"payload":'
+            + str(contracts.MAX_INTEGER).encode("ascii"),
+            "truncated_json",
+        ),
+    ],
+)
+def test_genuine_terminal_truncation_and_v2_boundaries_remain_repairable(
+    tmp_path: Path,
+    tail: bytes,
+    classification: str,
+) -> None:
+    target = delegation_ledger.RunLedger(
+        tmp_path / contracts.digest_bytes(tail)[-12:], "run-1"
+    )
+    append_event(target)
+    valid_prefix = target.path.read_bytes()
+    with target.path.open("ab") as stream:
+        stream.write(tail)
+    expected = contracts.digest_bytes(target.path.read_bytes())
+
+    repaired = target.repair_torn_tail(expected_digest=expected)
+    assert repaired["structural_classification"] == classification
+    assert target.path.read_bytes() == valid_prefix
+    assert target.verify()["valid"] is True
+
+
 def test_malformed_existing_repair_intent_blocks_manual_recovery(
     tmp_path: Path,
 ) -> None:
@@ -345,6 +567,173 @@ def test_v1_repair_intent_is_explicitly_refused(tmp_path: Path) -> None:
 
     with pytest.raises(delegation_ledger.LedgerError, match="malformed"):
         target.repair_torn_tail(expected_digest=expected_digest)
+
+
+def _persist_intent(target: delegation_ledger.RunLedger, value: dict) -> None:
+    value["intent_digest"] = delegation_ledger._intent_digest(value)
+    path = target.intent_directory / (
+        value["before_digest"].split(":", 1)[1] + ".json"
+    )
+    path.write_bytes(
+        contracts.canonical_json(value).encode("utf-8") + b"\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("valid_prefix_byte_count", 0),
+        ("valid_prefix_record_count", 0),
+        ("candidate_repaired_digest", "sha256:" + ("1" * 64)),
+        ("discarded_tail_digest", "sha256:" + ("2" * 64)),
+        ("discarded_tail_byte_count", 1),
+        ("structural_classification", "truncated_json"),
+        ("extractable_sequence", None),
+    ],
+)
+def test_repair_intent_relations_are_recomputed_from_before_bytes(
+    tmp_path: Path,
+    field: str,
+    replacement: object,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path / field, "run-repair")
+    expected = add_torn_tail(target)
+    with pytest.raises(delegation_ledger.RepairInterrupted):
+        target.repair_torn_tail(
+            expected_digest=expected,
+            _fault_after="post_intent",
+        )
+    intent_path = next(target.intent_directory.glob("*.json"))
+    intent = contracts.strict_json_loads(
+        intent_path.read_text(encoding="utf-8")
+    )
+    assert isinstance(intent, dict)
+    if field == "valid_prefix_record_count":
+        intent["last_valid_record_digest"] = None
+    intent[field] = replacement
+    _persist_intent(target, intent)
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
+
+
+def test_every_existing_repair_intent_must_relate_to_current_bytes(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "run-repair")
+    expected = add_torn_tail(target)
+    with pytest.raises(delegation_ledger.RepairInterrupted):
+        target.repair_torn_tail(
+            expected_digest=expected,
+            _fault_after="post_intent",
+        )
+    original_path = next(target.intent_directory.glob("*.json"))
+    conflicting = contracts.strict_json_loads(
+        original_path.read_text(encoding="utf-8")
+    )
+    assert isinstance(conflicting, dict)
+    conflicting["before_digest"] = "sha256:" + ("0" * 64)
+    _persist_intent(target, conflicting)
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
+
+
+def test_repair_candidate_and_quarantine_are_relationally_verified(
+    tmp_path: Path,
+) -> None:
+    candidate_target = delegation_ledger.RunLedger(
+        tmp_path / "candidate", "run-repair"
+    )
+    candidate_expected = add_torn_tail(candidate_target)
+    with pytest.raises(delegation_ledger.RepairInterrupted):
+        candidate_target.repair_torn_tail(
+            expected_digest=candidate_expected,
+            _fault_after="post_candidate",
+        )
+    candidate_path = next(
+        candidate_target.directory.glob("events.repair-*.candidate")
+    )
+    candidate_path.write_bytes(candidate_path.read_bytes() + b"x")
+    before = candidate_target.path.read_bytes()
+    with pytest.raises(delegation_ledger.LedgerError, match="candidate"):
+        candidate_target.repair_torn_tail(
+            expected_digest=candidate_expected
+        )
+    assert candidate_target.path.read_bytes() == before
+
+    quarantine_target = delegation_ledger.RunLedger(
+        tmp_path / "quarantine", "run-repair"
+    )
+    quarantine_expected = add_torn_tail(quarantine_target)
+    with pytest.raises(delegation_ledger.RepairInterrupted):
+        quarantine_target.repair_torn_tail(
+            expected_digest=quarantine_expected,
+            quarantine=True,
+            _fault_after="post_quarantine",
+        )
+    quarantine_path = next(
+        quarantine_target.quarantine_directory.glob("*.bin")
+    )
+    quarantine_path.write_bytes(b"conflicting")
+    before = quarantine_target.path.read_bytes()
+    with pytest.raises(delegation_ledger.LedgerError, match="quarantine"):
+        quarantine_target.repair_torn_tail(
+            expected_digest=quarantine_expected,
+            quarantine=True,
+        )
+    assert quarantine_target.path.read_bytes() == before
+
+
+def test_completed_quarantine_is_required_and_later_appends_are_verified(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "run-repair")
+    expected = add_torn_tail(target)
+    repaired = target.repair_torn_tail(
+        expected_digest=expected,
+        quarantine=True,
+    )
+    assert repaired["status"] == "repaired"
+    append_event(target, 2)
+    replay = target.repair_torn_tail(
+        expected_digest=expected,
+        quarantine=True,
+    )
+    assert replay["status"] == "completed_replay"
+
+    quarantine_path = next(target.quarantine_directory.glob("*.bin"))
+    quarantine_path.unlink()
+    before = target.path.read_bytes()
+    with pytest.raises(
+        delegation_ledger.LedgerError,
+        match="quarantine is required",
+    ):
+        target.repair_torn_tail(
+            expected_digest=expected,
+            quarantine=True,
+        )
+    assert target.path.read_bytes() == before
+
+
+def test_later_noncanonical_stream_blocks_completed_repair_replay(
+    tmp_path: Path,
+) -> None:
+    target = delegation_ledger.RunLedger(tmp_path, "run-repair")
+    expected = add_torn_tail(target)
+    target.repair_torn_tail(expected_digest=expected)
+    append_event(target, 2)
+    lines = target.path.read_bytes().splitlines(keepends=True)
+    target.path.write_bytes(lines[0] + b" " + lines[1])
+    before = target.path.read_bytes()
+
+    with pytest.raises(delegation_ledger.LedgerError, match="canonical valid"):
+        target.repair_torn_tail(expected_digest=expected)
+    assert target.path.read_bytes() == before
 
 
 def _prebuilt_ledger_bytes(run_id: str, count: int) -> bytes:

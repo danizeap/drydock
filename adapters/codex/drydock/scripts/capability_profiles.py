@@ -1073,6 +1073,13 @@ def _read_commits_unlocked(
                 start=snapshot,
                 expected_previous_digest=previous_digest,
             )
+            if (
+                _canonical_profile_json(commit).encode("utf-8") + b"\n"
+                != raw_line
+            ):
+                raise ProfileError(
+                    "profile line is not exact canonical JSON followed by LF"
+                )
         except (
             UnicodeDecodeError,
             contracts.ContractError,
