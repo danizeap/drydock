@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "bounded_list": {
+      "items": {
+        "$ref": "#/$defs/bounded_string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "bounded_string": {
+      "maxLength": 12000,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "blocking_concerns": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "converged": {
+          "type": "boolean"
+        },
+        "evidence_kind": {
+          "const": "peer_review_summary"
+        },
+        "gaps": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "overall": {
+          "$ref": "#/$defs/bounded_string"
+        },
+        "required_changes": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "risks": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "schema_version": {
+          "const": 1
+        }
+      },
+      "required": [
+        "schema_version",
+        "evidence_kind",
+        "converged",
+        "overall",
+        "blocking_concerns",
+        "gaps",
+        "risks",
+        "required_changes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "evidence_kind": {
+          "const": "codex_final_verifier"
+        },
+        "gaps": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "overall": {
+          "$ref": "#/$defs/bounded_string"
+        },
+        "risks": {
+          "$ref": "#/$defs/bounded_list"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "BLOCKED"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "evidence_kind",
+        "verdict",
+        "overall",
+        "blockers",
+        "gaps",
+        "risks"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "Drydock orchestration efficiency packet evidence",
+  "type": "object"
+}

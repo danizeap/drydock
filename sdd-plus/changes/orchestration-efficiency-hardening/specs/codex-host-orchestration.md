@@ -25,6 +25,10 @@ complete, blocked, cancelled-by-Owner, or superseded-by-a-new-Owner-objective.
 Starting another local process does not reset the cumulative envelope. This
 packet does not claim to enforce a weekly or cross-run account ceiling; those
 signals may advise routing only when separately available and trustworthy.
+Creating or superseding an objective requires an explicit Owner action; model
+output, controller policy, envelope exhaustion, or a worker result cannot reset
+the run. The transition SHALL record old/new run IDs, timestamp, and a digest
+of the Owner-authorized transition without retaining the Owner's raw message.
 
 #### Scenario: Usage data is unavailable
 - **WHEN** the provider exposes no trustworthy token or remaining-capacity data
@@ -162,9 +166,9 @@ The packet-evidence allowlist is limited to regular non-symlink files at the
 active packet root named `verification.md`,
 `claude-architecture-review-round-<positive-integer>.json`, or
 `codex-final-verifier.json`. JSON members SHALL pass their dedicated evidence
-schema. Every other packet path, including brief, plan, tasks, decision log,
-specs, scripts, configuration, and unknown names, belongs to the executable
-surface for invalidation purposes.
+schema at `specs/packet-evidence.schema.json`. Every other packet path,
+including brief, plan, tasks, decision log, specs, scripts, configuration, and
+unknown names, belongs to the executable surface for invalidation purposes.
 
 Reusable test or verification evidence SHALL bind the executable-surface
 fingerprint, exact command, relevant environment fingerprint, terminal status,
@@ -181,11 +185,25 @@ intermediate-work optimization only.
 - **THEN** proof reuse is disabled and no prior result is attached to the
   current candidate
 
-#### Scenario: Ignored path can affect Python or pytest loading
+#### Scenario: Ignored path can inject or override Python or pytest code
 - **WHEN** an ignored path matches `conftest.py`, `sitecustomize.py`,
-  `usercustomize.py`, `*.pth`, `__pycache__`, or `*.py[cod]`
+  `usercustomize.py`, or `*.pth`
 - **THEN** proof reuse is disabled even though ordinary Git status omits the
-  path; a reused Python command SHALL also disable bytecode writing
+  path
+
+#### Scenario: Ignored bytecode caches exist in the Owner checkout
+- **WHEN** ignored `__pycache__` directories or `*.py[cod]` files exist outside
+  the proof root
+- **THEN** their existence alone does not disable reuse; proof generation and
+  reuse validation run in a fresh ephemeral root materialized from the exact
+  executable commit, verify that root contains no bytecode before spawn, and
+  disable bytecode writing for the command
+
+#### Scenario: Bytecode appears inside the proof root
+- **WHEN** `__pycache__` or `*.py[cod]` exists in the fresh proof root before
+  the command starts
+- **THEN** the root is not proven clean and reuse is disabled; the controller
+  does not purge an unexplained file and continue
 
 #### Scenario: Tracked bytecode exists
 - **WHEN** the complete tracked tree contains a bytecode artifact that the
@@ -208,7 +226,10 @@ byte after the full run creates a new fingerprint that SHALL receive its own
 complete required-suite execution before final acceptance. Recording the
 passing result in an allowlisted packet-evidence path changes only the
 packet-evidence fingerprint and SHALL NOT self-invalidate the executable proof.
-The final report SHALL disclose both exact fingerprints.
+The final report SHALL disclose the exact executable-surface fingerprint and
+an exact packet-evidence-parent fingerprint computed over the allowlisted
+evidence set excluding the report record being written. It SHALL NOT claim a
+self-inclusive evidence digest.
 
 #### Scenario: Isolated intermediate failure is corrected
 - **WHEN** a focused correction produces a new intermediate fingerprint
@@ -282,11 +303,26 @@ stage, or other contract/control violation SHALL return to the Owner and SHALL
 NOT authorize automatic continuation. The default for every unrecognized value
 is `return_to_owner`.
 
+For this requirement, "provider cost is proven zero" means a successfully
+parsed top-level CLI envelope for the requested model contains a finite numeric
+`total_cost_usd` equal to exactly zero. A missing, malformed, negative, or
+unavailable cost field is unknown and never proves zero.
+
 #### Scenario: Claude becomes unavailable mid-workflow
 - **WHEN** one of the four allowlisted benign availability failures prevents a
   peer round
 - **THEN** Drydock may remain the Codex-hosted governor in machine-readable
   single-pilot mode while reporting `peer_convergence: not_established`
+
+#### Scenario: Claude times out or its process fails
+This scenario explicitly supersedes the scenario with the same name in
+`peer-unavailable-governance`.
+
+- **WHEN** a bounded peer call times out with bounded cleanup, or its process
+  exits nonzero with no structured provider subtype and provider cost proven
+  exactly zero
+- **THEN** Codex may continue the governed packet in single-pilot mode without
+  claiming peer agreement, cross-model review, or operational readiness
 
 #### Scenario: Failure is not one of the four allowed values
 - **WHEN** a structured subtype, stage, or failure class is not explicitly in

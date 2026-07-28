@@ -1,4 +1,6 @@
 {
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
   "converged": false,
   "overall": "Claude reviewed 8d4dd5c..dd4c9a5 read-only and confirmed that all four round-one blockers and all eight round-one required changes were closed normatively. It found two new anchoring blockers: the final candidate fingerprint included the evidence record that must describe it, creating infinite regress, and the fail-closed MODIFIED requirement used a name absent from predecessor deltas, leaving the older broad continuation permission alive at sync.",
   "blocking_concerns": [

@@ -1,4 +1,6 @@
 {
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
   "converged": false,
   "overall": "Claude reviewed commit 8d4dd5c read-only and confirmed it was a clean docs-only architecture commit with no runtime implementation. It verified the live fail-open chain: error_max_budget_usd falls through classify_peer_failure to process_failure, which is admitted to single_pilot continuation, while the existing peer-unavailable delta requires budget violations to return to the Owner. The central architecture was judged disciplined, but four specification blockers remained: unknown provider subtypes still failed open; pre-mutation critique was self-scoped by packet labels; cheaper post-exhaustion models could satisfy stronger gates; and composed evidence could leave the final frozen candidate without a complete full-suite pass.",
   "blocking_concerns": [

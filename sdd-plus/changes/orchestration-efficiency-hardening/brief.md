@@ -81,10 +81,10 @@ Out of scope:
 - [ ] FULL persistence/permission/process/verification changes trigger
   architecture critique objectively; a skipped critique is machine-readable
   and cannot satisfy convergence.
-- [ ] Proof reuse requires a clean committed tree, an ignored-loadable-path
-  scan, and exact executable-surface/command/environment binding; the final
-  executable surface receives one complete required-suite run with no composed
-  substitute.
+- [ ] Proof reuse requires a clean committed tree, a hard block on ignored
+  Python/pytest injection paths, a fresh bytecode-free proof root, and exact
+  executable-surface/command/environment binding; the final executable surface
+  receives one complete required-suite run with no composed substitute.
 - [ ] Oversized embedded review input is rejected before a provider call and
   produces an actionable route.
 - [ ] Every phase reports actual elapsed time, calls, input bytes, and known
@@ -92,7 +92,8 @@ Out of scope:
   fact.
 - [ ] One durable run ID spans all invocations for the Owner objective and has
   a cumulative ceiling; separate runs are explicitly not presented as a weekly
-  cap, and a cheaper post-exhaustion model cannot satisfy any gate.
+  cap, only an explicit recorded Owner action can reset the run, and a cheaper
+  post-exhaustion model cannot satisfy any gate.
 - [ ] Durable peer results are secret-screened, size-bounded, fresh, retained
   for a bounded period, stored outside the repository, and never called
   authenticated evidence.

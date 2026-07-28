@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": false,
+  "overall": "Claude reviewed dd4c9a5..d114fb7 read-only and confirmed the range was a clean, packet-only architecture commit. Nine of ten rechecks closed, including the terminating executable/evidence fingerprint partition, exact predecessor requirement anchoring, cumulative run scope, objective-property FULL triggers, advisory-only fallback, enforced logical expiry, faithful review summaries, and fail-closed unknown-cost handling. One blocker remained: treating the mere existence of ignored __pycache__ or *.py[cod] as a reuse disabler made proof reuse unreachable because the required test run itself creates those caches. The review reproduced seven such ignored directories in the current checkout.",
+  "blocking_concerns": [
+    "The ignored-loadable rule conflated genuine ignored code-injection paths with derived bytecode caches. Because required Python tests create __pycache__ and *.pyc files, existence-triggered invalidation made the proof-reuse mechanism permanently inert even on the current repository."
+  ],
+  "gaps": [
+    "The final report could not disclose an exact packet-evidence fingerprint that included the report's own bytes; the disclosed evidence identity needed to exclude the record being written.",
+    "The predecessor scenario named Claude times out or its process fails required explicit supersession rather than reliance on broad prose.",
+    "Proof of zero provider cost was undefined even though it governed the final single-pilot allowlist entry; unknown cost needed to remain non-proof.",
+    "The packet required a dedicated evidence JSON schema without defining or naming one.",
+    "Run supersession needed to require an explicit recorded Owner action so the controller could not reset a cumulative envelope after exhaustion."
+  ],
+  "risks": [
+    "verification.md is proof-neutral but remains gate-relevant because Drydock parses its Result and checklist state.",
+    "The capability remains spread across stacked unsynced deltas, so supersession reasoning remains manual before archive.",
+    "Detecting persistence, permission, process-boundary, and verification-semantic objectives is a pre-mutation judgment rather than a fully mechanical property.",
+    "Rejecting oversized or secret-bearing terminal results may make the result unrecoverable and require a new Owner-approved provider call.",
+    "The evidence store is user-writable and its fingerprints identify state rather than authenticate or attest it.",
+    "Default phase and run ceilings remain uncalibrated until multiple representative observations exist."
+  ],
+  "required_changes": [
+    "Keep ignored conftest.py, sitecustomize.py, usercustomize.py, and *.pth as hard blockers, while neutralizing bytecode through a fresh bytecode-free proof root and disabled bytecode writes.",
+    "Define the disclosed packet-evidence fingerprint over the evidence set excluding the report being written.",
+    "Explicitly supersede the predecessor scenario Claude times out or its process fails.",
+    "Define proven zero provider cost and state that unknown cost never satisfies it.",
+    "Add or name the dedicated packet-evidence JSON schema before implementation.",
+    "Require new and superseding objectives to originate from explicit recorded Owner action."
+  ]
+}

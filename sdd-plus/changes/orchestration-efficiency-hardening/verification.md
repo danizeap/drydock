@@ -6,6 +6,10 @@ orchestration-efficiency-hardening
 
 ## Automated Checks
 
+- [x] Packet evidence schema and all three Claude review summaries validated
+  with `jsonschema.Draft202012Validator`.
+- [x] `python scripts/sdd.py verify orchestration-efficiency-hardening`.
+- [x] `git diff --check`.
 - [ ] Focused controller/evidence tests.
 - [ ] Full Codex adapter suite after candidate freeze.
 - [ ] Legacy suite after candidate freeze.
@@ -43,7 +47,21 @@ orchestration-efficiency-hardening
   ADDED, scans ignored loadable paths, defines the multi-invocation run,
   removes FULL self-labelling and advisory gate scope, and enforces expiry on
   read/start.
-- [ ] Round-three Claude/Fable review of the revised packet.
+- [x] Owner-relayed round-three review inspected exact range
+  `dd4c9a5..d114fb7`, confirmed nine of ten rechecks, and returned
+  `converged: false` because ignored bytecode created by the required suite
+  made proof reuse unreachable. Its findings are faithfully summarized in
+  `claude-architecture-review-round-3.json`.
+- [x] Round-three remediation separates ignored code-injection hazards from
+  neutralized bytecode caches, uses a fresh bytecode-free proof root, defines
+  the non-self-referential evidence fingerprint, explicitly supersedes the
+  remaining predecessor scenario, defines zero provider cost and unknown-cost
+  behavior, supplies the evidence schema, and requires explicit Owner action
+  to reset a run.
+- [x] Packet evidence is explicitly proof-neutral but remains gate-relevant:
+  `verification.md` does not invalidate executable proof, while its parsed
+  Result and checklist state still affect archive readiness.
+- [ ] Round-four Claude/Fable review of the revised packet.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -54,7 +72,10 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ROUND-TWO ARCHITECTURE BLOCKERS REMEDIATED IN SPEC TEXT; IMPLEMENTATION REMAINS
-BLOCKED UNTIL ROUND THREE CONVERGES. The small automated plan request still
-exceeded its provider ceiling, proving that an input-byte budget alone does not
-predict total peer cost.
+ROUND-THREE ARCHITECTURE BLOCKER AND REQUIRED CHANGES REMEDIATED IN SPEC TEXT;
+IMPLEMENTATION REMAINS BLOCKED UNTIL ROUND FOUR CONVERGES. No runtime code has
+changed. The packet still carries disclosed risks: stacked unsynced deltas,
+pre-mutation objective classification remains a judgment, oversized or
+secret-bearing terminal output can require a new Owner-approved call, evidence
+state is user-writable rather than attested, and default envelopes remain
+uncalibrated.

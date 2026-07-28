@@ -22,18 +22,24 @@ budget, duplicate-call, invalidation, and interruption cases.
 2. Partition deterministic fingerprints: an executable surface covers tracked
    source, tests, dependencies, configuration, generators, hooks, instructions,
    skills, specs, plans, and task contracts; an exact packet-evidence allowlist
-   covers only non-executable verification/review records. Dirty/untracked state
-   or any ignored-but-loadable Python/pytest path disables reuse. Tracked
-   bytecode disables reuse, and reused Python commands disable bytecode writes.
-   Bind interpreter/tool/plugin/environment separately and invalidate on any
-   unknown relationship. None of these digests authenticates evidence.
+   covers only schema-valid non-executable verification/review records.
+   Dirty/untracked state or an ignored Python/pytest code-injection path
+   disables reuse. Existing ignored bytecode caches in the Owner checkout do
+   not: proof generation and reuse validation occur in a fresh root
+   materialized from the exact executable commit, confirmed bytecode-free
+   before spawn, with bytecode writes disabled. Tracked bytecode and unexplained
+   bytecode in the proof root disable reuse. Bind interpreter/tool/plugin/
+   environment separately and invalidate on any unknown relationship. None of
+   these digests authenticates evidence.
 3. Define phase envelopes for `plan_peer`, `mutation`, `cross_review`,
    `verification`, and `integration`, plus a cumulative run envelope that
    persists across every controller invocation/turn for one Owner objective:
    actual elapsed time, call count, input bytes, configured provider ceiling,
    known capacity snapshot, and stop action. Do not claim token counts the
-   provider did not expose or a weekly/cross-run ceiling. A cheaper model after
-   exhaustion may advise only; it cannot satisfy any gate.
+   provider did not expose or a weekly/cross-run ceiling. Only an explicit,
+   recorded Owner action creates or supersedes the objective and resets the
+   run. A cheaper model after exhaustion may advise only; it cannot satisfy any
+   gate.
 4. Correct peer-failure classification first after plan convergence. Replace
    the catch-all continuation with an allowlist of known benign availability
    failures and regress an invented subtype to `return_to_owner`.
@@ -56,8 +62,10 @@ budget, duplicate-call, invalidation, and interruption cases.
    may accelerate intermediate work. After the executable surface freezes, the
    final complete required suite runs once against that exact fingerprint; no
    composed proof substitutes for this pass. Recording the result in an exact
-   allowlisted evidence path changes only the packet-evidence fingerprint, and
-   the final report discloses both.
+   allowlisted evidence path changes only the packet-evidence fingerprint. The
+   final report discloses the executable fingerprint and the exact
+   packet-evidence-parent fingerprint that excludes the report being written,
+   avoiding a self-referential digest.
 8. Update orchestration skill/operator guidance and tested controller state so
    normal work has one active mutator per worktree, one peer/reviewer call per
    request fingerprint, and one verifier per final candidate. Disclose that
@@ -94,6 +102,16 @@ budget, duplicate-call, invalidation, and interruption cases.
   fail-closed cost is disclosed rather than hidden through truncation.
 - A repo-aware peer transport can widen confidentiality exposure. It remains
   out of the first slice unless separately designed and approved.
+- Packet evidence is proof-neutral but can remain gate-relevant:
+  `verification.md` does not invalidate executable proof, yet its parsed state
+  still affects archive readiness and completion.
+- Objective property detection is a pre-diff judgment. The controller can
+  enforce the resulting FULL route, but cannot mechanically prove the human or
+  model classified every objective correctly before mutation.
+- The evidence store is user-writable, so its digests identify state but never
+  authenticate or attest it.
+- The capability still spans stacked, unsynced deltas until archive; explicit
+  scenario supersession is required to avoid contradictory lineage.
 
 ## Rollback
 
