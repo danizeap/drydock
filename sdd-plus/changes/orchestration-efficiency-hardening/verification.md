@@ -173,6 +173,14 @@ orchestration-efficiency-hardening
   and the carried risks are preserved in
   `claude-architecture-review-round-9.json`; they are not promoted into proof or
   separate final verification.
+- [x] Candidate freeze: clean committed HEAD
+  `239f42e57c4a5b96d6f11408ac319f3ab451ceec` produced v2 executable
+  fingerprint
+  `b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`.
+  It exactly matches the pre-evidence fingerprint at reviewed HEAD `dee2ebe`;
+  round-9 evidence, verification text, and canonical task-state transitions
+  changed only packet-evidence identity. Reuse eligibility was true with no
+  tracked bytecode, ignored code-injection path, or invalid packet evidence.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -185,8 +193,10 @@ orchestration-efficiency-hardening
 
 V2 PROOF-IDENTITY ARCHITECTURE CONVERGED; THE PRE-FREEZE STRUCTURAL
 SERIALIZATION FINDING IS REMEDIATED, FOCUSED TESTS PASS, AND IMPLEMENTATION
-CROSS-REVIEW CONVERGED. CANDIDATE FREEZE, FULL SUITES, AND SEPARATE
-VERIFICATION REMAIN PENDING. The implementation does not claim
+CROSS-REVIEW CONVERGED. EXECUTABLE CANDIDATE
+`b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`
+IS FROZEN; FULL SUITES AND SEPARATE VERIFICATION REMAIN PENDING. The
+implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
 checkout directly. Remaining disclosed risks include stacked unsynced deltas,
