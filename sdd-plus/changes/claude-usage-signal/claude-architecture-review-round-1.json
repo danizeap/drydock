@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": false,
+  "overall": "Opus 5 reviewed the 26,649-byte brief, plan, delta spec, and build blueprint through Drydock's structured-output-only peer adapter. It found the governance intent unusually honest but returned four load-bearing architecture blockers: same-user Windows process separation did not enforce the claimed credential confinement; token refresh/write behavior was undecided and could invalidate Claude Code sessions; task cost in tokens had no evidenced conversion to quota-window percentage; and fixed-reset arithmetic was applied without first-class fixed, sliding, or unknown window semantics.",
+  "blocking_concerns": [
+    "Downgrade the same-user broker from hostile credential isolation to an anti-accidental-flow boundary, or specify a concrete stronger OS principal/service boundary that can still access the Claude credential.",
+    "Make the credential store read-only and convert expiry or 401 into unavailable; do not refresh, rotate, or write Claude credentials.",
+    "Remove cardinal task-affordability arithmetic until percent-per-task-class units are evidenced from separately proven sole-client intervals, or use ordinal routing.",
+    "Make fixed_reset, sliding, and unknown window kinds explicit; unknown semantics cannot contribute positive margin or reset-horizon claims."
+  ],
+  "gaps": [
+    "Constrain window names, limitation codes, strings, and secret-shaped values at both broker and core boundaries.",
+    "Specify Windows Job Object cleanup, asynchronous pipe drain, byte bounds, UTF-8 handling, and failure evidence.",
+    "Serialize concurrent repositories through a machine-local lease and persist hard call budgets across restarts.",
+    "A bounded operational probe may only downgrade capacity and must share the circuit breaker.",
+    "Pin the private response schema and fail unavailable on drift.",
+    "Use one freshness policy with monotonic in-process age and bounded clock-skew handling.",
+    "Persist cache/history only outside repositories with bounded enum task classes and retention.",
+    "Replace checked design-intent acceptance boxes with unproven runtime gates.",
+    "Add private-endpoint permission and ToS acceptance to the Owner gate.",
+    "Resolve pilot pre-dispatch review versus automatic side-effect dispatch.",
+    "Evaluate a default-off feature flag before broker spawn or credential touch."
+  ],
+  "risks": [
+    "A third-party widget suggests reachability but does not prove current endpoint availability or permission.",
+    "Credential-reading code expands Drydock's trusted computing base and supply-chain exposure.",
+    "Stale snapshots must be structurally unable to contribute headroom.",
+    "Sampling-to-dispatch TOCTOU remains and reserves must cover it conservatively.",
+    "Human split agreement in shadow dogfood measures agreement, not correctness."
+  ],
+  "required_changes": [
+    "Correct the credential-boundary, refresh, scheduling-unit, and window-semantics blockers normatively.",
+    "Add strict snapshot value shapes, broker lifecycle mechanics, cross-instance admission, call caps, schema drift failure, freshness semantics, and bounded storage.",
+    "Keep the MVP recommendation-only with mandatory pilot review and structurally unallocatable reserves.",
+    "Correct evidentiary language and make the credential/private-endpoint Owner gates explicit."
+  ]
+}

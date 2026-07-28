@@ -29,10 +29,11 @@ machine-readable app-server path, but it is not yet joined to Claude telemetry
 or task allocation.
 
 The prior statement that Claude has no programmatic usage source was too
-absolute. A public menu-bar project demonstrates that a credential-bearing
-local process can call Anthropic's private OAuth usage endpoint. That does not
-make the endpoint documented or stable. Automatic behavior nevertheless means
-some explicitly trusted component must obtain Claude telemetry until Anthropic
+absolute. A public menu-bar project suggests, from one observed implementation,
+that a credential-bearing local process can call Anthropic's private OAuth
+usage endpoint. That does not establish current availability, permission,
+official support, or stability. Automatic behavior nevertheless means some
+explicitly trusted component must obtain Claude telemetry until Anthropic
 exposes a supported structured command.
 
 ## Scope
@@ -40,12 +41,16 @@ exposes a supported structured command.
 In scope:
 
 - Automatic Claude and Codex usage collection before delegation decisions.
-- A dedicated Claude usage broker that owns credential access while the pilot,
+- A dedicated Claude usage broker that is the only Drydock code path
+  intentionally designed to read Claude credentials, while the pilot,
   scheduler, logs, and packet artifacts receive only sanitized capacity data.
+  On Windows this same-user process boundary limits accidental data flow; it
+  is not isolation from a malicious or compromised same-user process.
 - A provider-neutral, normalized snapshot contract for overlapping usage
   windows, resets, freshness, source, attribution, and limitations.
-- A scheduler that compares binding runway across both providers, preserves
-  peer/review reserves, and emits an auditable delegation recommendation.
+- A recommendation-only scheduler that compares conservative ordinal runway
+  across both providers, preserves peer/review reserves, and emits an auditable
+  delegation recommendation for pilot review before dispatch.
 - Historical burn and task-cost estimates with conservative confidence.
 - Freshness, cache, backoff, circuit-breaker, validation, and failure behavior.
 - One Drydock installation; the broker may be a separate process boundary but
@@ -60,19 +65,33 @@ Out of scope:
 - Exact Drydock-only attribution from account-wide Claude usage.
 - Claiming a Fable-specific quota window without observed evidence.
 - Letting usage state authorize tools, waive governance, or prove convergence.
+- Writing, refreshing, rotating, or otherwise modifying Claude credentials.
+- Cardinal conversion from per-call tokens to quota-window percentage without
+  separately evidenced sole-client intervals and confidence bounds.
+- Automatic side-effect dispatch based only on the scheduler's recommendation.
 
-## Acceptance Criteria
+## Runtime Acceptance Criteria
 
-- [x] Automatic dual-provider awareness is a mandatory MVP property.
-- [x] Manual values are diagnostic fixtures only, not normal routing input.
-- [x] The pilot receives normalized capacity evidence without receiving
+These boxes remain unchecked until an implementation and its evidence exist.
+They are requirements, not claims that the design packet already proves
+runtime behavior.
+
+- [ ] Automatic dual-provider awareness is a mandatory MVP property.
+- [ ] Manual values are diagnostic fixtures only, not normal routing input.
+- [ ] The pilot receives normalized capacity evidence without receiving
   credentials or raw provider responses.
-- [x] The scheduler accounts for overlapping five-hour/weekly windows, reset
-  timing, recent burn, task cost, and reserved peer/review capacity.
-- [x] Missing, stale, malformed, or unknown evidence remains `unavailable`.
-- [x] A recommendation names its evidence, confidence, reserves, and binding
+- [ ] The scheduler accounts for provider-declared fixed, sliding, and unknown
+  window semantics, recent burn, and reserved peer/review capacity without
+  inventing a token-to-percentage conversion.
+- [ ] Missing, stale, malformed, or unknown evidence remains `unavailable`.
+- [ ] A recommendation names its evidence, confidence, reserves, and binding
   provider window; it never silently allocates from absent evidence.
-- [x] The broker boundary and one-install requirement are explicit.
+- [ ] The broker's same-user anti-accident boundary and one-install requirement
+  are explicit and verified without claiming hostile-process isolation.
+- [ ] The broker opens Claude credential state read-only, never refreshes or
+  writes it, and converts 401/expiry into `unavailable`.
+- [ ] The feature is off before process spawn or credential touch unless the
+  Owner explicitly enables the reviewed private-endpoint path.
 - [ ] Claude peer reviews the architecture when usage returns.
 - [ ] The Owner explicitly authorizes the first real Claude credential-store
   probe after reviewing the broker's exact access and logging behavior.
@@ -94,9 +113,12 @@ Out of scope:
 - What exact credential store and token-rotation behavior does Claude Code
   2.1.173 use on this Windows host? This requires a separately authorized
   read-only probe.
+- Does Anthropic permit automated polling of this private endpoint with
+  subscription credentials? This is an Owner acceptance decision, not a fact
+  inferred from technical reachability.
 - Will Anthropic expose a documented structured usage command or API that can
   replace the private broker path?
 - Which quota windows are actually returned for this subscription, and do
   Opus/Fable share or separate any provider-defined window?
-- How many real task samples are needed before learned task-cost estimates may
-  replace conservative defaults?
+- What sole-client evidence, if any, could justify a bounded percent-per-task
+  estimate? Until then, task cost remains ordinal and recommendation-only.

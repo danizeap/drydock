@@ -13,6 +13,9 @@ claude-usage-signal
   `five_hour`, `seven_day_opus`, and `seven_day_sonnet`.
 - [x] Existing Codex source contains the machine-readable
   `account/rateLimits/read` app-server path.
+- [x] The installed Codex app-server returned a live structured
+  `account/rateLimits/read` response after the documented handshake, without a
+  model call. Point-in-time percentages were not persisted.
 - [x] Packet structure verification passed after this requirement correction:
   8 design tasks complete, 3 deliberately pending.
 
@@ -24,8 +27,15 @@ claude-usage-signal
 - [x] Manual snapshots are diagnostic only, not a production routing source.
 - [x] No Claude credential store was opened.
 - [x] No Anthropic usage or token endpoint was called.
-- [x] No live model invocation was made.
-- [ ] Independent Claude architectural review pending.
+- [x] One bounded Opus 5 architecture call returned a schema-valid
+  non-converged review at reported cost USD 0.4777815.
+- [x] Every round-one blocker and required design correction is reconciled in
+  the brief, plan, delta spec, blueprint, and decision log.
+- [x] A round-two attempt was refused before provider spawn with
+  `stage: envelope_exhausted`; the 38,728-byte candidate exceeded the remaining
+  cumulative input reservation and the phase's configured provider reservation
+  was already consumed. This is not reported as review or convergence.
+- [ ] Claude round-two architecture convergence pending.
 
 ## Documentation Updates
 
@@ -37,6 +47,7 @@ claude-usage-signal
 
 ## Result
 
-PASS WITH OPEN QUESTIONS for automatic scheduling architecture. Implementation
-is BLOCKED pending Claude peer review and explicit Owner approval of the first
-real credential-store probe's exact scope.
+ROUND ONE NON-CONVERGED for automatic scheduling architecture. The four
+blockers are normatively remediated, but implementation remains BLOCKED pending
+Claude round-two convergence and explicit Owner approval of the first real
+read-only credential-schema probe's exact scope.

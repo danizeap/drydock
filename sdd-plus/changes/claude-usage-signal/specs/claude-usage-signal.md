@@ -10,6 +10,9 @@ Before producing a delegation allocation, Drydock SHALL automatically obtain
 fresh Claude and Codex capacity snapshots without requiring the Owner to enter
 usage values. Manual snapshots MAY exist for tests and diagnostics but SHALL
 NOT satisfy production readiness for capacity-aware routing.
+The private Claude path SHALL be disabled before broker process spawn and
+credential access unless the Owner has explicitly enabled the reviewed
+mechanism.
 
 #### Scenario: Both providers have current telemetry
 
@@ -27,10 +30,15 @@ NOT satisfy production readiness for capacity-aware routing.
 The core scheduler SHALL accept capacity evidence only through a strict,
 versioned, provider-neutral snapshot containing provider, source, status,
 sampled time, freshness, shared-account attribution, named utilization/reset
-windows, and limitations. It SHALL reject unknown fields, non-finite or
+windows, window kind (`fixed_reset | sliding | unknown`), and enum limitation
+codes. It SHALL reject unknown fields, non-finite or
 out-of-range values, implausible timestamps, and any credential,
 authorization header, account identifier, raw response, prompt, or repository
 field.
+Window names SHALL match `^[a-z0-9_]{1,32}$`; limitation values SHALL come from
+a fixed code enum rather than provider-controlled text. All strings SHALL be
+bounded and the broker plus core validator SHALL reject bearer/private-key
+markers, known token prefixes, and high-entropy secret-shaped values.
 
 #### Scenario: Broker returns a bearer token beside valid usage
 
@@ -45,13 +53,19 @@ field.
 
 ### Requirement: Claude credentials are confined to a dedicated broker
 
-The Claude broker SHALL be the only credential-owning Drydock component. The
-pilot, scheduler, logs, cache, packets, hooks, workers, and verifier SHALL NOT
-receive, copy, store, or log Claude credentials or raw usage responses. The
-broker SHALL expose a fixed bounded usage operation rather than arbitrary
-network or credential access. Until a documented structured Claude source
-exists, use of the observed private OAuth mechanism requires explicit Owner
-approval and a security-reviewed implementation.
+The Claude broker SHALL be the only Drydock code path intentionally designed
+to read Claude credentials. On Windows this is a same-user anti-accidental-flow
+boundary, not OS isolation from a malicious same-user pilot, worker, or other
+process; that residual trusted-computing-base limitation SHALL be reported.
+The pilot, scheduler, logs, cache, packets, hooks, workers, and verifier SHALL
+NOT receive, copy, store, or log Claude credentials or raw usage responses.
+The broker SHALL expose a fixed bounded usage operation rather than arbitrary
+network or credential access. It SHALL open credential state read-only, SHALL
+NOT refresh, rotate, or write credentials, and SHALL report `unavailable` on
+expiry or 401. Until a documented structured Claude source exists, use of the
+observed private OAuth mechanism requires explicit Owner approval, Owner
+acceptance of its private-endpoint permissibility risk, and a security-reviewed
+implementation.
 
 #### Scenario: Core asks for Claude capacity
 
@@ -65,14 +79,26 @@ approval and a security-reviewed implementation.
 - **THEN** Claude telemetry is `unavailable` and no token or partial response
   is returned
 
+#### Scenario: Claude access token is expired
+
+- **WHEN** the fixed usage request returns 401 or the read-only credential
+  record is already expired
+- **THEN** the broker reports `unavailable`, performs no refresh request, and
+  does not modify the Claude credential container
+
 ### Requirement: Routing protects every overlapping window
 
-The scheduler SHALL evaluate every current provider-defined window and SHALL
-use the lowest reserve-adjusted projected margin as that provider's binding
-window. It SHALL account for remaining capacity, time to reset, recent burn,
-estimated task cost, estimate confidence, and explicit capacity reserved for
-required planning and cross-review. It SHALL NOT compare providers using one
-raw headline percentage alone.
+The scheduler SHALL evaluate every current provider-defined window according
+to its declared kind. Fixed-reset windows MAY use a reset horizon; sliding
+windows MAY use only burn evidence collected over a sufficient same-window
+span; unknown-kind windows SHALL NOT contribute positive margin arithmetic.
+The scheduler SHALL account for current remaining capacity, recent compatible
+burn evidence, confidence, and explicit capacity reserved for required
+planning and cross-review. Until a quota-per-task unit bridge is separately
+evidenced, routing SHALL be ordinal and recommendation-only. It SHALL NOT
+compare providers using one raw headline percentage alone or claim that a
+token-denominated task is cardinally affordable in a percentage-denominated
+window.
 
 #### Scenario: Claude weekly capacity is high but five-hour capacity is low
 
@@ -87,20 +113,29 @@ raw headline percentage alone.
 - **THEN** the recommendation allocates more suitable execution work to Codex
   while retaining Claude capacity required for peer review
 
-#### Scenario: Capacity will reset before the coding horizon
+#### Scenario: Fixed capacity window resets before the coding horizon
 
-- **WHEN** a provider window resets sooner than the Owner's target horizon
+- **WHEN** a `fixed_reset` provider window resets sooner than the Owner's
+  target horizon
 - **THEN** projected burn uses the shorter reset horizon and the decision names
   that reset
 
+#### Scenario: Provider window semantics are unknown
+
+- **WHEN** a current window has kind `unknown`
+- **THEN** it cannot add positive headroom or support a reset-horizon claim
+
 ### Requirement: Burn and task-cost learning remain evidence-bounded
 
-Drydock MAY estimate provider/window burn from normalized snapshot deltas and
-MAY estimate task cost from actual per-call usage grouped by provider, model,
-and task class. Every estimate SHALL carry sample count/confidence. Shared
-Claude account deltas SHALL NOT be represented as Drydock-specific,
-model-specific, or chat-specific consumption unless separately proven. Cold
-start and low confidence SHALL use conservative upper estimates.
+Drydock MAY estimate provider/window burn from compatible normalized snapshot
+deltas and MAY estimate task cost from actual per-call usage grouped by
+provider, model, and enum task class. Every estimate SHALL carry sample count,
+observation span, unit, and confidence. Shared Claude account deltas SHALL NOT
+be represented as Drydock-specific, model-specific, or chat-specific
+consumption unless separately proven. Token-denominated task history SHALL NOT
+be converted to quota percentage without evidenced sole-client intervals and
+an explicit confidence-bounded conversion. Cold start remains ordinal and low
+confidence rather than inventing cardinal feasibility.
 
 #### Scenario: Other Claude clients consume capacity
 
@@ -121,6 +156,12 @@ size, cleanup, cache freshness, backoff, and circuit breaking. Missing, stale,
 malformed, future-dated, or failed evidence SHALL NOT become positive
 headroom. Usage state SHALL NOT authorize tools, waive packet/release gates,
 or establish peer convergence.
+Sampling SHALL be serialized across local Drydock instances through a
+machine-local lease. A persistent minimum interval and per-day call cap SHALL
+survive process restarts. The Windows parent SHALL establish a kill-on-close
+Job Object before broker execution, drain stdout/stderr without pipe deadlock,
+enforce a byte bound and timeout, and pin UTF-8 JSON handling. Failure to
+establish those mechanics SHALL make the provider unavailable.
 
 #### Scenario: Provider hangs or emits oversized output
 
@@ -140,3 +181,25 @@ or establish peer convergence.
 - **WHEN** the last valid snapshot exceeds its freshness window
 - **THEN** it may be displayed only as stale and contributes no positive
   routing headroom
+
+#### Scenario: Concurrent repositories request Claude capacity
+
+- **WHEN** another Drydock instance holds the current machine-local sampling
+  lease or the persistent call budget is exhausted
+- **THEN** no second private-endpoint request starts and the caller receives
+  current bounded cache evidence or `unavailable`
+
+### Requirement: MVP recommendations require pilot review
+
+The MVP scheduler SHALL emit a recommendation only. Required reserves SHALL be
+structurally unavailable to worker allocation, stale snapshots SHALL be a
+distinct type that cannot contribute headroom, and the pilot SHALL review the
+recommendation before any worker dispatch. Enabling automatic capacity
+collection SHALL NOT enable automatic side-effect dispatch.
+
+#### Scenario: Recommendation would consume review reserve
+
+- **WHEN** a candidate split requires capacity reserved for peer review or
+  verification
+- **THEN** that split is infeasible and is not emitted as a selectable or
+  merely lower-ranked alternative
