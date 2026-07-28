@@ -18,6 +18,14 @@ observed values and SHALL represent unavailable token or account usage as
 unknown. Exhaustion SHALL produce a structured stop or advisory-reroute
 decision and SHALL NOT create a PASS or convergence.
 
+An orchestration run begins when the controller accepts one Owner objective and
+assigns its durable run ID. It spans every controller invocation, subprocess,
+resumed task turn, and phase for that objective until the controller records
+complete, blocked, cancelled-by-Owner, or superseded-by-a-new-Owner-objective.
+Starting another local process does not reset the cumulative envelope. This
+packet does not claim to enforce a weekly or cross-run account ceiling; those
+signals may advise routing only when separately available and trustworthy.
+
 #### Scenario: Usage data is unavailable
 - **WHEN** the provider exposes no trustworthy token or remaining-capacity data
 - **THEN** the phase reports usage unknown and still enforces the observable
@@ -39,22 +47,23 @@ decision and SHALL NOT create a PASS or convergence.
 - **WHEN** an exhausted phase routes a bounded task to a cheaper or otherwise
   different model
 - **THEN** its output is advisory only and SHALL NOT satisfy peer convergence,
-  architecture critique, cross-review, or independent verification for the
-  exhausted phase
+  architecture critique, cross-review, independent verification, or any other
+  gate
 
 ### Requirement: Objective high-impact properties trigger pre-mutation peer critique
-For every FULL change that affects persistence, permissions, process
-boundaries, or verification semantics, the controller SHALL request
-architecture/security critique before starting a mutating worker. This trigger
-depends on the affected behavior, not on packet-authored gate labels. If
-critique is unavailable and existing single-pilot rules permit lifecycle work,
-the controller SHALL emit a machine-readable `critique_skipped` disclosure with
-reason and `peer_convergence: not_established`; the missing critique SHALL NOT
-satisfy an integration or review gate.
+Every change that affects persistence, permissions, process boundaries, or
+verification semantics is FULL by definition and SHALL trigger
+architecture/security critique before a mutating worker starts. This trigger
+depends only on the affected behavior, not on the packet's self-assigned mode
+or gate labels. If critique is unavailable and existing single-pilot rules
+permit lifecycle work, the controller SHALL emit a machine-readable
+`critique_skipped` disclosure with reason and
+`peer_convergence: not_established`; the missing critique SHALL NOT satisfy an
+integration or review gate.
 
 #### Scenario: Late review would force redesign
-- **WHEN** a FULL plan changes persistence, permissions, process boundaries, or
-  verification semantics
+- **WHEN** a plan changes persistence, permissions, process boundaries, or
+  verification semantics regardless of its declared mode
 - **THEN** the peer sees the bounded plan and delta requirements before any
   mutating worker starts
 
@@ -103,9 +112,12 @@ a dedicated at-rest content secret screen SHALL pass and the canonical body
 SHALL be at most 64 KiB. An ineligible body SHALL leave only its digest,
 terminal classification, and non-sensitive reason. Recoverable bodies SHALL
 carry original observation time, exact fingerprint, and SHALL expire no later
-than 24 hours after observation. The stored body SHALL be deleted by that
-deadline; expired bounded metadata SHALL NOT satisfy a current gate. The store
-is user-writable and SHALL NOT be described as authenticated or as attestation.
+than 24 hours after observation. Logical expiry is enforced on every read and
+controller startup before a body can be returned or satisfy a gate; the first
+such access after expiry SHALL delete the body. Physical deletion while
+Drydock is not running is not claimed. Expired bounded metadata SHALL NOT
+satisfy a current gate. The store is user-writable and SHALL NOT be described
+as authenticated or as attestation.
 
 #### Scenario: Peer result contains secret-shaped content
 - **WHEN** the terminal structured result matches the at-rest secret screen
@@ -114,13 +126,14 @@ is user-writable and SHALL NOT be described as authenticated or as attestation.
 
 #### Scenario: Recovered result is stale
 - **WHEN** a matching terminal result is older than 24 hours
-- **THEN** it is reported with its original observation time but SHALL NOT
-  satisfy critique, convergence, review, or verification
+- **THEN** the access deletes its stored body, reports only bounded stale
+  metadata with the original observation time, and SHALL NOT satisfy critique,
+  convergence, review, or verification
 
 #### Scenario: Worktree is inspected
 - **WHEN** durable orchestration state is written or cleaned
 - **THEN** no state file exists under the repository or changes its Git
-  candidate fingerprint
+  executable-surface or packet-evidence fingerprint
 
 ### Requirement: Oversized review input is refused before provider spend
 The controller SHALL compare outbound bytes and the configured review-input
@@ -137,20 +150,48 @@ budget
   `input_budget_exceeded`
 
 ### Requirement: Proof reuse is candidate- and command-bound
-Reusable test or verification evidence SHALL bind the exact candidate
+The controller SHALL maintain two distinct digests:
+
+- an executable-surface fingerprint over all tracked source, tests,
+  dependencies, configuration, generators, hooks, agent instructions, and
+  skills that can affect behavior or proof; and
+- a packet-evidence fingerprint over an exact allowlist of non-executable
+  review-result and verification-record paths.
+
+The packet-evidence allowlist is limited to regular non-symlink files at the
+active packet root named `verification.md`,
+`claude-architecture-review-round-<positive-integer>.json`, or
+`codex-final-verifier.json`. JSON members SHALL pass their dedicated evidence
+schema. Every other packet path, including brief, plan, tasks, decision log,
+specs, scripts, configuration, and unknown names, belongs to the executable
+surface for invalidation purposes.
+
+Reusable test or verification evidence SHALL bind the executable-surface
 fingerprint, exact command, relevant environment fingerprint, terminal status,
 and output digest. Reuse SHALL require a clean committed Git tree with no
-untracked files; the candidate fingerprint SHALL bind the complete tracked tree
-rather than only its diff. A source, dependency, configuration, hook, generator,
-loadable file, environment, or unknown relationship SHALL invalidate every
-affected proof. No cached result authorizes effects or replaces an independent
-verifier. Reuse is an intermediate-work optimization only.
+ordinary untracked files and no ignored-but-loadable path. A source,
+dependency, configuration, hook, generator, loadable file, environment, or
+unknown relationship SHALL invalidate every affected proof. No cached result
+authorizes effects or replaces an independent verifier. Reuse is an
+intermediate-work optimization only.
 
 #### Scenario: Working tree is dirty or contains untracked files
 - **WHEN** Git reports any tracked modification or untracked path, including a
   loadable `conftest.py`, `sitecustomize.py`, `.pth`, or bytecode artifact
 - **THEN** proof reuse is disabled and no prior result is attached to the
   current candidate
+
+#### Scenario: Ignored path can affect Python or pytest loading
+- **WHEN** an ignored path matches `conftest.py`, `sitecustomize.py`,
+  `usercustomize.py`, `*.pth`, `__pycache__`, or `*.py[cod]`
+- **THEN** proof reuse is disabled even though ordinary Git status omits the
+  path; a reused Python command SHALL also disable bytecode writing
+
+#### Scenario: Tracked bytecode exists
+- **WHEN** the complete tracked tree contains a bytecode artifact that the
+  interpreter could load
+- **THEN** proof reuse is disabled rather than treating the tree digest as
+  proof that source and bytecode are semantically aligned
 
 #### Scenario: Changed relationship is unknown
 - **WHEN** the controller cannot prove that a source or environment change is
@@ -160,52 +201,33 @@ verifier. Reuse is an intermediate-work optimization only.
 ### Requirement: Test execution follows a targeted-to-full ladder
 During mutation, the controller SHALL prefer the smallest checks that cover the
 changed behavior. It SHALL freeze a candidate before the full required suite
-and SHALL run the complete required suite against the exact final candidate
-fingerprint. Targeted checks and composed or reused proof MAY accelerate
-intermediate fingerprints only. Any tracked change after the full run creates
-a new candidate that SHALL receive its own complete required-suite execution
-before final acceptance.
+and SHALL run the complete required suite against the exact final
+executable-surface fingerprint. Targeted checks and composed or reused proof MAY
+accelerate intermediate fingerprints only. A change to any executable-surface
+byte after the full run creates a new fingerprint that SHALL receive its own
+complete required-suite execution before final acceptance. Recording the
+passing result in an allowlisted packet-evidence path changes only the
+packet-evidence fingerprint and SHALL NOT self-invalidate the executable proof.
+The final report SHALL disclose both exact fingerprints.
 
 #### Scenario: Isolated intermediate failure is corrected
 - **WHEN** a focused correction produces a new intermediate fingerprint
 - **THEN** the affected focused command may run immediately, but that composed
   evidence SHALL NOT replace the full required suite on the final fingerprint
 
-#### Scenario: Evidence file changes after the final suite
-- **WHEN** any tracked packet, evidence, source, or configuration byte changes
-  after the complete suite ran
-- **THEN** the candidate fingerprint changes and final acceptance remains
-  unsatisfied until the complete required suite runs on the new fingerprint
+#### Scenario: Passing result is recorded after the final suite
+- **WHEN** a commit after the complete suite changes only an allowlisted
+  non-executable verification or review-result path, with no type/symlink
+  change or executable-surface byte change
+- **THEN** final acceptance retains the exact tested executable-surface
+  fingerprint and records the new packet-evidence fingerprint
 
-## MODIFIED Requirements
-
-### Requirement: Peer operational failures and control violations are distinct
-Only an explicitly enumerated allowlist of benign availability failures MAY
-enter the single-pilot workflow: authentication unavailable before spawn, an
-exact supported rate-limit marker, a controller timeout with bounded cleanup,
-or an ordinary non-zero process exit that carries no structured provider
-subtype. A budget ceiling, policy/refusal/context-limit abort, malformed output,
-model mismatch, missing model/cost proof, unknown structured subtype, unmapped
-stage, or other contract/control violation SHALL return to the Owner and SHALL
-NOT authorize automatic continuation. The default for every unrecognized value
-is `return_to_owner`.
-
-#### Scenario: Provider budget ceiling aborts the call
-- **WHEN** the peer exits with `error_max_budget_usd`
-- **THEN** the result is a budget control violation with
-  `workflow.action: return_to_owner`, not `continue_codex_only`
-
-#### Scenario: Provider adds an unknown subtype
-- **WHEN** a peer failure carries a structured subtype that appears nowhere in
-  the controller's allowlist
-- **THEN** the result is `unmapped_control_failure` with
-  `workflow.action: return_to_owner`
-
-#### Scenario: Ordinary process exits without a provider subtype
-- **WHEN** the bounded peer exits nonzero, cleanup is complete, and no
-  structured provider subtype or contract output exists
-- **THEN** the explicit ordinary-process-exit allowlist entry may enter
-  single-pilot with convergence not established
+#### Scenario: A packet change can affect governed behavior
+- **WHEN** a spec, plan, task contract, agent instruction, skill, configuration,
+  source, test, hook, generator, dependency, or non-allowlisted path changes
+  after the complete suite
+- **THEN** the executable-surface fingerprint changes and final acceptance
+  remains unsatisfied until the complete required suite runs on it
 
 ### Requirement: Efficiency evidence uses observable facts
 Dogfood records SHALL report actual elapsed time, call counts, input bytes,
@@ -240,3 +262,57 @@ authorizes a replacement after a terminal failure.
   terminal result exists
 - **THEN** the controller attaches or recovers it and does not start another
   automatic reviewer
+
+## MODIFIED Requirements
+
+### Requirement: Claude is an optional, bounded, structured peer
+This MODIFIED requirement supersedes the broader failure-workflow wording under
+the same requirement in `codex-host-mvp` and `peer-unavailable-governance`.
+Their bounded tool surface, safe mode, strict MCP, secret/input guards, schema,
+timeout, cleanup, and no-convergence claims remain unchanged.
+
+Only this explicitly enumerated allowlist of benign availability failures MAY
+enter the single-pilot workflow: authentication unavailable before spawn, an
+exact supported rate-limit marker, a controller timeout with bounded cleanup,
+or an ordinary non-zero process exit that carries no structured provider
+subtype and is proven to have consumed zero provider cost. A budget ceiling,
+policy/refusal/context-limit abort, malformed output,
+model mismatch, missing model/cost proof, unknown structured subtype, unmapped
+stage, or other contract/control violation SHALL return to the Owner and SHALL
+NOT authorize automatic continuation. The default for every unrecognized value
+is `return_to_owner`.
+
+#### Scenario: Claude becomes unavailable mid-workflow
+- **WHEN** one of the four allowlisted benign availability failures prevents a
+  peer round
+- **THEN** Drydock may remain the Codex-hosted governor in machine-readable
+  single-pilot mode while reporting `peer_convergence: not_established`
+
+#### Scenario: Failure is not one of the four allowed values
+- **WHEN** a structured subtype, stage, or failure class is not explicitly in
+  the benign-availability allowlist
+- **THEN** the workflow returns to the Owner and SHALL NOT enter automatic
+  single-pilot continuation
+
+#### Scenario: Provider budget ceiling aborts the call
+- **WHEN** the peer exits with `error_max_budget_usd`
+- **THEN** the result is a budget control violation with
+  `workflow.action: return_to_owner`, not `continue_codex_only`
+
+#### Scenario: Provider adds an unknown subtype
+- **WHEN** a peer failure carries a structured subtype that appears nowhere in
+  the controller's allowlist
+- **THEN** the result is `unmapped_control_failure` with
+  `workflow.action: return_to_owner`
+
+#### Scenario: Ordinary process exits without a provider subtype
+- **WHEN** the bounded peer exits nonzero, cleanup is complete, and no
+  structured provider subtype or contract output exists, and provider cost is
+  proven zero
+- **THEN** the explicit ordinary-process-exit allowlist entry may enter
+  single-pilot with convergence not established
+
+#### Scenario: Bare non-zero exit has unknown or positive provider cost
+- **WHEN** the bounded peer exits nonzero without a structured subtype but its
+  provider cost is unknown or greater than zero
+- **THEN** the failure is not proven benign and returns to the Owner

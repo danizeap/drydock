@@ -42,8 +42,8 @@ In scope:
 - Require architecture/security peer critique before mutation for FULL changes
   that objectively affect persistence, permissions, process boundaries, or
   verification semantics, regardless of how the packet labels itself.
-- Add a candidate fingerprint and command-bound evidence ledger so unchanged
-  proof is reused instead of repeated.
+- Partition executable-surface and packet-evidence fingerprints so unchanged
+  executable proof can be identified without evidence-recording regress.
 - Add a targeted-to-full test ladder: targeted checks while the candidate
   changes, one full pass after freeze, and selective reruns after
   evidence-only or isolated corrections.
@@ -53,8 +53,9 @@ In scope:
 - Reject an oversized peer payload before provider spend and route it to a
   repository-aware/manual review or a separately approved snapshot mechanism.
 - Persist peer invocation identity and screened, bounded terminal output
-  outside the repository with a freshness and retention limit, so an
-  outer-shell interruption cannot silently invite a duplicate call.
+  outside the repository with logical expiry at 24 hours and deletion on the
+  first later read/start, so an outer-shell interruption cannot silently invite
+  a duplicate call.
 - Record dogfood efficiency with observable counts and timings, not fabricated
   token savings.
 
@@ -80,16 +81,18 @@ Out of scope:
 - [ ] FULL persistence/permission/process/verification changes trigger
   architecture critique objectively; a skipped critique is machine-readable
   and cannot satisfy convergence.
-- [ ] Proof reuse requires a clean committed tree and exact candidate/command/
-  environment binding; the final frozen candidate receives one complete
-  required-suite run with no composed substitute.
+- [ ] Proof reuse requires a clean committed tree, an ignored-loadable-path
+  scan, and exact executable-surface/command/environment binding; the final
+  executable surface receives one complete required-suite run with no composed
+  substitute.
 - [ ] Oversized embedded review input is rejected before a provider call and
   produces an actionable route.
 - [ ] Every phase reports actual elapsed time, calls, input bytes, and known
   capacity evidence; missing usage never becomes an estimate presented as
   fact.
-- [ ] The entire run also has a cumulative ceiling; a cheaper post-exhaustion
-  model can advise but cannot satisfy the exhausted gate.
+- [ ] One durable run ID spans all invocations for the Owner objective and has
+  a cumulative ceiling; separate runs are explicitly not presented as a weekly
+  cap, and a cheaper post-exhaustion model cannot satisfy any gate.
 - [ ] Durable peer results are secret-screened, size-bounded, fresh, retained
   for a bounded period, stored outside the repository, and never called
   authenticated evidence.
@@ -103,8 +106,8 @@ Out of scope:
 - Frontend:
 - Data model: bounded local orchestration-run evidence; no prompt or source
   bodies.
-- API: structured phase envelope, candidate fingerprint, proof-reuse decision,
-  and corrected budget-failure workflow.
+- API: structured phase/run envelope, executable/evidence fingerprints,
+  proof-reuse decision, and corrected budget-failure workflow.
 - AI/model behavior: earlier peer involvement, right-sized single-worker
   execution, no automatic duplicate calls.
 - Documentation:

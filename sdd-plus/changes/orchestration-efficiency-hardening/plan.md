@@ -19,37 +19,45 @@ budget, duplicate-call, invalidation, and interruption cases.
    request is packet-sized, not a source dump. An Owner-relayed repository-aware
    review is an accepted peer route when the bounded adapter cannot return a
    verdict; the relay is recorded as such and grants no tool authority.
-2. Define one deterministic candidate fingerprint from repository identity and
-   the complete clean committed Git tree. Dirty or untracked state disables
-   proof reuse. Bind the relevant interpreter/tool/plugin/environment
-   fingerprint separately and invalidate on any unknown relationship. The
-   fingerprints identify evidence; they do not authenticate it.
+2. Partition deterministic fingerprints: an executable surface covers tracked
+   source, tests, dependencies, configuration, generators, hooks, instructions,
+   skills, specs, plans, and task contracts; an exact packet-evidence allowlist
+   covers only non-executable verification/review records. Dirty/untracked state
+   or any ignored-but-loadable Python/pytest path disables reuse. Tracked
+   bytecode disables reuse, and reused Python commands disable bytecode writes.
+   Bind interpreter/tool/plugin/environment separately and invalidate on any
+   unknown relationship. None of these digests authenticates evidence.
 3. Define phase envelopes for `plan_peer`, `mutation`, `cross_review`,
-   `verification`, and `integration`, plus a cumulative run envelope: actual
-   elapsed time, call count, input bytes, configured provider ceiling, known
-   capacity snapshot, and stop action. Do not claim token counts the provider
-   did not expose. A cheaper model after exhaustion may advise only; it cannot
-   satisfy the exhausted gate.
+   `verification`, and `integration`, plus a cumulative run envelope that
+   persists across every controller invocation/turn for one Owner objective:
+   actual elapsed time, call count, input bytes, configured provider ceiling,
+   known capacity snapshot, and stop action. Do not claim token counts the
+   provider did not expose or a weekly/cross-run ceiling. A cheaper model after
+   exhaustion may advise only; it cannot satisfy any gate.
 4. Correct peer-failure classification first after plan convergence. Replace
    the catch-all continuation with an allowlist of known benign availability
    failures and regress an invented subtype to `return_to_owner`.
-5. Add a single-flight invocation record keyed by candidate/request/model.
+5. Add a single-flight invocation record keyed by executable surface,
+   request/model/schema/configuration, and run ID.
    A live matching process is attached to or reported; an automatic duplicate
    is forbidden. An expired lease without a terminal result returns to the
    Owner and never restarts automatically. Terminal structured output is
    secret-screened, capped at 64 KiB, written atomically outside the repository
-   before it is reported, tagged with original observation time, and expires
-   after 24 hours. A rejected result body leaves only bounded status and digest
-   metadata.
+   before it is reported and tagged with original observation time. It becomes
+   ineligible after 24 hours; every read/start enforces expiry and deletes a
+   stale body before returning metadata. A rejected result body leaves only
+   bounded status and digest metadata.
 6. Add review-input preflight. Plan critique remains small. A source review
    above the configured byte envelope is rejected before spawn with routes:
    repository-aware Owner relay, approved digest-bound snapshot work, or scope
    reduction that still discloses omitted files.
-7. Add proof records keyed by candidate fingerprint plus exact command and
-   relevant environment fingerprint. Targeted checks and composed evidence may
-   accelerate intermediate work. After every tracked packet/source/evidence
-   byte is frozen, the final complete required suite runs once against that
-   exact fingerprint; no composed proof substitutes for this final pass.
+7. Add proof records keyed by executable-surface fingerprint plus exact command
+   and relevant environment fingerprint. Targeted checks and composed evidence
+   may accelerate intermediate work. After the executable surface freezes, the
+   final complete required suite runs once against that exact fingerprint; no
+   composed proof substitutes for this pass. Recording the result in an exact
+   allowlisted evidence path changes only the packet-evidence fingerprint, and
+   the final report discloses both.
 8. Update orchestration skill/operator guidance and tested controller state so
    normal work has one active mutator per worktree, one peer/reviewer call per
    request fingerprint, and one verifier per final candidate. Disclose that
@@ -81,6 +89,9 @@ budget, duplicate-call, invalidation, and interruption cases.
   a bounded lease/process-identity check and a terminal timeout.
 - Tight default budgets can make FULL work unusable. Exhaustion returns an
   explicit route, never a fabricated pass or silent downgrade.
+- A terminal result that exceeds 64 KiB or matches the at-rest secret screen is
+  deliberately not recoverable and may require a new Owner-approved call. This
+  fail-closed cost is disclosed rather than hidden through truncation.
 - A repo-aware peer transport can widen confidentiality exposure. It remains
   out of the first slice unless separately designed and approved.
 

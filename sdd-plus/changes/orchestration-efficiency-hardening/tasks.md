@@ -12,13 +12,17 @@ orchestration-efficiency-hardening
 - [x] Obtain Claude/Fable peer critique before implementation through the
   recorded Owner-relayed repository-aware route; round one was non-converged.
 - [x] Reconcile every round-one peer blocker in the packet and delta spec.
-- [ ] Obtain round-two convergence before runtime implementation.
+- [x] Obtain round-two peer critique; it was non-converged with two new
+  anchoring blockers.
+- [x] Reconcile every round-two blocker and required change in the packet.
+- [ ] Obtain round-three convergence before runtime implementation.
 
 ## Implementation
 
 - [ ] Replace peer-failure fallback with a benign-availability allowlist and
   regress both budget ceiling and an invented subtype to `return_to_owner`.
-- [ ] Add candidate/request fingerprint and single-flight invocation state.
+- [ ] Add executable/evidence fingerprints, ignored-loadable cleanliness, and
+  single-flight invocation state.
 - [ ] Add durable screened terminal capture, no-auto-restart lease recovery,
   freshness/retention bounds, and out-of-tree storage.
 - [ ] Add per-phase and cumulative run envelopes with advisory-only

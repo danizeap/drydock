@@ -28,13 +28,22 @@ orchestration-efficiency-hardening
   not review or convergence.
 - [x] Owner-relayed Claude Code architecture review inspected exact commit
   `8d4dd5c` read-only and returned `converged: false` with four blockers. The
-  structured result is preserved in
+  findings are faithfully summarized, not verbatim-preserved, in
   `claude-architecture-review-round-1.json`.
 - [x] Round-one blocker remediation is present normatively: fail-closed
   availability allowlist, objective critique trigger, advisory-only downgrade,
   final-fingerprint full suite, clean-tree reuse, no-auto-restart leases,
   cumulative run budget, and screened out-of-tree terminal retention.
-- [ ] Round-two Claude/Fable review of the revised packet.
+- [x] Owner-relayed round-two review inspected exact range
+  `8d4dd5c..dd4c9a5`, confirmed every round-one closure, and returned
+  `converged: false` with two new anchoring blockers. Its findings are
+  faithfully summarized in `claude-architecture-review-round-2.json`.
+- [x] Round-two remediation partitions executable/evidence fingerprints,
+  retargets the exact predecessor requirement, places novel requirements under
+  ADDED, scans ignored loadable paths, defines the multi-invocation run,
+  removes FULL self-labelling and advisory gate scope, and enforces expiry on
+  read/start.
+- [ ] Round-three Claude/Fable review of the revised packet.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -45,7 +54,7 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ROUND-ONE ARCHITECTURE BLOCKERS REMEDIATED IN SPEC TEXT; IMPLEMENTATION REMAINS
-BLOCKED UNTIL ROUND TWO CONVERGES. The small automated plan request still
+ROUND-TWO ARCHITECTURE BLOCKERS REMEDIATED IN SPEC TEXT; IMPLEMENTATION REMAINS
+BLOCKED UNTIL ROUND THREE CONVERGES. The small automated plan request still
 exceeded its provider ceiling, proving that an input-byte budget alone does not
 predict total peer cost.
