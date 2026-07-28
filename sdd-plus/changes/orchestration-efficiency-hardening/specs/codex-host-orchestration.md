@@ -169,11 +169,14 @@ active packet root named `verification.md`,
 schema at `specs/packet-evidence.schema.json`. Every other packet path,
 including brief, plan, tasks, decision log, specs, scripts, configuration, and
 unknown names, belongs to the executable surface for invalidation purposes.
+An allowlisted, schema-valid review summary records a reported result; it does
+not authenticate provenance, establish peer agreement, or satisfy a gate by
+itself.
 
 Reusable test or verification evidence SHALL bind the executable-surface
 fingerprint, exact command, relevant environment fingerprint, terminal status,
 and output digest. Reuse SHALL require a clean committed Git tree with no
-ordinary untracked files and no ignored-but-loadable path. A source,
+ordinary untracked files and no ignored code-injection path. A source,
 dependency, configuration, hook, generator, loadable file, environment, or
 unknown relationship SHALL invalidate every affected proof. No cached result
 authorizes effects or replaces an independent verifier. Reuse is an
@@ -181,7 +184,8 @@ intermediate-work optimization only.
 
 #### Scenario: Working tree is dirty or contains untracked files
 - **WHEN** Git reports any tracked modification or untracked path, including a
-  loadable `conftest.py`, `sitecustomize.py`, `.pth`, or bytecode artifact
+  loadable `conftest.py`, `sitecustomize.py`, `.pth`, or untracked, non-ignored
+  bytecode artifact
 - **THEN** proof reuse is disabled and no prior result is attached to the
   current candidate
 

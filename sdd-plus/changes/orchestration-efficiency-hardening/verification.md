@@ -61,7 +61,14 @@ orchestration-efficiency-hardening
 - [x] Packet evidence is explicitly proof-neutral but remains gate-relevant:
   `verification.md` does not invalidate executable proof, while its parsed
   Result and checklist state still affect archive readiness.
-- [ ] Round-four Claude/Fable review of the revised packet.
+- [x] Owner-relayed round-four review inspected exact range
+  `d114fb7..9d7ff0a`, rechecked all six round-three changes from the packet, and
+  returned `converged: true` with no blockers. Its findings are faithfully
+  summarized in `claude-architecture-review-round-4.json`.
+- [x] Round-four clarity follow-up narrows the requirement body to ignored
+  code-injection paths, identifies the dirty-tree bytecode case as untracked
+  and non-ignored, and states that schema-valid summaries do not establish peer
+  agreement or satisfy gates.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -72,10 +79,10 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ROUND-THREE ARCHITECTURE BLOCKER AND REQUIRED CHANGES REMEDIATED IN SPEC TEXT;
-IMPLEMENTATION REMAINS BLOCKED UNTIL ROUND FOUR CONVERGES. No runtime code has
-changed. The packet still carries disclosed risks: stacked unsynced deltas,
-pre-mutation objective classification remains a judgment, oversized or
-secret-bearing terminal output can require a new Owner-approved call, evidence
-state is user-writable rather than attested, and default envelopes remain
-uncalibrated.
+ARCHITECTURE CONVERGED IN ROUND FOUR; IMPLEMENTATION AND VERIFICATION REMAIN
+PENDING. No runtime code has changed at this checkpoint. The packet still
+carries disclosed risks: stacked unsynced deltas, pre-mutation objective
+classification remains a judgment, oversized or secret-bearing terminal output
+can require a new Owner-approved call, evidence state is user-writable rather
+than attested, proof-root test behavior may differ from a Git checkout, and
+default envelopes remain uncalibrated.

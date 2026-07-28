@@ -19,7 +19,9 @@ orchestration-efficiency-hardening
   reuse blocker and five drafting gaps.
 - [x] Reconcile the round-three blocker and every required change in the
   packet.
-- [ ] Obtain round-four convergence before runtime implementation.
+- [x] Obtain round-four convergence before runtime implementation.
+- [x] Apply the three non-blocking round-four clarity fixes before handing the
+  contract to implementation.
 
 ## Implementation
 
