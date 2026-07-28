@@ -185,8 +185,30 @@ are separate implementer evidence and do not claim that CI ran for this diff.
   and exited with `error_max_budget_usd` under a $1 controller ceiling.
 - [ ] Live controller/executor integration.
 - [ ] Living spec sync and archive.
-- [ ] Commit, integration into another branch, push, install, release, or
-  deployment.
+- [x] Candidate and review evidence committed; checkpoint branch pushed; Owner
+  branch fast-forwarded without reconstructing the reviewed commits.
+- [ ] Install, release, archive, or deployment.
+
+## Final Owner-Branch Integration Evidence
+
+- [x] `codex/adaptive-delegation-ledger` fast-forwarded from `7d4c08b` through
+  the three reviewed implementation commits and evidence-only commit
+  `e724052`.
+- [x] Integrated adapter run reached 243 passed/2 skipped and one deterministic
+  bundle failure caused by seven pre-existing CRLF working-tree files. No
+  candidate behavior test failed.
+- [x] The seven scaffold files and their two authoritative root peers were
+  normalized in the working tree to the LF bytes already stored in Git. This
+  produced no staged content change. The failed bundle module then passed
+  5/1, and the deterministic bundle check passed.
+- [x] Integrated legacy suite:
+  `python -m pytest tests -q -p no:cacheprovider` reported 548 passed/6 skipped
+  in 53.53 seconds.
+- [x] Root/scaffold parity, deterministic bundle, generated hook definition,
+  release-version parity, packet structure, and `git diff --check` all passed.
+- [x] The final working tree was clean. Evidence is intentionally combined
+  rather than rerunning the 243 already-passing adapter tests after an
+  LF-only working-tree correction.
 
 ## Result
 
