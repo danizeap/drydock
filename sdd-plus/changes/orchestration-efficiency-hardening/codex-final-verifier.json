@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "codex_final_verifier",
+  "verdict": "BLOCKED",
+  "overall": "The separate read-only verifier bound its verdict to HEAD 8118a7fa7a7ae06b1241a70d848019694a78922f and working-tree fingerprint e0661bb8990bec2233afd53c8c48e8b1b6a8ede908e72a39cca70a877eafb6b3. It positively confirmed an unchanged clean tree, the frozen commit ancestry and executable fingerprint, exact committed-tree equality across 472 paths, source/test/spec agreement, packet verification with exactly one pending task, all nine peer-evidence schema validations, and the requested diff checks. It returned BLOCKED because the native-Windows read-only boundary denied access to the external proof-store record and provided no writable temporary directory for pytest. No implementation failure was observed.",
+  "blockers": [
+    "Access is denied under the verifier permission boundary; acceptance of the exact external full_required_suite record lacks positive evidence.",
+    "Focused controller/evidence tests could not start because the read-only verifier has no writable temporary directory. Under the requested rules, an unrun check is BLOCKED."
+  ],
+  "gaps": [],
+  "risks": [
+    "The verifier establishes separate process, context, permission, state-binding, and Windows descendant-lifetime boundaries, but it is not an epistemically independent model family.",
+    "The current native-Windows read-only verifier could not reproduce the earlier observation that read-only Codex could read outside its repository root."
+  ]
+}

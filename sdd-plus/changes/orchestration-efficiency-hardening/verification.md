@@ -216,6 +216,20 @@ orchestration-efficiency-hardening
   read proved the corrected capture mechanism before any further paid call.
   No process exit or missing output was interpreted as PASS, and no third
   verifier was launched without renewed Owner authorization.
+- [x] The renewed, preflighted verifier preserved its complete 8,275-byte
+  runner result (SHA-256
+  `9acd09d141fd0b93dc9979d4fd420246a4f6d807880eea27507a79367e18f427`)
+  with zero wrapper stderr. The runner bound exact HEAD
+  `8118a7fa7a7ae06b1241a70d848019694a78922f` and working-tree fingerprint
+  `e0661bb8990bec2233afd53c8c48e8b1b6a8ede908e72a39cca70a877eafb6b3`,
+  returned process exit 0 without timeout, proved the tree unchanged and the
+  Windows Job Object boundary closed, and produced a schema-valid `BLOCKED`
+  verdict. It positively checked frozen ancestry and executable identity,
+  committed-tree equality across 472 paths, source/test/spec agreement, packet
+  state, all nine peer-evidence schemas, and diff checks. It blocked because
+  the read-only sandbox denied the external proof-store path and could not
+  allocate pytest temporary files. The exact blocking summary is preserved in
+  `codex-final-verifier.json`; no implementation failure or PASS is inferred.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -232,7 +246,8 @@ AND THE FINAL FULL REQUIRED SUITE PASSED ON THE EXACT FROZEN EXECUTABLE
 CANDIDATE
 `b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`
 AT COMMIT `4caa98812e5774c48bdd78451abaf43d0a5a4c10`; SEPARATE VERIFICATION
-REMAINS PENDING. The
+IS BLOCKED ON READ-ONLY EVIDENCE REACHABILITY AND TEMPORARY-FILE
+AVAILABILITY, NOT AN OBSERVED IMPLEMENTATION FAILURE. The
 implementation does not claim
 fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
