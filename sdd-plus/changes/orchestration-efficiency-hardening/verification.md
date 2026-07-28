@@ -26,6 +26,15 @@ orchestration-efficiency-hardening
   attempt returned no verdict: after 115 seconds it exited
   `error_max_budget_usd` under a $0.50 ceiling. This is operational evidence,
   not review or convergence.
+- [x] Owner-relayed Claude Code architecture review inspected exact commit
+  `8d4dd5c` read-only and returned `converged: false` with four blockers. The
+  structured result is preserved in
+  `claude-architecture-review-round-1.json`.
+- [x] Round-one blocker remediation is present normatively: fail-closed
+  availability allowlist, objective critique trigger, advisory-only downgrade,
+  final-fingerprint full suite, clean-tree reuse, no-auto-restart leases,
+  cumulative run budget, and screened out-of-tree terminal retention.
+- [ ] Round-two Claude/Fable review of the revised packet.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -36,6 +45,7 @@ orchestration-efficiency-hardening
 
 ## Result
 
-ARCHITECTURE DRAFTED; IMPLEMENTATION BLOCKED ON EARLY PEER CRITIQUE. The small
-plan request still exceeded its provider ceiling, proving that an input-byte
-budget alone does not predict total peer cost.
+ROUND-ONE ARCHITECTURE BLOCKERS REMEDIATED IN SPEC TEXT; IMPLEMENTATION REMAINS
+BLOCKED UNTIL ROUND TWO CONVERGES. The small automated plan request still
+exceeded its provider ceiling, proving that an input-byte budget alone does not
+predict total peer cost.

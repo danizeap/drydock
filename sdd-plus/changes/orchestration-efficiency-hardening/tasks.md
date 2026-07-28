@@ -9,16 +9,23 @@ orchestration-efficiency-hardening
 - [x] Capture the completed adaptive-ledger dogfood observation.
 - [x] Define the safety invariants that efficiency work may not remove.
 - [x] Write the first-slice MVP boundary and delta requirements before code.
-- [ ] Obtain Claude/Fable peer critique before implementation.
-- [ ] Reconcile every peer blocker in the plan.
+- [x] Obtain Claude/Fable peer critique before implementation through the
+  recorded Owner-relayed repository-aware route; round one was non-converged.
+- [x] Reconcile every round-one peer blocker in the packet and delta spec.
+- [ ] Obtain round-two convergence before runtime implementation.
 
 ## Implementation
 
-- [ ] Correct budget-ceiling classification with a negative regression.
+- [ ] Replace peer-failure fallback with a benign-availability allowlist and
+  regress both budget ceiling and an invented subtype to `return_to_owner`.
 - [ ] Add candidate/request fingerprint and single-flight invocation state.
-- [ ] Add durable terminal result capture and bounded lease recovery.
+- [ ] Add durable screened terminal capture, no-auto-restart lease recovery,
+  freshness/retention bounds, and out-of-tree storage.
+- [ ] Add per-phase and cumulative run envelopes with advisory-only
+  post-exhaustion model routing.
 - [ ] Add input-budget preflight and actionable oversized-review routing.
-- [ ] Add command/candidate-bound proof reuse with conservative invalidation.
+- [ ] Add clean-tree command/candidate-bound intermediate proof reuse with
+  conservative invalidation and a final exact-fingerprint full-suite rule.
 - [ ] Update the orchestration skill and operator guidance.
 - [ ] Run focused checks during implementation and freeze the candidate.
 - [ ] Run one final full adapter/legacy/parity pass.

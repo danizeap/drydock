@@ -1,0 +1,34 @@
+{
+  "converged": false,
+  "overall": "Claude reviewed commit 8d4dd5c read-only and confirmed it was a clean docs-only architecture commit with no runtime implementation. It verified the live fail-open chain: error_max_budget_usd falls through classify_peer_failure to process_failure, which is admitted to single_pilot continuation, while the existing peer-unavailable delta requires budget violations to return to the Owner. The central architecture was judged disciplined, but four specification blockers remained: unknown provider subtypes still failed open; pre-mutation critique was self-scoped by packet labels; cheaper post-exhaustion models could satisfy stronger gates; and composed evidence could leave the final frozen candidate without a complete full-suite pass.",
+  "blocking_concerns": [
+    "Peer failure handling enumerated named control violations but retained a catch-all process_failure path that authorized single-pilot continuation for every unknown structured subtype.",
+    "The pre-mutation critique trigger depended on whether the packet declared peer convergence as a gate, allowing the governed author to opt out.",
+    "A post-envelope cheaper-model reroute could satisfy the original convergence, critique, or verification gate.",
+    "The test ladder allowed composed results from different fingerprints to replace a full required-suite execution on the final frozen candidate."
+  ],
+  "gaps": [
+    "The fingerprint did not clearly bind untracked loadable files or stale bytecode.",
+    "Expired lease behavior without a terminal result was unspecified.",
+    "Recovered terminal peer output had no freshness limit.",
+    "Per-phase envelopes lacked a cumulative run ceiling.",
+    "Controller-observable costs were not distinguished from unobservable nested/provider context ingestion.",
+    "The task ordering did not record Owner-relayed peer review as an accepted route."
+  ],
+  "risks": [
+    "Persisted terminal output lacked a dedicated at-rest secret screen, size cap, retention limit, and cleanup rule.",
+    "The orchestration state directory was not specified outside the repository.",
+    "A feature flag could disable single-flight and restore duplicate-call exposure.",
+    "The evidence store is user-writable and cannot authenticate candidate fingerprints."
+  ],
+  "required_changes": [
+    "Invert the peer-failure default to an allowlist of proven benign availability failures; every unknown subtype returns to the Owner.",
+    "Trigger pre-mutation critique from objective high-impact properties and disclose every skipped critique machine-readably.",
+    "Make every post-exhaustion model reroute advisory-only for the exhausted gate.",
+    "Require one complete required-suite run against the final frozen candidate fingerprint.",
+    "Require a clean committed tree for proof reuse and bind the complete tracked tree and relevant environment.",
+    "Return an expired lease without terminal output to the Owner; do not restart automatically.",
+    "Add a cumulative run envelope.",
+    "Secret-screen, size-bound, freshness-bound, retention-bound, and store terminal results outside the repository."
+  ]
+}

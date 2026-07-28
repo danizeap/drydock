@@ -36,19 +36,24 @@ candidate fingerprint, proof-reuse contract, or duplicate-work guard.
 
 In scope:
 
-- Fix budget-ceiling classification so it returns to the Owner.
+- Replace peer-failure classification with a fail-closed allowlist: only known
+  benign availability failures may enter single-pilot; every unknown subtype
+  returns to the Owner.
 - Require architecture/security peer critique before mutation for FULL changes
-  when the packet makes peer convergence an integration gate.
+  that objectively affect persistence, permissions, process boundaries, or
+  verification semantics, regardless of how the packet labels itself.
 - Add a candidate fingerprint and command-bound evidence ledger so unchanged
   proof is reused instead of repeated.
 - Add a targeted-to-full test ladder: targeted checks while the candidate
   changes, one full pass after freeze, and selective reruns after
   evidence-only or isolated corrections.
-- Add explicit per-phase envelopes for elapsed time, model calls, input bytes,
-  and provider budget. Unknown token/usage data remains unknown.
+- Add explicit per-phase and cumulative per-run envelopes for elapsed time,
+  model calls, input bytes, and provider budget. Unknown token/usage data
+  remains unknown.
 - Reject an oversized peer payload before provider spend and route it to a
   repository-aware/manual review or a separately approved snapshot mechanism.
-- Persist peer invocation identity and terminal output durably enough that an
+- Persist peer invocation identity and screened, bounded terminal output
+  outside the repository with a freshness and retention limit, so an
   outer-shell interruption cannot silently invite a duplicate call.
 - Record dogfood efficiency with observable counts and timings, not fabricated
   token savings.
@@ -67,19 +72,27 @@ Out of scope:
 
 ## Acceptance Criteria
 
-- [ ] A budget-ceiling peer failure returns `return_to_owner`, never automatic
-  Codex-only continuation.
+- [ ] Only an explicit allowlist of proven availability failures may continue
+  single-pilot; budget, policy, refusal, context-limit, and every unknown or
+  unmapped subtype return `return_to_owner`.
 - [ ] A duplicate live invocation with the same candidate/request fingerprint
   is refused or attached to, never started again.
-- [ ] FULL architecture critique occurs before mutation or records explicit
-  peer unavailability without claiming convergence.
-- [ ] Test evidence is keyed to the exact candidate and command; unchanged
-  results can be reused, while source changes invalidate affected proof.
+- [ ] FULL persistence/permission/process/verification changes trigger
+  architecture critique objectively; a skipped critique is machine-readable
+  and cannot satisfy convergence.
+- [ ] Proof reuse requires a clean committed tree and exact candidate/command/
+  environment binding; the final frozen candidate receives one complete
+  required-suite run with no composed substitute.
 - [ ] Oversized embedded review input is rejected before a provider call and
   produces an actionable route.
 - [ ] Every phase reports actual elapsed time, calls, input bytes, and known
   capacity evidence; missing usage never becomes an estimate presented as
   fact.
+- [ ] The entire run also has a cumulative ceiling; a cheaper post-exhaustion
+  model can advise but cannot satisfy the exhausted gate.
+- [ ] Durable peer results are secret-screened, size-bounded, fresh, retained
+  for a bounded period, stored outside the repository, and never called
+  authenticated evidence.
 - [ ] The final workflow retains independent verification and all existing
   safety gates.
 
@@ -107,3 +120,5 @@ Out of scope:
   recovering a terminal peer result after invoker interruption?
 - Which source changes invalidate which proof commands without creating an
   unsafe cache?
+- What fixed retention interval and terminal-result byte cap are sufficient
+  for recovery without turning orchestration state into a content archive?
