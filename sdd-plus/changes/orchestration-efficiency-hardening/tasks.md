@@ -53,7 +53,7 @@ orchestration-efficiency-hardening
 - [x] Obtain implementation cross-review of the v2 fingerprint correction.
 - [x] Freeze the candidate after cross-review.
 - [x] Run one final full adapter/legacy/parity pass.
-- [ ] Obtain independent verification against the frozen commit.
+- [x] Obtain independent verification against the frozen commit.
 
 ## Verifier Remediation
 
@@ -88,7 +88,7 @@ orchestration-efficiency-hardening
   remediation.
 - [x] Re-freeze the new executable fingerprint and run a new replacement full
   required suite; the proof for the prior fingerprint is not reusable.
-- [ ] Obtain final separate verification against the remediated frozen
+- [x] Obtain final separate verification against the remediated frozen
   candidate.
 
 ## Deferred Calibration

@@ -1,17 +1,14 @@
 {
   "schema_version": 1,
   "evidence_kind": "codex_final_verifier",
-  "verdict": "BLOCKED",
-  "overall": "FAIL: the exact repository state is unchanged and both requested fingerprints are confirmed, but the proof-identity internal Git helper lacks command-scoped safe-directory trust and fails under the actual permission-isolated Windows verifier SID. The corresponding test coverage and packet completion claims are incomplete. The parent runner bound this verdict to HEAD 09bdee5d75c337ee9996127294ed5e389a0588d6 and working-tree fingerprint 95cbb426f0fb03f9b5a399ca93b696d33fe15d60aa3e2be61d4b6b6ceedd31a5. It returned ok false with stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true. The verifier's FAIL is recorded as BLOCKED at the packet gate; no PASS is inferred.",
-  "blockers": [
-    "`_git_tree_entries` launches `git cat-file --batch` without command-scoped `safe.directory` while `_git_environment()` removes inherited Git configuration. Under `CodexSandboxOffline`, `repository_fingerprints(...)` reproduced `fatal: detected dubious ownership`. Required invariant 7 therefore fails.",
-    "The Git-helper regression exercises only `_git(... rev-parse ...)`, not the internal `git cat-file --batch` path. Consequently the recorded suite did not detect the failing internal fingerprint helper despite the packet claiming internal-helper coverage."
-  ],
+  "verdict": "PASS",
+  "overall": "PASS. The prior sandbox-SID blocker is positively closed, the requested invariants agree across implementation, tests, specs, documentation, and packet evidence, and the bound repository state remained unchanged. This establishes process, context, permission, and state-binding separation, not epistemic independence. The admitted suite record remains required but unauthenticated, provenance-unattested, user-writable, and insufficient by itself. The parent runner bound the verdict to HEAD f307a7a60c3aaabf17890ab453b2e517064f4f91 and working-tree fingerprint 6b9e8c8ab56f5783184be6c0270d007f1cb7b117549a631135ff9cb1cfb1bfd4; it returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true.",
+  "blockers": [],
   "gaps": [
-    "The reported `548 passed, 6 skipped` and `314 passed, 2 skipped` counts cannot be cross-checked from the supplied outer record: it contains only an output digest, while the claimed 3,401-byte suite-summary body is not committed. No independent count confirmation is inferred."
+    "Host-file reads were denied, so the claimed 3,401-byte suite-summary size, SHA-256, CRLF-derived output digest, and per-step suite counts were not independently cross-checked by the verifier. No count confirmation is inferred from that review; the parent exact-fingerprint proof-admission gate remains the required mechanical control."
   ],
   "risks": [
-    "The admitted full-suite record remains user-writable, unauthenticated, provenance-unattested, and insufficient for PASS by itself.",
-    "This verifier establishes separate process, context, permission, state-binding, and Windows descendant-lifetime boundaries, but it is not an epistemically independent model family."
+    "The admitted full-suite record and external summary remain user-writable, unauthenticated, provenance-unattested evidence; structural admission is necessary but not sufficient by itself.",
+    "The verifier establishes separate process, context, permission, state-binding, and Windows descendant-lifetime boundaries, but uses the same model family and declares epistemic_independence false."
   ]
 }

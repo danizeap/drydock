@@ -460,7 +460,27 @@ orchestration-efficiency-hardening
   after the new full-suite task was checked complete. Canonical task
   projection and reuse eligibility remained true, with no tracked bytecode,
   ignored code-injection path, or invalid packet evidence.
-- [ ] Independent review of the frozen implementation.
+- [x] Final separate verification passed at exact clean HEAD
+  `f307a7a60c3aaabf17890ab453b2e517064f4f91` and working-tree fingerprint
+  `6b9e8c8ab56f5783184be6c0270d007f1cb7b117549a631135ff9cb1cfb1bfd4`.
+  The parent runner returned `ok: true`, `stage: complete`, exit code `0`,
+  `timed_out: false`, and `parse_error: null`; proof admission was accepted,
+  and both `tree_unchanged` and `candidate_unchanged` were true. The verifier
+  positively ran `repository_fingerprints` under the actual read-only sandbox
+  identity with the hostile Git-variable family and observed no
+  `dubious ownership` failure. It confirmed the two shared, root-pinned Git
+  subprocess paths; exact scrubbed `GIT_*` set; structured resolution failure;
+  v2/tree/projection/archive/admission invariants; schema-valid rounds 13/14;
+  clean executable fingerprint
+  `b0f6cff44dfae8db561149ec9bf0f1b45d2479a570000076baefcc3547c981d6`;
+  and verification-excluded packet-evidence-parent fingerprint
+  `855d176c137aa5774f94387c295bc223d6fcfd007cc348cbabd6f4c7c2888918`.
+  It could not read the external suite-summary file under its host-file
+  boundary, so it explicitly did not independently confirm that file's counts
+  or digest. This is retained as a gap rather than rewritten as positive
+  evidence. The exact schema-valid PASS summary is recorded in
+  `codex-final-verifier.json`; the runner declares
+  `epistemic_independence: false`.
 
 ## Documentation Updates
 
@@ -471,15 +491,14 @@ orchestration-efficiency-hardening
 
 ## Result
 
-FINAL SEPARATE VERIFICATION REMAINS BLOCKED BY THE RECORDED FAIL VERDICT.
-THE REPRODUCED INTERNAL `git cat-file --batch` TRUST DEFECT IS REMEDIATED
-WITH FOCUSED TESTS, DIRECT READ-ONLY-SANDBOX EVIDENCE, AND TWO-ROUND OPUS 5
-PEER CONVERGENCE. THE NEW CANDIDATE IS FROZEN; ITS FULL-REQUIRED-SUITE PROOF
-PASSED ON THE FIRST RUN. A NEW FINAL SEPARATE VERDICT IS STILL PENDING. THE
-PREVIOUS FULL-SUITE RECORD DOES NOT VERIFY THIS EXECUTABLE REVISION; ONLY THE
-NEW EXACT-FINGERPRINT RECORD IS ADMISSIBLE, AND IT REMAINS USER-WRITABLE,
-UNAUTHENTICATED, AND INSUFFICIENT BY ITSELF. THIS PACKET IS NOT VERIFIED OR
-ARCHIVE-READY, AND NO PASS IS INFERRED. The implementation does not claim
+FINAL SEPARATE VERIFICATION PASSED. THE PREVIOUS SANDBOX-SID
+`git cat-file --batch` BLOCKER IS POSITIVELY CLOSED, THE NEW
+EXACT-FINGERPRINT FULL REQUIRED SUITE PASSED, AND THE RUNNER CONFIRMED AN
+UNCHANGED CLEAN CANDIDATE. THE PROOF RECORD AND EXTERNAL SUMMARY REMAIN
+USER-WRITABLE, UNAUTHENTICATED, AND PROVENANCE-UNATTESTED; THE VERIFIER COULD
+NOT READ THE EXTERNAL SUMMARY AND DID NOT INFER ITS COUNTS. THIS PACKET'S
+IMPLEMENTATION AND VERIFICATION TASKS ARE COMPLETE, BUT ARCHIVE AND RELEASE
+HAVE NOT BEEN PERFORMED OR AUTHORIZED. The implementation does not claim
 fixed-root mutation containment. Remaining disclosed risks include stacked
 unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
