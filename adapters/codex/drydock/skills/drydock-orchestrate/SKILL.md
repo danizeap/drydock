@@ -72,8 +72,9 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    admission to the official executor wrapper so it is atomically consumed
    before provider spawn or side effect, and complete it through
    `workflow-finish`. Phase order is preflight → plan peer → mutation →
-   cross-review → proof → verification → integration → optional push →
-   complete. Admission binds objective, workflow/run, phase, authority, plan,
+   cross-review → proof → LaunchGuardian security review → verification →
+   integration → optional push → complete. Admission binds objective,
+   workflow/run, phase, authority, plan,
    mechanism, input, prior gates, candidate, random nonce, and expiry. A
    consumed admission is burned even if the executor crashes; after expiry
    `workflow-recover-admission` records the unknown-cost crash and permits a
@@ -168,7 +169,26 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    Stop, verification, or archive outcomes without changing executable
    identity. Never equate unchanged executable identity with unchanged
    governance state.
-15. Integrate sequentially only after the packet gates and Owner authorization
+15. Admit `security_review` only after the exact-candidate full proof. Run
+   `scripts/process_runner.py security-review` with the exact commit, active
+   packet root, candidate fingerprint, and consumed workflow admission. The
+   runner fixes `--framework-mode --strict-scanners`, materializes the committed
+   tree afresh, owns the report directory and process-tree cleanup, and binds
+   the LaunchGuardian executable/report to the candidate. Only valid LGF,
+   `APPROVED` or `APPROVED_WITH_DISPOSITIONS`, zero open blockers, and all five
+   expected scanners reporting `ran` may pass. Missing, timed-out, malformed,
+   stale, disabled, unavailable, failed, incomplete, or blocking evidence is
+   non-green. Finish the phase using the returned `security_review.record_key`
+   as `--evidence-digest`; the controller reloads that keyed record and raw
+   report, binds it to the exact consumed admission and prior gates, and
+   refuses a caller-asserted or replayed PASS without accepted evidence. The
+   scanner process is not host-filesystem write-confined; the
+   runner rejects detected Owner-checkout drift and treats the local
+   LaunchGuardian/scanner toolchain as trusted rather than claiming prevention
+   or provenance attestation. A technical blocker returns to mutation; a
+   procedural scanner failure may retry only this unchanged candidate-bound
+   phase.
+16. Integrate sequentially only after the packet gates and Owner authorization
    that apply to the requested workflow. The official `process_runner.py
    integrate` path consumes its integration admission, rechecks the clean
    unchanged Owner base and exact clean candidate, performs only a
@@ -179,7 +199,7 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    unavailable until a dedicated
    wrapper consumes the strict admission and proves the clean candidate,
    destination, remote baseline, exact pushed commit, and post-push ref.
-16. Report the plan/peer result, worktree and branch, changed files, evidence,
+17. Report the plan/peer result, worktree and branch, changed files, evidence,
    verifier fingerprint, unresolved risks, and `merged: false` until deliberate
    integration actually occurs.
 

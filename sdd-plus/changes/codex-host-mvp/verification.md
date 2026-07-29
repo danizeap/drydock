@@ -520,36 +520,59 @@ codex-host-mvp
 
 ## Result
 
-**IMPLEMENTATION, SECURITY-SCAN, CURRENT-REVISION LIVE, AND PEER EVIDENCE
-PASS - INTEGRATED DOGFOOD GATE OPEN.**
+**BLOCKED - OPERATIONAL-CORE SECURITY CLOSEOUT REOPENED.**
 
-The additive plugin, deterministic enforcement adapter, peer controller,
-mutation runner, and verifier pass their local suites and current-machine live
-probes. The final Owner-relayed Opus architecture/code review reproduced the
-then-current deterministic evidence and returned `converged: true` with no
-blockers. A later scoped Opus review found the readiness resume-replay blocker;
-the reproduced correction now passes local verification and exact-handler live
-dogfood. The final Owner-relayed repository-aware Claude review reproduced the
-current identities, tests, and digest chain and returned `converged: true`
-with no blocking concern. It also reproduced the generic integrity denial as a
-fail-closed host-locale stdin decoding defect and recorded five non-blocking
-follow-ups. The manual relay has no successful-controller model-usage proof.
-This remains independent process/context review rather than authenticated
-cross-family epistemic diversity.
-LaunchGuardian's reviewed source build returns
-`APPROVED_WITH_DISPOSITIONS` with 0 open blockers while retaining all six High
-findings, and its action-pinned descendant passes a clean-source self-scan;
-PyPI 0.2.0 cannot yet reproduce that result. The Owner installed and trusted
-handler
-`86a863559de9b76eb49cb8a6206553ea4569cf03b3ddb10f40719bb687485ffe`
-and previously observed it plus live denials on the two narrow guarded tool
-contracts. The source-corrected handler
-`a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`
-is now installed, trusted through the host UI, observed by a fresh readiness
-probe, and selectively observed denying both defined tool contracts. Readiness
-still reports `active: false`, `trusted: unknown`, and
-`ready_for_enforcement: false`; host trust was inspected separately and is not
-promoted into the readiness schema. These non-managed, user-disableable hooks
-remain explicitly incomplete for other tool paths. A scoped independent
-re-review has now converged; one integrated hosted workflow run remains
-pending. No publication or release is authorized by this evidence.
+Commit `89a28c22f3b901045ad3fcd03edc33257720f776` changed only the integrated
+dogfood task checkbox while this verification record still stated that the run
+remained pending. The remote checkpoint identifies a pushed commit, but the
+packet does not yet reconcile durable proof, both verifier results, integration
+evidence, and remote confirmation strongly enough to support that completion
+claim. The task is reopened; absence of a located record is not reported as
+proof that the underlying action did not occur.
+
+The earlier LaunchGuardian source-build result remains useful point-in-time
+evidence, but it is not an enforced candidate-bound phase in the Codex workflow.
+Installed/PyPI LaunchGuardian 0.2.0 also cannot reproduce the reviewed
+disposition behavior. The operational core therefore remains BLOCKED until the
+candidate-bound fail-closed security gate is implemented, tested,
+cross-reviewed, independently verified, and exercised with a reproducible
+LaunchGuardian installation.
+
+On 2026-07-29 the Owner re-trusted the machine-specific installed
+`apply_patch` hotfix. A live current-task probe and a separately started fresh
+Codex task both created and deleted an ordinary disposable file through
+`apply_patch`, denied an attempted `.env` creation through the Drydock secrets
+guardrail, and left both probe paths absent. The repository remained clean at
+`89a28c22f3b901045ad3fcd03edc33257720f776`. This closes the tested-host
+edit-bootstrap blocker; it does not make the absolute-root personal hotfix
+portable or upgrade-stable.
+
+On 2026-07-30 the local operational-core security slice added schema-v3
+workflow ordering, a candidate-bound `security_review` admission, fresh
+committed-tree scanning, fixed strict LaunchGuardian arguments, bounded strict
+report parsing, candidate/tool/report identity evidence, post-process
+Owner-checkout drift detection, admission-bound record replay prevention,
+controller-side raw-evidence revalidation, and fail-closed resume behavior. A
+direct caller-supplied `passed` outcome without accepted keyed evidence was
+explicitly rejected in the focused tests. The scanner process is not
+host-filesystem write-confined; this is detection rather than prevention, and
+the local LaunchGuardian/scanner toolchain remains trusted.
+
+Focused deterministic evidence:
+
+- `test_orchestration_control.py`: 27 passed, 1 skipped.
+- `test_orchestration_evidence.py`: 53 passed.
+- `test_process_runner.py`: 75 passed.
+- `test_orchestrator.py`: 55 passed.
+- Combined exact post-bypass-fix run: 210 passed, 1 skipped in 164.71 seconds.
+- `python scripts/sdd.py verify codex-host-mvp`: artifacts verified, 41
+  complete, 3 pending; archive remains unavailable without force.
+- `git diff --check`: exit 0; Git emitted only the existing line-ending
+  normalization warning for `plan.md`.
+
+This is implementation evidence, not independent verification. Peer
+cross-review, a separate verifier, a reproducible disposition-capable
+LaunchGuardian installation, integrated dogfood, and the permitted lifecycle
+actions remain pending.
+
+No publication, release, archive, or push is authorized by this evidence.

@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 from orchestration_evidence import (
     AT_REST_SECRET,
     EvidenceError,
+    SecurityReviewStore,
     _atomic_json,
     _canonical_json,
     _exclusive_record_lock,
@@ -25,13 +26,14 @@ from orchestration_evidence import (
 )
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 WORKFLOW_PHASES = (
     "preflight",
     "plan_peer",
     "mutation",
     "cross_review",
     "proof",
+    "security_review",
     "verification",
     "integration",
     "push",
@@ -48,6 +50,7 @@ ALLOWED_ACTIONS = frozenset(
         "mutate",
         "cross_review",
         "proof",
+        "security_review",
         "verify",
         "integrate",
         "commit",
@@ -59,6 +62,7 @@ ACTION_PHASE = {
     "mutate": "mutation",
     "cross_review": "cross_review",
     "proof": "proof",
+    "security_review": "security_review",
     "verify": "verification",
     "integrate": "integration",
     "commit": "integration",
@@ -508,6 +512,18 @@ def validate_plan(value: object) -> dict[str, object]:
     for action in actions:
         if ACTION_PHASE[action] not in phases:
             raise ControlError(f"plan action {action} lacks its workflow phase")
+    if "mutate" in actions:
+        required_for_mutation = {"proof", "security_review"}
+        missing_actions = sorted(required_for_mutation - set(actions))
+        if missing_actions:
+            raise ControlError(
+                "mutating plan lacks required proof/security actions: "
+                f"{missing_actions}"
+            )
+        if phases.index("proof") > phases.index("security_review"):
+            raise ControlError(
+                "mutating plan security review must follow exact-candidate proof"
+            )
     if ("push" in phases) != ("push" in actions):
         raise ControlError("push phase and push action must agree")
     push = _validate_push(plan["push"], actions)
@@ -801,6 +817,8 @@ class WorkflowStore:
         _require_digest(digest, "current plan digest")
         if canonical_digest(plan) != digest:
             raise ControlError("workflow current plan digest is mismatched")
+        if validate_plan(plan) != plan:
+            raise ControlError("workflow current plan contract is not canonical")
         path = self.plan_root / f"{digest}.json"
         try:
             stored = _read_json(path)
@@ -1361,6 +1379,10 @@ class WorkflowStore:
                     "failed mutation must prove no candidate was produced"
                 )
             self._invalidate_from(record, "mutation")
+        elif phase == "security_review":
+            if outcome == "technical_blocker":
+                self._invalidate_from(record, "mutation")
+                resume_phase = "mutation"
         elif phase in {"cross_review", "proof", "verification"}:
             self._invalidate_from(record, "mutation")
             resume_phase = "mutation"
@@ -1470,6 +1492,29 @@ class WorkflowStore:
                     int(totals["procedural_failures"]) + 1
                 )
             if outcome == "passed":
+                if phase == "security_review":
+                    if (
+                        not isinstance(candidate, str)
+                        or candidate != record["candidate_digest"]
+                    ):
+                        raise ControlError(
+                            "passing security review candidate is not current"
+                        )
+                    security = SecurityReviewStore(
+                        self.root
+                    ).accepted_record(
+                        evidence_digest,
+                        executable_fingerprint=candidate,
+                        workflow_binding_sha256=canonical_digest(
+                            admission
+                        ),
+                    )
+                    if security.get("accepted") is not True:
+                        raise ControlError(
+                            "passing security review lacks accepted "
+                            "candidate-bound LaunchGuardian evidence: "
+                            f"{security.get('reason', 'unknown reason')}"
+                        )
                 if phase == "mutation":
                     if candidate is None:
                         raise ControlError(

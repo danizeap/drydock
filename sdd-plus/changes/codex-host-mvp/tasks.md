@@ -94,9 +94,19 @@ codex-host-mvp
   candidate paths; disclose unsigned plugin-data evidence and in-window replay.
 - [x] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
-- [x] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
+- [ ] Reconcile the integrated dogfood completion claim with durable proof,
+  verifier, integration, and remote evidence; a task checkbox alone is not
+  completion evidence.
+- [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
   agreement, isolated mutation, cross-review, separate verification, and push.
   Component-level runner, verifier, readiness, and live-hook probes do not
   complete this task by themselves.
+- [x] Add a candidate-bound, fail-closed LaunchGuardian phase between proof and
+  independent verification for every mutating Codex workflow.
+- [x] Prove missing, timed-out, malformed, stale, disabled/incomplete-scanner,
+  invalid-LGF, and open-blocker security evidence cannot admit verification,
+  integration, or push.
+- [ ] Cross-review and independently verify the operational-core security slice
+  without publishing, releasing, archiving, or pushing it.
 - [x] Update user/operator documentation and project context.
 - [x] Run full verification, independent review, and LaunchGuardian.

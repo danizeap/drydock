@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import orchestration_control as control
+import orchestration_evidence as evidence
 import orchestrator
 
 
@@ -36,7 +37,8 @@ def _authority(
     circuit_limits: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
-        "allowed_actions": actions or ["mutate", "peer"],
+        "allowed_actions": actions
+        or ["mutate", "peer", "proof", "security_review"],
         "allowed_paths": paths or ["docs/guide.md", "plan.md"],
         "circuit_limits": circuit_limits or {
             "elapsed_seconds": control.DEFAULT_OBJECTIVE_ELAPSED_LIMIT,
@@ -81,10 +83,18 @@ def _plan(
         "objective_digest": objective_digest,
         "objective_id": objective_id,
         "phases": phases
-        or ["preflight", "plan_peer", "mutation", "complete"],
+        or [
+            "preflight",
+            "plan_peer",
+            "mutation",
+            "proof",
+            "security_review",
+            "complete",
+        ],
         "primary_skill": "drydock-orchestrate",
         "push": push,
-        "required_actions": actions or ["mutate", "peer"],
+        "required_actions": actions
+        or ["mutate", "peer", "proof", "security_review"],
         "required_paths": paths or ["docs/guide.md", "plan.md"],
         "resource_request": {
             "elapsed_seconds": 900,
@@ -135,6 +145,79 @@ def _admit_consume(
         now=now + 0.1,
     )
     return admission_id, digest
+
+
+def _security_evidence_digest(
+    store: control.WorkflowStore,
+    tmp_path: Path,
+    *,
+    candidate: str,
+) -> str:
+    target = tmp_path / "security-target"
+    target.mkdir(exist_ok=True)
+    executable = (tmp_path / "launchguardian.exe").resolve()
+    output = (tmp_path / "security-output").resolve()
+    scanner_counts = {
+        name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    report = {
+        "schema_name": "launchguardian.report",
+        "schema_version": "0.2.0",
+        "generated_at": "2026-07-30T00:00:00Z",
+        "launchguardian_version": "0.2.0",
+        "target": str(target.resolve(strict=True)),
+        "mode": "framework",
+        "validation_mode": "framework",
+        "scan_mode": "local",
+        "lgf_validation_skipped": False,
+        "strict_scanners": True,
+        "launch_status": "APPROVED",
+        "lgf_config_valid": True,
+        "lgf_validation_status": "valid",
+        "scanner_availability": {
+            name: "ran"
+            for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+        },
+        "scanner_counts": scanner_counts,
+        "scanner_blocking_counts": dict(scanner_counts),
+        "counts_by_severity": {},
+        "counts_by_scanner": {},
+        "counts_by_status": {},
+        "counts_by_gate": {},
+        "blocking_findings": [],
+        "launchguardian_config": {},
+        "blocked": False,
+        "findings": [],
+    }
+    record = evidence.SecurityReviewStore(store.root).record(
+        candidate_commit="1" * 40,
+        executable_fingerprint=candidate,
+        executable_path=str(executable),
+        executable_sha256=hashlib.sha256(b"launchguardian").hexdigest(),
+        command_contract=[
+            str(executable),
+            "scan",
+            "--target",
+            str(target.resolve(strict=True)),
+            "--framework-mode",
+            "--strict-scanners",
+            "--output-dir",
+            str(output),
+        ],
+        report_body=json.dumps(
+            report,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8"),
+        expected_target=target,
+        elapsed_seconds=1.0,
+        process_exit_code=0,
+        process_output_sha256=hashlib.sha256(b"output").hexdigest(),
+        workflow_binding_sha256=control.canonical_digest(
+            store.read()["admission"]
+        ),
+    )
+    return str(record["record_key"])
 
 
 def test_preflight_rejects_scope_push_and_task_mismatches(
@@ -287,7 +370,7 @@ def test_phase_admission_enforces_order_and_exact_token(
         now=NOW + 4.5,
     )
     candidate = hashlib.sha256(b"candidate").hexdigest()
-    completed = store.finish(
+    mutated = store.finish(
         "mutation",
         admission_id=str(mutation["admission_id"]),
         outcome="passed",
@@ -295,6 +378,59 @@ def test_phase_admission_enforces_order_and_exact_token(
         candidate_digest=candidate,
         provider_usd=0.0,
         now=NOW + 5,
+    )
+    assert mutated["status"] == "active"
+    assert mutated["current_phase"] == "proof"
+    proof_id, proof_digest = _admit_consume(
+        store,
+        "proof",
+        body=b"proof",
+        now=NOW + 6,
+        candidate=candidate,
+    )
+    proved = store.finish(
+        "proof",
+        admission_id=proof_id,
+        outcome="passed",
+        evidence_digest=proof_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 7,
+    )
+    assert proved["current_phase"] == "security_review"
+    security_id, security_digest = _admit_consume(
+        store,
+        "security_review",
+        body=b"security",
+        now=NOW + 8,
+        candidate=candidate,
+    )
+    with pytest.raises(
+        control.ControlError,
+        match="lacks accepted candidate-bound LaunchGuardian evidence",
+    ):
+        store.finish(
+            "security_review",
+            admission_id=security_id,
+            outcome="passed",
+            evidence_digest=security_digest,
+            candidate_digest=candidate,
+            provider_usd=0.0,
+            now=NOW + 9,
+        )
+    security_evidence = _security_evidence_digest(
+        store,
+        tmp_path,
+        candidate=candidate,
+    )
+    completed = store.finish(
+        "security_review",
+        admission_id=security_id,
+        outcome="passed",
+        evidence_digest=security_evidence,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 10,
     )
     assert completed["status"] == "complete"
     assert completed["circuit"]["worker_started"] is True
@@ -493,12 +629,20 @@ def test_post_worker_retry_entries_still_open_the_objective_circuit(
         "procedural_failures": 4,
         "provider_usd": 10.0,
     }
-    actions = ["cross_review", "mutate", "peer"]
+    actions = [
+        "cross_review",
+        "mutate",
+        "peer",
+        "proof",
+        "security_review",
+    ]
     phases = [
         "preflight",
         "plan_peer",
         "mutation",
         "cross_review",
+        "proof",
+        "security_review",
         "complete",
     ]
     store.start(
@@ -585,13 +729,20 @@ def test_rejection_invalidates_candidate_and_every_downstream_gate(
     tmp_path: Path,
 ) -> None:
     repo, store = _store(tmp_path)
-    actions = ["cross_review", "mutate", "peer", "proof"]
+    actions = [
+        "cross_review",
+        "mutate",
+        "peer",
+        "proof",
+        "security_review",
+    ]
     phases = [
         "preflight",
         "plan_peer",
         "mutation",
         "cross_review",
         "proof",
+        "security_review",
         "complete",
     ]
     store.start(
@@ -663,12 +814,65 @@ def test_rejection_invalidates_candidate_and_every_downstream_gate(
     ] == ["preflight", "plan_peer"]
 
 
-def test_ambiguous_integration_failure_is_terminal_not_resumable(
+def test_mutating_plan_requires_proof_before_security_review(
     tmp_path: Path,
 ) -> None:
     repo, store = _store(tmp_path)
-    actions = ["integrate", "mutate"]
-    phases = ["preflight", "mutation", "integration", "complete"]
+    actions = ["mutate", "proof"]
+    phases = ["preflight", "mutation", "proof", "complete"]
+    with pytest.raises(
+        control.ControlError,
+        match="lacks required proof/security actions",
+    ):
+        store.start(
+            _authority(repo, actions=actions),
+            _plan(actions=actions, phases=phases),
+            expected_task_id=TASK_ID,
+            now=NOW,
+        )
+
+    actions = ["mutate", "proof", "security_review"]
+    phases = [
+        "preflight",
+        "mutation",
+        "security_review",
+        "proof",
+        "complete",
+    ]
+    with pytest.raises(
+        control.ControlError,
+        match="ordered workflow subsequence",
+    ):
+        store.start(
+            _authority(repo, actions=actions),
+            _plan(actions=actions, phases=phases),
+            expected_task_id=TASK_ID,
+            now=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_phase", "candidate_preserved"),
+    [
+        ("technical_blocker", "mutation", False),
+        ("procedural_failure", "security_review", True),
+    ],
+)
+def test_security_review_failure_has_conservative_resume_boundary(
+    tmp_path: Path,
+    outcome: str,
+    expected_phase: str,
+    candidate_preserved: bool,
+) -> None:
+    repo, store = _store(tmp_path)
+    actions = ["mutate", "proof", "security_review"]
+    phases = [
+        "preflight",
+        "mutation",
+        "proof",
+        "security_review",
+        "complete",
+    ]
     store.start(
         _authority(repo, actions=actions),
         _plan(actions=actions, phases=phases),
@@ -688,11 +892,127 @@ def test_ambiguous_integration_failure_is_terminal_not_resumable(
         provider_usd=0.0,
         now=NOW + 2,
     )
+    proof_id, proof_digest = _admit_consume(
+        store,
+        "proof",
+        body=b"proof",
+        now=NOW + 3,
+        candidate=candidate,
+    )
+    store.finish(
+        "proof",
+        admission_id=proof_id,
+        outcome="passed",
+        evidence_digest=proof_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 4,
+    )
+    security_id, security_digest = _admit_consume(
+        store,
+        "security_review",
+        body=b"security",
+        now=NOW + 5,
+        candidate=candidate,
+    )
+    blocked = store.finish(
+        "security_review",
+        admission_id=security_id,
+        outcome=outcome,
+        evidence_digest=security_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 6,
+    )
+
+    assert blocked["status"] == "blocked"
+    assert blocked["current_phase"] == expected_phase
+    assert blocked["candidate_digest"] == (
+        candidate if candidate_preserved else None
+    )
+    completed = [
+        item["phase"] for item in blocked["completed_phases"]
+    ]
+    if candidate_preserved:
+        assert completed == ["preflight", "mutation", "proof"]
+    else:
+        assert completed == ["preflight"]
+
+
+def test_ambiguous_integration_failure_is_terminal_not_resumable(
+    tmp_path: Path,
+) -> None:
+    repo, store = _store(tmp_path)
+    actions = ["integrate", "mutate", "proof", "security_review"]
+    phases = [
+        "preflight",
+        "mutation",
+        "proof",
+        "security_review",
+        "integration",
+        "complete",
+    ]
+    store.start(
+        _authority(repo, actions=actions),
+        _plan(actions=actions, phases=phases),
+        expected_task_id=TASK_ID,
+        now=NOW,
+    )
+    mutation_id, mutation_digest = _admit_consume(
+        store, "mutation", body=b"mutation", now=NOW + 1
+    )
+    candidate = hashlib.sha256(b"candidate").hexdigest()
+    store.finish(
+        "mutation",
+        admission_id=mutation_id,
+        outcome="passed",
+        evidence_digest=mutation_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 2,
+    )
+    proof_id, proof_digest = _admit_consume(
+        store,
+        "proof",
+        body=b"proof",
+        now=NOW + 3,
+        candidate=candidate,
+    )
+    store.finish(
+        "proof",
+        admission_id=proof_id,
+        outcome="passed",
+        evidence_digest=proof_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 4,
+    )
+    security_id, _ = _admit_consume(
+        store,
+        "security_review",
+        body=b"security",
+        now=NOW + 5,
+        candidate=candidate,
+    )
+    security_evidence = _security_evidence_digest(
+        store,
+        tmp_path,
+        candidate=candidate,
+    )
+    store.finish(
+        "security_review",
+        admission_id=security_id,
+        outcome="passed",
+        evidence_digest=security_evidence,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 6,
+    )
     integration_id, integration_digest = _admit_consume(
         store,
         "integration",
         body=b"integration",
-        now=NOW + 3,
+        now=NOW + 7,
         candidate=candidate,
     )
     terminal = store.finish(
@@ -703,7 +1023,7 @@ def test_ambiguous_integration_failure_is_terminal_not_resumable(
         candidate_digest=candidate,
         integration_unchanged=False,
         provider_usd=0.0,
-        now=NOW + 4,
+        now=NOW + 8,
     )
     assert terminal["status"] == "terminal_blocked"
     assert terminal["resume"] is None

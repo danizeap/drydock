@@ -27,12 +27,15 @@ PHASES = (
     "plan_peer",
     "mutation",
     "cross_review",
+    "proof",
+    "security_review",
     "verification",
     "integration",
 )
 MAX_TERMINAL_BYTES = 64 * 1024
 MAX_RECORD_BYTES = 128 * 1024
 MAX_RESULT_AGE_SECONDS = 24 * 60 * 60
+MAX_LAUNCHGUARDIAN_REPORT_BYTES = 4 * 1024 * 1024
 RECORD_LOCK_LEASE_SECONDS = 60
 SAFE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 PEER_REVIEW_NAME = re.compile(
@@ -59,6 +62,67 @@ HIGH_IMPACT_PROPERTIES = frozenset(
         "permissions",
         "process_boundaries",
         "verification_semantics",
+    }
+)
+EXPECTED_LAUNCHGUARDIAN_SCANNERS = (
+    "api_surface",
+    "frontend_exposure",
+    "gitleaks",
+    "semgrep",
+    "trivy",
+)
+ACCEPTED_LAUNCHGUARDIAN_STATUSES = frozenset(
+    {"APPROVED", "APPROVED_WITH_DISPOSITIONS"}
+)
+LAUNCHGUARDIAN_REPORT_FIELDS = frozenset(
+    {
+        "schema_name",
+        "schema_version",
+        "generated_at",
+        "launchguardian_version",
+        "target",
+        "mode",
+        "validation_mode",
+        "scan_mode",
+        "lgf_validation_skipped",
+        "strict_scanners",
+        "launch_status",
+        "lgf_config_valid",
+        "lgf_validation_status",
+        "scanner_availability",
+        "scanner_counts",
+        "scanner_blocking_counts",
+        "counts_by_severity",
+        "counts_by_scanner",
+        "counts_by_status",
+        "counts_by_gate",
+        "blocking_findings",
+        "launchguardian_config",
+        "blocked",
+        "findings",
+    }
+)
+SECURITY_REVIEW_RECORD_FIELDS = frozenset(
+    {
+        "schema_version",
+        "evidence_kind",
+        "candidate_commit",
+        "command_contract",
+        "executable_path",
+        "executable_sha256",
+        "executable_surface_sha256",
+        "fingerprint_version",
+        "report_sha256",
+        "acceptance",
+        "elapsed_seconds",
+        "owner_checkout_unchanged",
+        "process_exit_code",
+        "process_output_sha256",
+        "recorded_at",
+        "authenticated",
+        "provenance_attested",
+        "record_key",
+        "workflow_binding_sha256",
     }
 )
 
@@ -134,6 +198,89 @@ def _read_json(path: Path) -> dict[str, object]:
     if not isinstance(value, dict):
         raise EvidenceError("orchestration state root is not an object")
     return value
+
+
+def _strict_json_bytes(body: bytes, label: str) -> dict[str, object]:
+    def reject_duplicates(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(
+            body.decode("utf-8"),
+            object_pairs_hook=reject_duplicates,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise EvidenceError(f"{label} is not strict UTF-8 JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise EvidenceError(f"{label} root is not an object")
+    return value
+
+
+def _read_bounded_plain_bytes(
+    path: Path, *, maximum: int, label: str
+) -> bytes:
+    try:
+        before = os.stat(path, follow_symlinks=False)
+        attributes = getattr(before, "st_file_attributes", 0)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or path.is_symlink()
+            or attributes
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise EvidenceError(f"{label} is not a plain regular file")
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode):
+                raise EvidenceError(f"{label} is not a plain regular file")
+            body = stream.read(maximum + 1)
+        after = os.stat(path, follow_symlinks=False)
+        if (
+            getattr(before, "st_dev", None) != getattr(opened, "st_dev", None)
+            or getattr(before, "st_ino", None) != getattr(opened, "st_ino", None)
+            or getattr(after, "st_dev", None) != getattr(opened, "st_dev", None)
+            or getattr(after, "st_ino", None) != getattr(opened, "st_ino", None)
+        ):
+            raise EvidenceError(f"{label} identity changed while it was read")
+    except OSError as exc:
+        raise EvidenceError(f"{label} is unreadable: {exc}") from exc
+    if len(body) > maximum:
+        raise EvidenceError(f"{label} exceeds its byte bound")
+    return body
+
+
+def _write_bounded_evidence_bytes(path: Path, body: bytes) -> None:
+    if not body or len(body) > MAX_LAUNCHGUARDIAN_REPORT_BYTES:
+        raise EvidenceError("LaunchGuardian report size is outside its bound")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        existing = _read_bounded_plain_bytes(
+            path,
+            maximum=MAX_LAUNCHGUARDIAN_REPORT_BYTES,
+            label="LaunchGuardian report digest path",
+        )
+        if existing != body:
+            raise EvidenceError(
+                "LaunchGuardian report digest path contains different bytes"
+            )
+        return
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
 
 
 @contextlib.contextmanager
@@ -1397,6 +1544,483 @@ def run_proof_command(
         ),
         "output_sha256": _digest_bytes(output),
     }
+
+
+def launchguardian_report_acceptance(
+    report: Mapping[str, object], *, expected_target: Path | str
+) -> dict[str, object]:
+    def valid_count_map(
+        value: object,
+        *,
+        exact_keys: set[str] | None = None,
+    ) -> bool:
+        return (
+            isinstance(value, dict)
+            and (exact_keys is None or set(value) == exact_keys)
+            and all(isinstance(key, str) and key for key in value)
+            and all(
+                type(count) is int and count >= 0
+                for count in value.values()
+            )
+        )
+
+    if set(report) != LAUNCHGUARDIAN_REPORT_FIELDS:
+        raise EvidenceError("LaunchGuardian report fields do not match schema 0.2.0")
+    expected_root = (
+        str(expected_target.resolve(strict=True))
+        if isinstance(expected_target, Path)
+        else expected_target
+    )
+    if (
+        report.get("schema_name") != "launchguardian.report"
+        or report.get("schema_version") != "0.2.0"
+        or report.get("target") != expected_root
+        or report.get("mode") != "framework"
+        or report.get("validation_mode") != "framework"
+        or report.get("scan_mode") != "local"
+        or report.get("lgf_validation_skipped") is not False
+        or report.get("strict_scanners") is not True
+    ):
+        raise EvidenceError(
+            "LaunchGuardian report mode, target, or schema binding is invalid"
+        )
+    version = report.get("launchguardian_version")
+    generated_at = report.get("generated_at")
+    if (
+        not isinstance(version, str)
+        or not version
+        or len(version) > 64
+        or not isinstance(generated_at, str)
+        or not generated_at
+        or len(generated_at) > 128
+    ):
+        raise EvidenceError("LaunchGuardian report identity fields are invalid")
+    availability = report.get("scanner_availability")
+    scanner_counts = report.get("scanner_counts")
+    blocking_counts = report.get("scanner_blocking_counts")
+    blocking_findings = report.get("blocking_findings")
+    findings = report.get("findings")
+    scanner_keys = set(EXPECTED_LAUNCHGUARDIAN_SCANNERS)
+    if (
+        not isinstance(availability, dict)
+        or set(availability) != scanner_keys
+        or any(not isinstance(value, str) for value in availability.values())
+        or not valid_count_map(scanner_counts, exact_keys=scanner_keys)
+        or not valid_count_map(blocking_counts, exact_keys=scanner_keys)
+        or not valid_count_map(report.get("counts_by_severity"))
+        or not valid_count_map(report.get("counts_by_scanner"))
+        or not valid_count_map(report.get("counts_by_status"))
+        or not valid_count_map(report.get("counts_by_gate"))
+        or not isinstance(blocking_findings, list)
+        or any(not isinstance(item, dict) for item in blocking_findings)
+        or not isinstance(findings, list)
+        or any(not isinstance(item, dict) for item in findings)
+        or len(findings) > 100_000
+        or type(report.get("blocked")) is not bool
+        or type(report.get("lgf_config_valid")) is not bool
+        or not isinstance(report.get("lgf_validation_status"), str)
+        or not isinstance(report.get("launch_status"), str)
+        or not isinstance(report.get("launchguardian_config"), dict)
+    ):
+        raise EvidenceError(
+            "LaunchGuardian scanner or finding collections are malformed"
+        )
+    open_blockers = [
+        finding
+        for finding in findings
+        if isinstance(finding, dict)
+        and finding.get("blocks_launch") is True
+        and finding.get("status") == "open"
+    ]
+    if len(open_blockers) != len(blocking_findings):
+        raise EvidenceError(
+            "LaunchGuardian open-blocker summary contradicts its findings"
+        )
+    aggregate_counts = (
+        scanner_counts,
+        report["counts_by_severity"],
+        report["counts_by_scanner"],
+        report["counts_by_status"],
+        report["counts_by_gate"],
+    )
+    if any(
+        sum(int(value) for value in counts.values()) != len(findings)
+        for counts in aggregate_counts
+    ) or sum(int(value) for value in blocking_counts.values()) != len(
+        open_blockers
+    ):
+        raise EvidenceError(
+            "LaunchGuardian aggregate counts contradict its findings"
+        )
+    scanner_states = {
+        name: str(availability[name])
+        for name in EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    disabled = sorted(
+        name for name, value in scanner_states.items() if value == "disabled"
+    )
+    unavailable = sorted(
+        name
+        for name, value in scanner_states.items()
+        if value in {"unavailable", "execution_failed", "failed"}
+    )
+    unexpected = sorted(
+        name
+        for name, value in scanner_states.items()
+        if value
+        not in {"ran", "disabled", "unavailable", "execution_failed", "failed"}
+    )
+    launch_status = report.get("launch_status")
+    technical_blocker = (
+        report.get("lgf_config_valid") is not True
+        or report.get("lgf_validation_status") != "valid"
+        or report.get("blocked") is not False
+        or bool(open_blockers)
+        or bool(disabled)
+        or any(int(value) > 0 for value in blocking_counts.values())
+        or launch_status == "BLOCKED"
+    )
+    procedural_failure = (
+        bool(unavailable)
+        or bool(unexpected)
+        or launch_status in {"INCOMPLETE", "SCANNED_WITHOUT_LGF"}
+    )
+    accepted = (
+        not technical_blocker
+        and not procedural_failure
+        and launch_status in ACCEPTED_LAUNCHGUARDIAN_STATUSES
+        and all(value == "ran" for value in scanner_states.values())
+    )
+    if accepted:
+        outcome = "passed"
+        reason = (
+            "candidate-bound strict LaunchGuardian report is accepted with "
+            "valid LGF, zero open blockers, and all expected scanners ran"
+        )
+    elif technical_blocker:
+        outcome = "technical_blocker"
+        reason = "LaunchGuardian reported a substantive candidate or policy blocker"
+    else:
+        outcome = "procedural_failure"
+        reason = (
+            "LaunchGuardian execution or scanner completeness is not proven"
+        )
+    return {
+        "accepted": accepted,
+        "workflow_outcome": outcome,
+        "reason": reason,
+        "launch_status": launch_status,
+        "launchguardian_version": version,
+        "lgf_config_valid": report.get("lgf_config_valid"),
+        "lgf_validation_status": report.get("lgf_validation_status"),
+        "scanner_availability": scanner_states,
+        "scanner_blocking_counts": {
+            name: int(blocking_counts[name])
+            for name in EXPECTED_LAUNCHGUARDIAN_SCANNERS
+        },
+        "open_blocking_findings": len(open_blockers),
+    }
+
+
+def _validate_launchguardian_command_contract(
+    command_contract: Sequence[str],
+    *,
+    executable_path: str,
+    expected_target: str,
+) -> list[str]:
+    command = list(command_contract)
+    if (
+        len(command) != 8
+        or not all(isinstance(item, str) and item for item in command)
+        or not Path(executable_path).is_absolute()
+        or command[0] != executable_path
+        or command[1:3] != ["scan", "--target"]
+        or command[3] != expected_target
+        or command[4:7]
+        != ["--framework-mode", "--strict-scanners", "--output-dir"]
+        or not Path(command[7]).is_absolute()
+    ):
+        raise EvidenceError(
+            "security command is not the fixed strict LaunchGuardian contract"
+        )
+    return command
+
+
+class SecurityReviewStore:
+    """Candidate-bound LaunchGuardian evidence; user-writable, never attestation."""
+
+    def __init__(self, root: Path):
+        state = root.resolve(strict=True)
+        self.record_root = state / "security-reviews"
+        self.report_root = state / "security-reports"
+
+    def record(
+        self,
+        *,
+        candidate_commit: str,
+        executable_fingerprint: str,
+        executable_path: str,
+        executable_sha256: str,
+        command_contract: Sequence[str],
+        report_body: bytes,
+        expected_target: Path,
+        elapsed_seconds: float,
+        process_exit_code: int,
+        process_output_sha256: str,
+        workflow_binding_sha256: str | None = None,
+    ) -> dict[str, object]:
+        if not SAFE_DIGEST.fullmatch(executable_fingerprint):
+            raise EvidenceError("security candidate fingerprint is invalid")
+        if not re.fullmatch(r"[0-9a-f]{40,64}", candidate_commit):
+            raise EvidenceError("security candidate commit is invalid")
+        if (
+            not isinstance(elapsed_seconds, (int, float))
+            or isinstance(elapsed_seconds, bool)
+            or not math.isfinite(float(elapsed_seconds))
+            or float(elapsed_seconds) < 0
+        ):
+            raise EvidenceError("security elapsed time is invalid")
+        if type(process_exit_code) is not int:
+            raise EvidenceError("security process exit code is invalid")
+        _require_digest(process_output_sha256, "security process output digest")
+        if workflow_binding_sha256 is not None:
+            _require_digest(
+                workflow_binding_sha256,
+                "security workflow binding digest",
+            )
+        if not report_body or len(report_body) > MAX_LAUNCHGUARDIAN_REPORT_BYTES:
+            raise EvidenceError("LaunchGuardian report size is outside its bound")
+        report = _strict_json_bytes(report_body, "LaunchGuardian report")
+        acceptance = launchguardian_report_acceptance(
+            report, expected_target=expected_target
+        )
+        expected_target_text = str(expected_target.resolve(strict=True))
+        command = _validate_launchguardian_command_contract(
+            command_contract,
+            executable_path=executable_path,
+            expected_target=expected_target_text,
+        )
+        if process_exit_code != 0 and acceptance["accepted"] is True:
+            acceptance = {
+                **acceptance,
+                "accepted": False,
+                "workflow_outcome": "procedural_failure",
+                "reason": (
+                    "LaunchGuardian exited non-zero despite an apparently "
+                    "accepted report"
+                ),
+            }
+        report_sha256 = _digest_bytes(report_body)
+        report_path = self.report_root / f"{report_sha256}.json"
+        _write_bounded_evidence_bytes(report_path, report_body)
+        identity = {
+            "candidate_commit": candidate_commit,
+            "command_contract": command,
+            "executable_path": executable_path,
+            "executable_sha256": _require_digest(
+                executable_sha256, "LaunchGuardian executable digest"
+            ),
+            "executable_surface_sha256": _require_digest(
+                executable_fingerprint, "security candidate fingerprint"
+            ),
+            "fingerprint_version": FINGERPRINT_VERSION,
+            "report_sha256": report_sha256,
+            "workflow_binding_sha256": workflow_binding_sha256,
+        }
+        record = {
+            "schema_version": 1,
+            "evidence_kind": "launchguardian_security_review",
+            **identity,
+            "acceptance": acceptance,
+            "elapsed_seconds": float(elapsed_seconds),
+            "owner_checkout_unchanged": True,
+            "process_exit_code": process_exit_code,
+            "process_output_sha256": process_output_sha256,
+            "recorded_at": time.time(),
+            "authenticated": False,
+            "provenance_attested": False,
+        }
+        key = _digest_bytes(_canonical_json(identity))
+        record["record_key"] = key
+        _atomic_json(self.record_root / f"{key}.json", record)
+        return record
+
+    def acceptance(
+        self,
+        record: Mapping[str, object],
+        *,
+        candidate_commit: str,
+        executable_fingerprint: str,
+    ) -> dict[str, object]:
+        report_digest = record.get("report_sha256")
+        process_exit_code = record.get("process_exit_code")
+        executable_path = record.get("executable_path")
+        executable_sha256 = record.get("executable_sha256")
+        command_contract = record.get("command_contract")
+        record_key = record.get("record_key")
+        candidate_value = record.get("candidate_commit")
+        elapsed_seconds = record.get("elapsed_seconds")
+        recorded_at = record.get("recorded_at")
+        workflow_binding = record.get("workflow_binding_sha256")
+        if (
+            set(record) != SECURITY_REVIEW_RECORD_FIELDS
+            or record.get("schema_version") != 1
+            or record.get("evidence_kind")
+            != "launchguardian_security_review"
+            or record.get("candidate_commit") != candidate_commit
+            or record.get("executable_surface_sha256")
+            != executable_fingerprint
+            or record.get("fingerprint_version") != FINGERPRINT_VERSION
+            or record.get("authenticated") is not False
+            or record.get("provenance_attested") is not False
+            or record.get("owner_checkout_unchanged") is not True
+            or not isinstance(report_digest, str)
+            or not SAFE_DIGEST.fullmatch(report_digest)
+            or type(process_exit_code) is not int
+            or not isinstance(executable_path, str)
+            or not isinstance(executable_sha256, str)
+            or not SAFE_DIGEST.fullmatch(executable_sha256)
+            or not isinstance(command_contract, list)
+            or not isinstance(record_key, str)
+            or not SAFE_DIGEST.fullmatch(record_key)
+            or not isinstance(candidate_value, str)
+            or not re.fullmatch(r"[0-9a-f]{40,64}", candidate_value)
+            or not isinstance(elapsed_seconds, (int, float))
+            or isinstance(elapsed_seconds, bool)
+            or not math.isfinite(float(elapsed_seconds))
+            or float(elapsed_seconds) < 0
+            or not isinstance(recorded_at, (int, float))
+            or isinstance(recorded_at, bool)
+            or not math.isfinite(float(recorded_at))
+            or (
+                workflow_binding is not None
+                and (
+                    not isinstance(workflow_binding, str)
+                    or not SAFE_DIGEST.fullmatch(workflow_binding)
+                )
+            )
+            or not isinstance(record.get("process_output_sha256"), str)
+            or not SAFE_DIGEST.fullmatch(
+                str(record.get("process_output_sha256"))
+            )
+        ):
+            return {
+                "accepted": False,
+                "reason": "security review identity is absent, stale, or malformed",
+            }
+        identity = {
+            "candidate_commit": candidate_value,
+            "command_contract": command_contract,
+            "executable_path": executable_path,
+            "executable_sha256": executable_sha256,
+            "executable_surface_sha256": executable_fingerprint,
+            "fingerprint_version": FINGERPRINT_VERSION,
+            "report_sha256": report_digest,
+            "workflow_binding_sha256": workflow_binding,
+        }
+        if _digest_bytes(_canonical_json(identity)) != record_key:
+            return {
+                "accepted": False,
+                "reason": "security review record key is mismatched",
+            }
+        path = self.report_root / f"{report_digest}.json"
+        try:
+            body = _read_bounded_plain_bytes(
+                path,
+                maximum=MAX_LAUNCHGUARDIAN_REPORT_BYTES,
+                label="LaunchGuardian report",
+            )
+            if (
+                not body
+                or _digest_bytes(body) != report_digest
+            ):
+                raise EvidenceError("security report bytes are absent or mismatched")
+            report = _strict_json_bytes(body, "LaunchGuardian report")
+            target = report.get("target")
+            if not isinstance(target, str):
+                raise EvidenceError("LaunchGuardian report target is invalid")
+            _validate_launchguardian_command_contract(
+                command_contract,
+                executable_path=executable_path,
+                expected_target=target,
+            )
+            acceptance = launchguardian_report_acceptance(
+                report, expected_target=target
+            )
+            if process_exit_code != 0 and acceptance["accepted"] is True:
+                acceptance = {
+                    **acceptance,
+                    "accepted": False,
+                    "workflow_outcome": "procedural_failure",
+                    "reason": (
+                        "LaunchGuardian exited non-zero despite an apparently "
+                        "accepted report"
+                    ),
+                }
+        except (OSError, EvidenceError):
+            return {
+                "accepted": False,
+                "reason": "security report bytes are absent, stale, or malformed",
+            }
+        if acceptance != record.get("acceptance"):
+            return {
+                "accepted": False,
+                "reason": "security report summary differs from recorded evidence",
+            }
+        return {
+            **acceptance,
+            "authenticated": False,
+            "provenance_attested": False,
+        }
+
+    def accepted_record(
+        self,
+        record_key: str,
+        *,
+        executable_fingerprint: str,
+        workflow_binding_sha256: str,
+    ) -> dict[str, object]:
+        if not SAFE_DIGEST.fullmatch(record_key):
+            return {
+                "accepted": False,
+                "reason": "security review record key is invalid",
+            }
+        if not SAFE_DIGEST.fullmatch(workflow_binding_sha256):
+            return {
+                "accepted": False,
+                "reason": "security workflow binding digest is invalid",
+            }
+        try:
+            body = _read_bounded_plain_bytes(
+                self.record_root / f"{record_key}.json",
+                maximum=MAX_RECORD_BYTES,
+                label="security review record",
+            )
+            record = _strict_json_bytes(body, "security review record")
+        except EvidenceError:
+            return {
+                "accepted": False,
+                "reason": "security review record is absent or malformed",
+            }
+        candidate_commit = record.get("candidate_commit")
+        if not isinstance(candidate_commit, str):
+            return {
+                "accepted": False,
+                "reason": "security review candidate commit is malformed",
+            }
+        if (
+            record.get("workflow_binding_sha256")
+            != workflow_binding_sha256
+        ):
+            return {
+                "accepted": False,
+                "reason": "security review belongs to another workflow admission",
+            }
+        return self.acceptance(
+            record,
+            candidate_commit=candidate_commit,
+            executable_fingerprint=executable_fingerprint,
+        )
 
 
 def reusable_proof(

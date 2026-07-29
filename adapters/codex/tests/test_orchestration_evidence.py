@@ -18,6 +18,71 @@ DIGEST_B = "b" * 64
 DIGEST_C = "c" * 64
 
 
+def _launchguardian_report(
+    target: Path,
+    *,
+    launch_status: str = "APPROVED",
+    scanner_state: str = "ran",
+    blocked: bool = False,
+) -> dict[str, object]:
+    scanners = {
+        name: scanner_state
+        for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    blocking_counts = {
+        name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    scanner_counts = {
+        name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    findings: list[dict[str, object]] = []
+    blocking_findings: list[dict[str, object]] = []
+    counts_by_severity: dict[str, int] = {}
+    counts_by_scanner: dict[str, int] = {}
+    counts_by_status: dict[str, int] = {}
+    counts_by_gate: dict[str, int] = {}
+    if blocked:
+        finding = {
+            "source": "semgrep",
+            "status": "open",
+            "blocks_launch": True,
+        }
+        findings.append(finding)
+        blocking_findings.append(finding)
+        scanner_counts["semgrep"] = 1
+        blocking_counts["semgrep"] = 1
+        counts_by_severity["high"] = 1
+        counts_by_scanner["semgrep"] = 1
+        counts_by_status["open"] = 1
+        counts_by_gate["Gate 3"] = 1
+    return {
+        "schema_name": "launchguardian.report",
+        "schema_version": "0.2.0",
+        "generated_at": "2026-07-29T00:00:00Z",
+        "launchguardian_version": "0.2.0",
+        "target": str(target.resolve(strict=True)),
+        "mode": "framework",
+        "validation_mode": "framework",
+        "scan_mode": "local",
+        "lgf_validation_skipped": False,
+        "strict_scanners": True,
+        "launch_status": launch_status,
+        "lgf_config_valid": True,
+        "lgf_validation_status": "valid",
+        "scanner_availability": scanners,
+        "scanner_counts": scanner_counts,
+        "scanner_blocking_counts": blocking_counts,
+        "counts_by_severity": counts_by_severity,
+        "counts_by_scanner": counts_by_scanner,
+        "counts_by_status": counts_by_status,
+        "counts_by_gate": counts_by_gate,
+        "blocking_findings": blocking_findings,
+        "launchguardian_config": {},
+        "blocked": blocked,
+        "findings": findings,
+    }
+
+
 def _git(repo: Path, *arguments: str) -> str:
     result = subprocess.run(
         ["git", *arguments],
@@ -1034,3 +1099,266 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
         command=command,
         environment_sha256=DIGEST_B,
     )["accepted"] is True
+
+
+@pytest.mark.parametrize(
+    "launch_status",
+    ["APPROVED", "APPROVED_WITH_DISPOSITIONS"],
+)
+def test_launchguardian_accepts_only_complete_candidate_bound_reports(
+    tmp_path: Path, launch_status: str
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(target, launch_status=launch_status)
+
+    accepted = evidence.launchguardian_report_acceptance(
+        report,
+        expected_target=target,
+    )
+
+    assert accepted["accepted"] is True
+    assert accepted["workflow_outcome"] == "passed"
+    assert accepted["launch_status"] == launch_status
+    assert set(accepted["scanner_availability"]) == set(
+        evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    )
+
+
+@pytest.mark.parametrize(
+    ("scanner_state", "launch_status", "expected_outcome"),
+    [
+        ("disabled", "BLOCKED", "technical_blocker"),
+        ("unavailable", "INCOMPLETE", "procedural_failure"),
+        ("execution_failed", "INCOMPLETE", "procedural_failure"),
+        ("failed", "INCOMPLETE", "procedural_failure"),
+        ("skipped", "INCOMPLETE", "procedural_failure"),
+    ],
+)
+def test_launchguardian_incomplete_scanner_state_never_passes(
+    tmp_path: Path,
+    scanner_state: str,
+    launch_status: str,
+    expected_outcome: str,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(
+        target,
+        launch_status=launch_status,
+        scanner_state=scanner_state,
+    )
+
+    acceptance = evidence.launchguardian_report_acceptance(
+        report,
+        expected_target=target,
+    )
+
+    assert acceptance["accepted"] is False
+    assert acceptance["workflow_outcome"] == expected_outcome
+
+
+def test_launchguardian_policy_blocker_is_technical_and_target_is_exact(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    report = _launchguardian_report(
+        target,
+        launch_status="BLOCKED",
+        blocked=True,
+    )
+
+    blocked = evidence.launchguardian_report_acceptance(
+        report,
+        expected_target=target,
+    )
+    assert blocked["accepted"] is False
+    assert blocked["workflow_outcome"] == "technical_blocker"
+    assert blocked["open_blocking_findings"] == 1
+
+    invalid_lgf = _launchguardian_report(
+        target,
+        launch_status="BLOCKED",
+    )
+    invalid_lgf["lgf_config_valid"] = False
+    invalid_lgf["lgf_validation_status"] = "invalid"
+    invalid_lgf["blocked"] = True
+    invalid = evidence.launchguardian_report_acceptance(
+        invalid_lgf,
+        expected_target=target,
+    )
+    assert invalid["accepted"] is False
+    assert invalid["workflow_outcome"] == "technical_blocker"
+
+    with pytest.raises(evidence.EvidenceError, match="target"):
+        evidence.launchguardian_report_acceptance(
+            report,
+            expected_target=other,
+        )
+
+
+def test_launchguardian_report_rejects_schema_drift_and_duplicate_json(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(target)
+    report["unexpected"] = True
+    with pytest.raises(evidence.EvidenceError, match="fields"):
+        evidence.launchguardian_report_acceptance(
+            report,
+            expected_target=target,
+        )
+
+    with pytest.raises(evidence.EvidenceError, match="duplicate key"):
+        evidence._strict_json_bytes(b'{"a":1,"a":2}', "report")
+
+    contradictory = _launchguardian_report(target)
+    contradictory["scanner_counts"]["semgrep"] = 1
+    with pytest.raises(evidence.EvidenceError, match="aggregate counts"):
+        evidence.launchguardian_report_acceptance(
+            contradictory,
+            expected_target=target,
+        )
+
+
+def test_security_review_store_rejects_stale_replayed_and_tampered_evidence(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    store = evidence.SecurityReviewStore(
+        evidence.state_root(tmp_path / "state")
+    )
+    report_body = json.dumps(
+        _launchguardian_report(target),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    executable_path = str((tmp_path / "launchguardian.exe").resolve())
+    command = [
+        executable_path,
+        "scan",
+        "--target",
+        str(target.resolve(strict=True)),
+        "--framework-mode",
+        "--strict-scanners",
+        "--output-dir",
+        str((tmp_path / "reports").resolve()),
+    ]
+    record = store.record(
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+        executable_path=executable_path,
+        executable_sha256=DIGEST_B,
+        command_contract=command,
+        report_body=report_body,
+        expected_target=target,
+        elapsed_seconds=1.0,
+        process_exit_code=0,
+        process_output_sha256=DIGEST_C,
+        workflow_binding_sha256=DIGEST_C,
+    )
+    assert store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is True
+    assert store.accepted_record(
+        str(record["record_key"]),
+        executable_fingerprint=DIGEST_A,
+        workflow_binding_sha256=DIGEST_C,
+    )["accepted"] is True
+    assert store.accepted_record(
+        DIGEST_C,
+        executable_fingerprint=DIGEST_A,
+        workflow_binding_sha256=DIGEST_C,
+    )["accepted"] is False
+    assert store.accepted_record(
+        str(record["record_key"]),
+        executable_fingerprint=DIGEST_A,
+        workflow_binding_sha256=DIGEST_B,
+    )["accepted"] is False
+    assert store.acceptance(
+        record,
+        candidate_commit="2" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+    assert store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint="d" * 64,
+    )["accepted"] is False
+    changed_command = json.loads(json.dumps(record))
+    changed_command["command_contract"][4] = "--skip-framework"
+    assert store.acceptance(
+        changed_command,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+
+    report_path = (
+        store.report_root / f"{record['report_sha256']}.json"
+    )
+    report_path.write_bytes(report_body + b" ")
+    assert store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+    report_path.unlink()
+    report_path.mkdir()
+    assert store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+
+
+def test_security_review_nonzero_exit_cannot_be_accepted(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    store = evidence.SecurityReviewStore(
+        evidence.state_root(tmp_path / "state")
+    )
+    report_body = json.dumps(
+        _launchguardian_report(target),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    executable_path = str((tmp_path / "launchguardian.exe").resolve())
+    command = [
+        executable_path,
+        "scan",
+        "--target",
+        str(target.resolve(strict=True)),
+        "--framework-mode",
+        "--strict-scanners",
+        "--output-dir",
+        str((tmp_path / "reports").resolve()),
+    ]
+    record = store.record(
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+        executable_path=executable_path,
+        executable_sha256=DIGEST_B,
+        command_contract=command,
+        report_body=report_body,
+        expected_target=target,
+        elapsed_seconds=1.0,
+        process_exit_code=1,
+        process_output_sha256=DIGEST_C,
+    )
+
+    acceptance = store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )
+    assert acceptance["accepted"] is False
+    assert acceptance["workflow_outcome"] == "procedural_failure"

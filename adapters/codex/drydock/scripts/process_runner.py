@@ -31,10 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from orchestration_control import WorkflowStore
+from orchestration_control import WorkflowStore, canonical_digest
 from orchestration_evidence import (
     EvidenceError,
+    SecurityReviewStore,
     final_suite_acceptance,
+    fresh_proof_root,
     repository_fingerprints,
     state_root,
 )
@@ -51,6 +53,8 @@ MAX_DIFF_BYTES = 4 * 1024 * 1024
 MAX_FINGERPRINT_BYTES = 32 * 1024 * 1024
 MAX_VERDICT_BYTES = 1024 * 1024
 MAX_PROOF_RECORD_BYTES = 64 * 1024
+MAX_SECURITY_REPORT_BYTES = 4 * 1024 * 1024
+MAX_SECURITY_EXECUTABLE_BYTES = 64 * 1024 * 1024
 MAX_INTEGRATION_REQUEST_BYTES = 64 * 1024
 MAX_GIT_CONTROL_BYTES = 8 * 1024 * 1024
 MAX_WORKTREE_ENTRIES = 100_000
@@ -89,6 +93,9 @@ WORKTREE_GIT_CONFIG_OVERRIDES = (
 _PINNED_GIT_EXECUTABLE: Path | None = None
 SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 SAFE_GIT_OID = re.compile(r"^[0-9a-f]{40,64}$")
+SENSITIVE_ENVIRONMENT_NAME = re.compile(
+    r"(?i)(api.?key|credential|password|private.?key|secret|token)"
+)
 SECRET_INPUT = re.compile(
     r"(?i)(-----BEGIN [A-Z ]*PRIVATE KEY-----|"
     r"\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*"
@@ -584,6 +591,47 @@ def discover_codex() -> Path:
     raise RunnerError("Codex executable was not found")
 
 
+def discover_launchguardian() -> Path:
+    executable = shutil.which("launchguardian")
+    if not executable:
+        raise RunnerError("LaunchGuardian executable was not found")
+    candidate = Path(executable)
+    try:
+        metadata = os.stat(candidate, follow_symlinks=False)
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise RunnerError(f"LaunchGuardian executable is unavailable: {exc}") from exc
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or candidate.is_symlink()
+        or attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        or resolved.stat().st_size > MAX_SECURITY_EXECUTABLE_BYTES
+    ):
+        raise RunnerError(
+            "LaunchGuardian executable is not a bounded plain regular file"
+        )
+    return resolved
+
+
+def _file_sha256(path: Path, *, maximum: int) -> str:
+    digest = hashlib.sha256()
+    remaining = maximum
+    try:
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(min(1024 * 1024, remaining + 1))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                if remaining < 0:
+                    raise RunnerError("bounded executable or report exceeds its limit")
+                digest.update(chunk)
+    except OSError as exc:
+        raise RunnerError(f"bounded file could not be hashed: {exc}") from exc
+    return digest.hexdigest()
+
+
 def _windows_process_identity(pid: int) -> tuple[str, ProcessIdentity | None]:
     from ctypes import wintypes
 
@@ -947,7 +995,13 @@ def _initial_process_identity(
     return identity
 
 
-def _start_process(arguments: Sequence[str], prompt: str) -> tuple[subprocess.Popen[str], str]:
+def _start_process(
+    arguments: Sequence[str],
+    prompt: str,
+    *,
+    cwd: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[subprocess.Popen[str], str]:
     creationflags = 0
     if os.name == "nt":
         creationflags = (
@@ -965,6 +1019,8 @@ def _start_process(arguments: Sequence[str], prompt: str) -> tuple[subprocess.Po
             errors="replace",
             creationflags=creationflags,
             start_new_session=os.name != "nt",
+            cwd=cwd,
+            env=None if environment is None else dict(environment),
         )
         if os.name == "nt":
             _assign_windows_job(process)
@@ -1625,10 +1681,10 @@ def _consume_workflow_admission(
     input_digest: str | None,
     candidate_digest: str | None,
     state_directory: Path | None,
-) -> None:
+) -> dict[str, object] | None:
     values = (objective_id, admission_id, input_digest)
     if not any(value is not None for value in values):
-        return
+        return None
     if not all(value is not None for value in values):
         raise RunnerError(
             "official runner execution requires complete workflow admission"
@@ -1639,7 +1695,7 @@ def _consume_workflow_admission(
             "workflow admission input digest differs from runner input"
         )
     root = state_root(state_directory, repository_root=repo)
-    WorkflowStore(root, str(objective_id)).consume_admission(
+    return WorkflowStore(root, str(objective_id)).consume_admission(
         phase,
         admission_id=str(admission_id),
         input_digest=str(input_digest),
@@ -1997,6 +2053,275 @@ def mutate(
             except (OSError, RunnerError, ValueError):
                 pass
         raise
+
+
+def _security_environment(root: Path, temporary_root: Path) -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in _git_environment(ceiling=root.parent).items()
+        if not SENSITIVE_ENVIRONMENT_NAME.search(key)
+    }
+    environment.update(
+        {
+            "NO_COLOR": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "TEMP": str(temporary_root),
+            "TMP": str(temporary_root),
+        }
+    )
+    return environment
+
+
+def _read_launchguardian_report(path: Path) -> bytes:
+    try:
+        metadata = os.stat(path, follow_symlinks=False)
+        attributes = getattr(metadata, "st_file_attributes", 0)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or path.is_symlink()
+            or attributes
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise RunnerError(
+                "LaunchGuardian report is not a plain regular file"
+            )
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (
+                opened.st_dev != metadata.st_dev
+                or opened.st_ino != metadata.st_ino
+                or not stat.S_ISREG(opened.st_mode)
+            ):
+                raise RunnerError(
+                    "LaunchGuardian report identity changed before read"
+                )
+            body = stream.read(MAX_SECURITY_REPORT_BYTES + 1)
+            finished = os.fstat(stream.fileno())
+            if (
+                finished.st_size != opened.st_size
+                or finished.st_mtime_ns != opened.st_mtime_ns
+            ):
+                raise RunnerError("LaunchGuardian report changed during read")
+    except OSError as exc:
+        raise RunnerError(f"LaunchGuardian report is unavailable: {exc}") from exc
+    if not body or len(body) > MAX_SECURITY_REPORT_BYTES:
+        raise RunnerError("LaunchGuardian report size is outside its bound")
+    return body
+
+
+def _security_input_body(
+    *, commit: str, executable_fingerprint: str, packet_root: str
+) -> str:
+    return json.dumps(
+        {
+            "candidate_commit": commit,
+            "executable_surface_sha256": executable_fingerprint,
+            "packet_root": packet_root,
+            "phase": "security_review",
+            "schema_version": 1,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def security_review(
+    repo: Path,
+    *,
+    commit: str,
+    packet_root: str,
+    timeout: int = DEFAULT_TIMEOUT,
+    workflow_objective_id: str | None = None,
+    workflow_admission_id: str | None = None,
+    workflow_input_digest: str | None = None,
+    workflow_candidate_digest: str | None = None,
+    workflow_state_dir: Path | None = None,
+) -> dict[str, object]:
+    if timeout < 1 or timeout > MAX_TIMEOUT:
+        raise RunnerError(f"timeout must be between 1 and {MAX_TIMEOUT} seconds")
+    repo = canonical_repo(repo)
+    _assert_safe_local_git_configuration(repo)
+    candidate = _candidate_fingerprints(repo, packet_root=packet_root)
+    executable_fingerprint = candidate.get("executable_surface_sha256")
+    if (
+        candidate.get("reuse_eligible") is not True
+        or candidate.get("head") != commit
+        or not isinstance(executable_fingerprint, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", executable_fingerprint)
+    ):
+        raise RunnerError(
+            "security review requires the exact clean committed candidate"
+        )
+    official = _official_workflow_request(
+        workflow_objective_id,
+        workflow_admission_id,
+        workflow_input_digest,
+    )
+    if official and workflow_candidate_digest != executable_fingerprint:
+        raise RunnerError(
+            "workflow security candidate differs from current identity"
+        )
+    if not official and workflow_candidate_digest is not None:
+        raise RunnerError(
+            "workflow candidate digest requires complete workflow admission"
+        )
+    input_body = _security_input_body(
+        commit=commit,
+        executable_fingerprint=executable_fingerprint,
+        packet_root=packet_root,
+    )
+    workflow_admission = _consume_workflow_admission(
+        repo,
+        phase="security_review",
+        body=input_body,
+        objective_id=workflow_objective_id,
+        admission_id=workflow_admission_id,
+        input_digest=workflow_input_digest,
+        candidate_digest=(
+            executable_fingerprint if official else None
+        ),
+        state_directory=workflow_state_dir,
+    )
+    try:
+        executable = discover_launchguardian()
+        executable_sha256 = _file_sha256(
+            executable, maximum=MAX_SECURITY_EXECUTABLE_BYTES
+        )
+    except RunnerError as exc:
+        return {
+            "ok": False,
+            "stage": "launchguardian_unavailable",
+            "workflow_outcome": "procedural_failure",
+            "error": str(exc),
+            "candidate": candidate,
+            "input_contract_sha256": hashlib.sha256(
+                input_body.encode("utf-8")
+            ).hexdigest(),
+            "security_review": None,
+        }
+    root = state_root(workflow_state_dir, repository_root=repo)
+    process: subprocess.Popen[str] | None = None
+    started = time.monotonic()
+    with fresh_proof_root(repo, commit) as proof_root:
+        with tempfile.TemporaryDirectory(
+            prefix="drydock-launchguardian-"
+        ) as temporary:
+            temporary_root = Path(temporary).resolve(strict=True)
+            report_root = temporary_root / "reports"
+            command = [
+                str(executable),
+                "scan",
+                "--target",
+                str(proof_root),
+                "--framework-mode",
+                "--strict-scanners",
+                "--output-dir",
+                str(report_root),
+            ]
+            environment = _security_environment(proof_root, temporary_root)
+            try:
+                process, _ = _start_process(
+                    command,
+                    "",
+                    cwd=proof_root,
+                    environment=environment,
+                )
+                identity = _initial_process_identity(process)
+                timed_out, stdout, stderr = _communicate(process, timeout)
+                _terminate_process_tree(process)
+                if exact_process_liveness(identity.as_dict()) != "absent":
+                    raise RunnerError(
+                        "LaunchGuardian process identity remained live after cleanup"
+                    )
+                post_candidate = _candidate_fingerprints(
+                    repo,
+                    packet_root=packet_root,
+                )
+                if post_candidate != candidate:
+                    raise RunnerError(
+                        "Owner checkout identity changed during security review"
+                    )
+                elapsed = time.monotonic() - started
+                output_body = (stdout + stderr).encode("utf-8", "replace")
+                output_sha256 = hashlib.sha256(output_body).hexdigest()
+                if timed_out:
+                    return {
+                        "ok": False,
+                        "stage": "launchguardian_timeout",
+                        "workflow_outcome": "procedural_failure",
+                        "candidate": candidate,
+                        "input_contract_sha256": hashlib.sha256(
+                            input_body.encode("utf-8")
+                        ).hexdigest(),
+                        "launchguardian": {
+                            "executable": str(executable),
+                            "executable_sha256": executable_sha256,
+                            "timed_out": True,
+                            "stdout_tail": stdout[-2000:],
+                            "stderr_tail": stderr[-1000:],
+                        },
+                        "security_review": None,
+                    }
+                report_body = _read_launchguardian_report(
+                    report_root / "launchguardian-report.json"
+                )
+                record = SecurityReviewStore(root).record(
+                    candidate_commit=commit,
+                    executable_fingerprint=executable_fingerprint,
+                    executable_path=str(executable),
+                    executable_sha256=executable_sha256,
+                    command_contract=command,
+                    report_body=report_body,
+                    expected_target=proof_root,
+                    elapsed_seconds=elapsed,
+                    process_exit_code=process.returncode,
+                    process_output_sha256=output_sha256,
+                    workflow_binding_sha256=(
+                        canonical_digest(workflow_admission)
+                        if workflow_admission is not None
+                        else None
+                    ),
+                )
+                acceptance = record["acceptance"]
+                assert isinstance(acceptance, dict)
+                return {
+                    "ok": acceptance["accepted"] is True,
+                    "stage": (
+                        "security_review_passed"
+                        if acceptance["accepted"] is True
+                        else "security_review_blocked"
+                    ),
+                    "workflow_outcome": acceptance["workflow_outcome"],
+                    "candidate": candidate,
+                    "input_contract_sha256": hashlib.sha256(
+                        input_body.encode("utf-8")
+                    ).hexdigest(),
+                    "launchguardian": {
+                        "executable": str(executable),
+                        "executable_sha256": executable_sha256,
+                        "exit_code": process.returncode,
+                        "timed_out": False,
+                        "stdout_tail": stdout[-2000:],
+                        "stderr_tail": stderr[-1000:],
+                    },
+                    "security_review": record,
+                }
+            except (RunnerError, EvidenceError) as exc:
+                if process is not None:
+                    _terminate_process_tree(process)
+                return {
+                    "ok": False,
+                    "stage": "security_review_invalid",
+                    "workflow_outcome": "procedural_failure",
+                    "error": str(exc),
+                    "candidate": candidate,
+                    "input_contract_sha256": hashlib.sha256(
+                        input_body.encode("utf-8")
+                    ).hexdigest(),
+                    "security_review": None,
+                }
 
 
 def _verifier_schema(expected: dict[str, str]) -> dict[str, object]:
@@ -2737,6 +3062,16 @@ def main(argv: list[str] | None = None) -> int:
     mutate_parser.add_argument("--workflow-input-digest")
     mutate_parser.add_argument("--workflow-state-dir", type=Path)
     mutate_parser.add_argument("--packet-root")
+    security_parser = subparsers.add_parser("security-review")
+    security_parser.add_argument("--repo", required=True, type=Path)
+    security_parser.add_argument("--commit", required=True)
+    security_parser.add_argument("--packet-root", required=True)
+    security_parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    security_parser.add_argument("--workflow-objective-id")
+    security_parser.add_argument("--workflow-admission-id")
+    security_parser.add_argument("--workflow-input-digest")
+    security_parser.add_argument("--workflow-candidate-digest")
+    security_parser.add_argument("--workflow-state-dir", type=Path)
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--repo", required=True, type=Path)
     verify_parser.add_argument(
@@ -2789,6 +3124,18 @@ def main(argv: list[str] | None = None) -> int:
                 workflow_input_digest=args.workflow_input_digest,
                 workflow_state_dir=args.workflow_state_dir,
                 packet_root=args.packet_root,
+            )
+        elif args.command == "security-review":
+            result = security_review(
+                args.repo,
+                commit=args.commit,
+                packet_root=args.packet_root,
+                timeout=args.timeout,
+                workflow_objective_id=args.workflow_objective_id,
+                workflow_admission_id=args.workflow_admission_id,
+                workflow_input_digest=args.workflow_input_digest,
+                workflow_candidate_digest=args.workflow_candidate_digest,
+                workflow_state_dir=args.workflow_state_dir,
             )
         elif args.command == "verify":
             prompt = args.prompt if args.prompt is not None else sys.stdin.read()

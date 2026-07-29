@@ -20,6 +20,71 @@ FAKE_CODEX = Path(__file__).with_name("fake_codex.py")
 TEST_PACKET_ROOT = "sdd-plus/changes/test"
 
 
+def _launchguardian_report(
+    target: Path,
+    *,
+    launch_status: str = "APPROVED",
+    scanner_state: str = "ran",
+    blocked: bool = False,
+) -> dict[str, object]:
+    scanners = {
+        name: scanner_state
+        for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    blocking_counts = {
+        name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    scanner_counts = {
+        name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
+    }
+    findings: list[dict[str, object]] = []
+    blocking_findings: list[dict[str, object]] = []
+    counts_by_severity: dict[str, int] = {}
+    counts_by_scanner: dict[str, int] = {}
+    counts_by_status: dict[str, int] = {}
+    counts_by_gate: dict[str, int] = {}
+    if blocked:
+        finding = {
+            "source": "semgrep",
+            "status": "open",
+            "blocks_launch": True,
+        }
+        findings.append(finding)
+        blocking_findings.append(finding)
+        scanner_counts["semgrep"] = 1
+        blocking_counts["semgrep"] = 1
+        counts_by_severity["high"] = 1
+        counts_by_scanner["semgrep"] = 1
+        counts_by_status["open"] = 1
+        counts_by_gate["Gate 3"] = 1
+    return {
+        "schema_name": "launchguardian.report",
+        "schema_version": "0.2.0",
+        "generated_at": "2026-07-29T00:00:00Z",
+        "launchguardian_version": "0.2.0",
+        "target": str(target.resolve(strict=True)),
+        "mode": "framework",
+        "validation_mode": "framework",
+        "scan_mode": "local",
+        "lgf_validation_skipped": False,
+        "strict_scanners": True,
+        "launch_status": launch_status,
+        "lgf_config_valid": True,
+        "lgf_validation_status": "valid",
+        "scanner_availability": scanners,
+        "scanner_counts": scanner_counts,
+        "scanner_blocking_counts": blocking_counts,
+        "counts_by_severity": counts_by_severity,
+        "counts_by_scanner": counts_by_scanner,
+        "counts_by_status": counts_by_status,
+        "counts_by_gate": counts_by_gate,
+        "blocking_findings": blocking_findings,
+        "launchguardian_config": {},
+        "blocked": blocked,
+        "findings": findings,
+    }
+
+
 def _git(repo: Path, *arguments: str) -> str:
     result = subprocess.run(
         ["git", *arguments],
@@ -168,6 +233,139 @@ def _pass_workflow_phase(
     )
 
 
+def _pass_security_phase(
+    store: control.WorkflowStore,
+    *,
+    candidate: str,
+    target: Path,
+) -> None:
+    body = b"security review accepted"
+    digest = hashlib.sha256(body).hexdigest()
+    admission = store.admit(
+        "security_review",
+        input_digest=digest,
+        input_bytes=len(body),
+        candidate_digest=candidate,
+    )
+    store.consume_admission(
+        "security_review",
+        admission_id=str(admission["admission_id"]),
+        input_digest=digest,
+        candidate_digest=candidate,
+    )
+    executable = (store.root / "launchguardian.exe").resolve()
+    output = (store.root / "security-output").resolve()
+    report = _launchguardian_report(target)
+    record = evidence.SecurityReviewStore(store.root).record(
+        candidate_commit=_git(target, "rev-parse", "HEAD"),
+        executable_fingerprint=candidate,
+        executable_path=str(executable),
+        executable_sha256=hashlib.sha256(b"launchguardian").hexdigest(),
+        command_contract=[
+            str(executable),
+            "scan",
+            "--target",
+            str(target.resolve(strict=True)),
+            "--framework-mode",
+            "--strict-scanners",
+            "--output-dir",
+            str(output),
+        ],
+        report_body=json.dumps(
+            report,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8"),
+        expected_target=target,
+        elapsed_seconds=1.0,
+        process_exit_code=0,
+        process_output_sha256=hashlib.sha256(b"output").hexdigest(),
+        workflow_binding_sha256=control.canonical_digest(
+            store.read()["admission"]
+        ),
+    )
+    store.finish(
+        "security_review",
+        admission_id=str(admission["admission_id"]),
+        outcome="passed",
+        evidence_digest=str(record["record_key"]),
+        provider_usd=0.0,
+        candidate_digest=candidate,
+    )
+
+
+def _security_workflow(
+    repo: Path,
+    state: Path,
+) -> tuple[
+    control.WorkflowStore,
+    str,
+    str,
+    str,
+    str,
+]:
+    store, objective_id = _runner_workflow(
+        repo,
+        state,
+        phases=[
+            "preflight",
+            "mutation",
+            "proof",
+            "security_review",
+            "complete",
+        ],
+        actions=["mutate", "proof", "security_review"],
+    )
+    candidate = evidence.repository_fingerprints(
+        repo,
+        packet_root=TEST_PACKET_ROOT,
+    )
+    candidate_digest = str(candidate["executable_surface_sha256"])
+    commit = str(candidate["head"])
+    mutation_body = b"candidate"
+    mutation_digest = hashlib.sha256(mutation_body).hexdigest()
+    mutation_admission = store.admit(
+        "mutation",
+        input_digest=mutation_digest,
+        input_bytes=len(mutation_body),
+    )
+    store.consume_admission(
+        "mutation",
+        admission_id=str(mutation_admission["admission_id"]),
+        input_digest=mutation_digest,
+    )
+    store.finish(
+        "mutation",
+        admission_id=str(mutation_admission["admission_id"]),
+        outcome="passed",
+        evidence_digest=mutation_digest,
+        provider_usd=0.0,
+        candidate_digest=candidate_digest,
+    )
+    _pass_workflow_phase(store, "proof", candidate=candidate_digest)
+    security_body = process_runner._security_input_body(
+        commit=commit,
+        executable_fingerprint=candidate_digest,
+        packet_root=TEST_PACKET_ROOT,
+    )
+    security_digest = hashlib.sha256(
+        security_body.encode("utf-8")
+    ).hexdigest()
+    security_admission = store.admit(
+        "security_review",
+        input_digest=security_digest,
+        input_bytes=len(security_body.encode("utf-8")),
+        candidate_digest=candidate_digest,
+    )
+    return (
+        store,
+        objective_id,
+        commit,
+        candidate_digest,
+        str(security_admission["admission_id"]),
+    )
+
+
 def test_proof_record_file_is_bounded_and_duplicate_strict(
     tmp_path: Path,
 ) -> None:
@@ -254,7 +452,7 @@ def test_official_mutation_wrapper_consumes_admission_before_worktree_write(
     objective_digest = hashlib.sha256(b"runner objective").hexdigest()
     task_id = "runner-task"
     authority = {
-        "allowed_actions": ["mutate"],
+        "allowed_actions": ["mutate", "proof", "security_review"],
         "allowed_paths": ["README.md", "plan.md"],
         "circuit_limits": {
             "elapsed_seconds": 900,
@@ -286,10 +484,16 @@ def test_official_mutation_wrapper_consumes_admission_before_worktree_write(
         "mode": "FULL",
         "objective_digest": objective_digest,
         "objective_id": objective_id,
-        "phases": ["preflight", "mutation", "complete"],
+        "phases": [
+            "preflight",
+            "mutation",
+            "proof",
+            "security_review",
+            "complete",
+        ],
         "primary_skill": "drydock-orchestrate",
         "push": None,
-        "required_actions": ["mutate"],
+        "required_actions": ["mutate", "proof", "security_review"],
         "required_paths": ["README.md", "plan.md"],
         "resource_request": {
             "elapsed_seconds": 600,
@@ -355,11 +559,19 @@ def test_official_candidate_is_committed_then_fast_forwarded_only_by_integration
         "mutation",
         "cross_review",
         "proof",
+        "security_review",
         "verification",
         "integration",
         "complete",
     ]
-    actions = ["cross_review", "integrate", "mutate", "proof", "verify"]
+    actions = [
+        "cross_review",
+        "integrate",
+        "mutate",
+        "proof",
+        "security_review",
+        "verify",
+    ]
     store, objective_id = _runner_workflow(
         repo,
         state,
@@ -410,8 +622,18 @@ def test_official_candidate_is_committed_then_fast_forwarded_only_by_integration
         provider_usd=0.0,
         candidate_digest=candidate_digest,
     )
-    for phase in ("cross_review", "proof", "verification"):
+    for phase in ("cross_review", "proof"):
         _pass_workflow_phase(store, phase, candidate=candidate_digest)
+    _pass_security_phase(
+        store,
+        candidate=candidate_digest,
+        target=candidate_worktree,
+    )
+    _pass_workflow_phase(
+        store,
+        "verification",
+        candidate=candidate_digest,
+    )
 
     request = json.dumps(
         {
@@ -489,6 +711,346 @@ def test_official_candidate_is_committed_then_fast_forwarded_only_by_integration
         candidate_digest=candidate_digest,
     )
     assert completed["status"] == "complete"
+
+
+@pytest.mark.parametrize(
+    (
+        "launch_status",
+        "scanner_state",
+        "blocked",
+        "owner_drift",
+        "process_timeout",
+        "malformed_report",
+        "expected_ok",
+        "expected_outcome",
+        "expected_stage",
+    ),
+    [
+        (
+            "APPROVED",
+            "ran",
+            False,
+            False,
+            False,
+            False,
+            True,
+            "passed",
+            "security_review_passed",
+        ),
+        (
+            "BLOCKED",
+            "ran",
+            True,
+            False,
+            False,
+            False,
+            False,
+            "technical_blocker",
+            "security_review_blocked",
+        ),
+        (
+            "INCOMPLETE",
+            "unavailable",
+            False,
+            False,
+            False,
+            False,
+            False,
+            "procedural_failure",
+            "security_review_blocked",
+        ),
+        (
+            "APPROVED",
+            "ran",
+            False,
+            True,
+            False,
+            False,
+            False,
+            "procedural_failure",
+            "security_review_invalid",
+        ),
+        (
+            "APPROVED",
+            "ran",
+            False,
+            False,
+            True,
+            False,
+            False,
+            "procedural_failure",
+            "launchguardian_timeout",
+        ),
+        (
+            "APPROVED",
+            "ran",
+            False,
+            False,
+            False,
+            True,
+            False,
+            "procedural_failure",
+            "security_review_invalid",
+        ),
+    ],
+)
+def test_security_review_is_admission_bound_and_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    launch_status: str,
+    scanner_state: str,
+    blocked: bool,
+    owner_drift: bool,
+    process_timeout: bool,
+    malformed_report: bool,
+    expected_ok: bool,
+    expected_outcome: str,
+    expected_stage: str,
+) -> None:
+    repo = _repository(tmp_path)
+    (repo / "plan.md").write_text(
+        "# exact workflow plan\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "plan.md")
+    _git(repo, "commit", "-m", "add workflow plan")
+    state = tmp_path / "workflow-state"
+    state.mkdir()
+    (
+        store,
+        objective_id,
+        commit,
+        candidate_digest,
+        admission_id,
+    ) = _security_workflow(repo, state)
+    input_body = process_runner._security_input_body(
+        commit=commit,
+        executable_fingerprint=candidate_digest,
+        packet_root=TEST_PACKET_ROOT,
+    )
+    input_digest = hashlib.sha256(input_body.encode("utf-8")).hexdigest()
+    executable = tmp_path / "launchguardian.exe"
+    executable.write_bytes(b"pinned launchguardian test executable")
+    monkeypatch.setenv("DANGEROUS_API_TOKEN", "must-not-propagate")
+    observed: dict[str, object] = {}
+
+    class FakeProcess:
+        returncode = 0
+
+    def fake_start(
+        arguments: list[str],
+        prompt: str,
+        *,
+        cwd: Path | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> tuple[FakeProcess, str]:
+        assert store.read()["admission"]["state"] == "consumed"
+        assert prompt == ""
+        assert arguments[:2] == [str(executable), "scan"]
+        assert arguments[2] == "--target"
+        target = Path(arguments[3]).resolve(strict=True)
+        assert cwd == target
+        assert arguments[4:6] == [
+            "--framework-mode",
+            "--strict-scanners",
+        ]
+        assert arguments[6] == "--output-dir"
+        report_root = Path(arguments[7])
+        report_root.mkdir(parents=True)
+        report = _launchguardian_report(
+            target,
+            launch_status=launch_status,
+            scanner_state=scanner_state,
+            blocked=blocked,
+        )
+        report_path = report_root / "launchguardian-report.json"
+        report_path.write_text(
+            "{not-json" if malformed_report else json.dumps(report),
+            encoding="utf-8",
+        )
+        assert environment is not None
+        assert "DANGEROUS_API_TOKEN" not in environment
+        assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
+        assert environment["PYTHONNOUSERSITE"] == "1"
+        if owner_drift:
+            (repo / "unexpected-security-write.txt").write_text(
+                "must be detected\n",
+                encoding="utf-8",
+            )
+        observed["command"] = list(arguments)
+        return FakeProcess(), "job"
+
+    monkeypatch.setattr(
+        process_runner,
+        "discover_launchguardian",
+        lambda: executable.resolve(strict=True),
+    )
+    monkeypatch.setattr(process_runner, "_start_process", fake_start)
+    monkeypatch.setattr(
+        process_runner,
+        "_initial_process_identity",
+        lambda process: process_runner.ProcessIdentity(4242, "test"),
+    )
+    monkeypatch.setattr(
+        process_runner,
+        "_communicate",
+        lambda process, timeout: (
+            process_timeout,
+            "stdout",
+            "stderr",
+        ),
+    )
+    monkeypatch.setattr(
+        process_runner,
+        "_terminate_process_tree",
+        lambda process: None,
+    )
+    monkeypatch.setattr(
+        process_runner,
+        "exact_process_liveness",
+        lambda identity: "absent",
+    )
+
+    result = process_runner.security_review(
+        repo,
+        commit=commit,
+        packet_root=TEST_PACKET_ROOT,
+        timeout=30,
+        workflow_objective_id=objective_id,
+        workflow_admission_id=admission_id,
+        workflow_input_digest=input_digest,
+        workflow_candidate_digest=candidate_digest,
+        workflow_state_dir=state,
+    )
+
+    assert result["ok"] is expected_ok
+    assert result["workflow_outcome"] == expected_outcome
+    assert result["stage"] == expected_stage
+    assert result["input_contract_sha256"] == input_digest
+    if owner_drift or process_timeout or malformed_report:
+        assert result["security_review"] is None
+        if owner_drift:
+            assert "Owner checkout identity changed" in result["error"]
+        elif process_timeout:
+            assert result["launchguardian"]["timed_out"] is True
+        else:
+            assert "strict UTF-8 JSON" in result["error"]
+        assert store.read()["admission"]["state"] == "consumed"
+        return
+    assert result["security_review"] is not None
+    assert observed["command"] == result["security_review"]["command_contract"]
+    completed = store.finish(
+        "security_review",
+        admission_id=admission_id,
+        outcome=expected_outcome,
+        evidence_digest=str(
+            result["security_review"]["record_key"]
+        ),
+        provider_usd=0.0,
+        candidate_digest=candidate_digest,
+    )
+    if expected_ok:
+        assert completed["status"] == "complete"
+    else:
+        assert completed["status"] == "blocked"
+
+
+def test_security_review_missing_executable_is_procedural_after_admission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repository(tmp_path)
+    (repo / "plan.md").write_text(
+        "# exact workflow plan\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "plan.md")
+    _git(repo, "commit", "-m", "add workflow plan")
+    state = tmp_path / "workflow-state"
+    state.mkdir()
+    (
+        store,
+        objective_id,
+        commit,
+        candidate_digest,
+        admission_id,
+    ) = _security_workflow(repo, state)
+    input_body = process_runner._security_input_body(
+        commit=commit,
+        executable_fingerprint=candidate_digest,
+        packet_root=TEST_PACKET_ROOT,
+    )
+    input_digest = hashlib.sha256(input_body.encode("utf-8")).hexdigest()
+
+    def unavailable() -> Path:
+        raise process_runner.RunnerError(
+            "LaunchGuardian executable was not found"
+        )
+
+    monkeypatch.setattr(
+        process_runner,
+        "discover_launchguardian",
+        unavailable,
+    )
+    result = process_runner.security_review(
+        repo,
+        commit=commit,
+        packet_root=TEST_PACKET_ROOT,
+        workflow_objective_id=objective_id,
+        workflow_admission_id=admission_id,
+        workflow_input_digest=input_digest,
+        workflow_candidate_digest=candidate_digest,
+        workflow_state_dir=state,
+    )
+
+    assert result["ok"] is False
+    assert result["stage"] == "launchguardian_unavailable"
+    assert result["workflow_outcome"] == "procedural_failure"
+    assert result["security_review"] is None
+    assert store.read()["admission"]["state"] == "consumed"
+
+
+def test_security_review_rejects_stale_candidate_before_admission(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path)
+    (repo / "plan.md").write_text(
+        "# exact workflow plan\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "plan.md")
+    _git(repo, "commit", "-m", "add workflow plan")
+    state = tmp_path / "workflow-state"
+    state.mkdir()
+    (
+        store,
+        objective_id,
+        commit,
+        candidate_digest,
+        admission_id,
+    ) = _security_workflow(repo, state)
+    input_body = process_runner._security_input_body(
+        commit=commit,
+        executable_fingerprint=candidate_digest,
+        packet_root=TEST_PACKET_ROOT,
+    )
+    input_digest = hashlib.sha256(input_body.encode("utf-8")).hexdigest()
+
+    with pytest.raises(
+        process_runner.RunnerError,
+        match="exact clean committed candidate",
+    ):
+        process_runner.security_review(
+            repo,
+            commit="f" * 40,
+            packet_root=TEST_PACKET_ROOT,
+            workflow_objective_id=objective_id,
+            workflow_admission_id=admission_id,
+            workflow_input_digest=input_digest,
+            workflow_candidate_digest=candidate_digest,
+            workflow_state_dir=state,
+        )
+    assert store.read()["admission"]["state"] == "issued"
 
 
 def test_runner_git_uses_a_pinned_absolute_executable(

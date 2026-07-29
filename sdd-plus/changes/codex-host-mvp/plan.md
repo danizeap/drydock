@@ -44,6 +44,73 @@ re-review are now proven. Do not begin implementation until the Owner approves
 9. Dogfood the complete flow, cross-review it, run independent verification,
    and complete LaunchGuardian review.
 
+## Operational-Core Security Closeout
+
+The Codex operational core is not complete while LaunchGuardian remains
+point-in-time prose evidence beside the workflow. Reopen this packet in place;
+do not create a competing packet or plan.
+
+Goal: make the existing Codex controller admit integration or push only after a
+candidate-bound LaunchGuardian review passes.
+
+Components touched:
+
+- `orchestration_control.py` gains one `security_review` phase between proof
+  and independent verification and requires that phase for mutating workflows.
+- `process_runner.py` owns the fixed LaunchGuardian invocation, process-tree
+  cleanup, fresh committed-tree materialization, strict report parsing, and
+  exact candidate binding.
+- `orchestration_evidence.py` owns the bounded, user-writable security evidence
+  record and its structural acceptance checks.
+- The Codex orchestration skill and focused tests expose the same phase order
+  and fail-closed behavior.
+
+Data flow:
+
+1. Cross-review accepts one exact isolated candidate.
+2. The full required proof runs on that candidate.
+3. The controller issues a candidate-bound `security_review` admission.
+4. The runner materializes the exact commit outside the working checkout and
+   invokes `launchguardian scan --target <fresh-root> --framework-mode
+   --strict-scanners --output-dir <runner-owned-temp>`.
+5. The runner reads a bounded regular JSON report once and records the report,
+   observed LaunchGuardian launcher digest/reported version, exact command
+   contract, candidate commit, executable fingerprint, and scanner statuses in
+   durable workflow evidence.
+6. Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS`, valid LGF configuration,
+   zero open blocking findings, and all five expected scanners reporting
+   `ran` may pass. Missing tools, disabled/skipped/failed scanners, timeout,
+   malformed output, stale identity, or another status is non-green.
+7. `workflow-finish` independently reloads the keyed security record and raw
+   report from the external state store and refuses `passed` unless their
+   consumed admission, objective, plan, mechanism, prior gates, candidate,
+   command, report, and acceptance bindings remain valid.
+8. Independent verification, integration, and optional push remain downstream.
+
+Permissions and trust: LaunchGuardian is pointed at a fresh materialization and
+instructed to write its report to a runner-owned temporary directory. The
+native process is not host-filesystem write-confined; the runner detects a
+changed Owner checkout after the process exits but does not claim prevention.
+The local operating system, selected Python environment, `PATH`, scanner
+executables, LaunchGuardian installation, controller state, and user-writable
+evidence remain part of the disclosed trusted computing base. The observed
+launcher digest and evidence provide identity and coordination, not
+hostile-user authentication or toolchain provenance attestation.
+
+Failure behavior: a substantive security finding invalidates the candidate and
+returns to mutation. A procedural scanner failure may retry only
+`security_review`, only while the exact candidate and prior-gate digests remain
+unchanged. No missing or failed scan is converted into PASS.
+
+Testing strategy: prove the happy path plus wrong-candidate, missing executable,
+timeout, malformed report, invalid LGF, missing/disabled/failed scanner, open
+blocker, stale evidence, replayed admission, and substantive-versus-procedural
+resume behavior. Focused tests run before any full suite or peer call.
+
+Non-goals for this slice: publishing LaunchGuardian, changing its companion
+repository, archiving either active Drydock packet, releasing Drydock, or
+pushing any branch.
+
 ## Files Expected To Change
 
 - `adapters/codex/drydock/.codex-plugin/plugin.json`

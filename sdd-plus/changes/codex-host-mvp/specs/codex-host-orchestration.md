@@ -435,6 +435,85 @@ independent probe proves reads outside it are denied on the current host.
 - **THEN** readiness reports write isolation only and does not claim
   root-confined reads
 
+### Requirement: LaunchGuardian is a candidate-bound workflow gate
+Every mutating Codex workflow SHALL include a `security_review` phase after the
+exact-candidate full proof and before independent verification, integration, or
+push. The phase SHALL run LaunchGuardian in framework mode with strict scanners
+against a fresh materialization of the exact clean candidate commit. The caller
+SHALL NOT choose the executable, target root, output directory, framework mode,
+strictness, or required scanner set.
+
+The runner SHALL bind the candidate commit and v2 executable fingerprint,
+observed LaunchGuardian launcher digest and reported version, exact command
+contract, bounded report bytes and digest, LGF validation state, launch status,
+open blocking findings, and scanner availability into the workflow evidence.
+The native scanner process is not host-filesystem write-confined. The runner
+SHALL compare the Owner checkout identity before and after execution and fail
+closed on detected drift, while disclosing that this is detection rather than
+prevention. The selected Python environment, `PATH`, LaunchGuardian package,
+scanner executables, and operating system remain trusted. The evidence is
+user-writable identity and coordination data, not authenticated attestation or
+toolchain provenance proof.
+
+The controller SHALL NOT trust a caller-supplied `passed` outcome by itself.
+Before advancing past `security_review`, it SHALL reload the keyed security
+record and raw report from the external state store, revalidate their record
+key, exact consumed admission (including objective, plan, mechanism, and prior
+gates), candidate fingerprint, fixed command contract, report digest,
+structural acceptance, and non-zero-exit rule, and refuse missing, malformed,
+stale, replayed, or non-accepted evidence.
+
+Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS` with valid LGF configuration,
+zero open blocking findings, and every expected scanner (`gitleaks`, `semgrep`,
+`trivy`, `frontend_exposure`, and `api_surface`) reporting `ran` SHALL pass.
+Missing LaunchGuardian, timeout, non-zero exit, malformed or oversized report,
+wrong candidate, invalid LGF, skipped or incomplete validation, a missing,
+disabled, unavailable, or failed scanner, another launch status, or any open
+blocking finding SHALL remain non-green.
+
+A substantive security finding SHALL return the workflow to mutation and
+invalidate candidate-dependent evidence. A procedural scanner failure MAY
+retry only `security_review` and only while the exact candidate, plan,
+mechanism, and prior-gate digests remain unchanged. No security result may
+authorize side effects or widen Owner authority.
+
+#### Scenario: Exact candidate passes the strict security gate
+- **WHEN** the full proof passed and LaunchGuardian returns valid candidate-bound
+  evidence with an accepted launch status, valid LGF configuration, zero open
+  blockers, and all five expected scanners reporting `ran`
+- **THEN** the controller records the `security_review` evidence and may admit
+  independent verification for that same candidate
+
+#### Scenario: Scanner is absent, disabled, unavailable, or failed
+- **WHEN** the executable cannot start or any expected scanner does not report
+  `ran`
+- **THEN** the security phase is non-green and verification, integration, and
+  push remain unavailable
+
+#### Scenario: Security report belongs to another candidate
+- **WHEN** the report or workflow admission is bound to a different commit or
+  executable fingerprint
+- **THEN** the runner refuses it before the report can satisfy the security gate
+
+#### Scenario: Caller claims PASS without accepted security evidence
+- **WHEN** a consumed `security_review` admission is finished as `passed` with
+  an arbitrary, missing, stale, or tampered evidence key
+- **THEN** the controller refuses the transition and independent verification,
+  integration, and push remain unavailable
+
+#### Scenario: LaunchGuardian finds a substantive blocker
+- **WHEN** LGF validation is invalid, launch status is blocking, or an open
+  blocking finding remains
+- **THEN** the candidate returns to mutation and all candidate-dependent
+  downstream evidence is invalidated
+
+#### Scenario: Scanner transport fails without changing the candidate
+- **WHEN** a timeout, unavailable executable, malformed report, or scanner
+  execution failure occurs and the exact candidate and prior gates remain
+  unchanged
+- **THEN** a fresh Owner-authorized resume may retry only `security_review`
+  without repeating accepted plan, mutation, cross-review, or proof gates
+
 ### Requirement: Verifier verdicts bind to repository state
 The verifier runner SHALL record HEAD and a working-tree fingerprint before
 verification, embed the exact expected values into the output schema, require
