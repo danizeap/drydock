@@ -79,7 +79,7 @@ orchestration-efficiency-hardening
   remediation.
 - [x] Convert malformed packet-root evidence errors into the runner's structured
   blocked result and prove the provider does not start.
-- [ ] Re-freeze the executable candidate and run one replacement full required
+- [x] Re-freeze the executable candidate and run one replacement full required
   suite on its exact v2 fingerprint.
 - [ ] Obtain final separate verification against the remediated frozen
   candidate.

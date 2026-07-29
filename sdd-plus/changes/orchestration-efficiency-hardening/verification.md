@@ -318,6 +318,30 @@ orchestration-efficiency-hardening
   projection was applied, and no tracked bytecode, ignored code-injection path,
   or invalid packet evidence was present. This freeze does not reuse the prior
   full-suite proof; one replacement full-required-suite run remains pending.
+- [x] One replacement `full_required_suite` run executed from fresh
+  committed-tree materialization at exact clean proof HEAD
+  `2188580c29091b202f1509c8b9dfa07ec2bba399`. Its v2 executable fingerprint
+  remained
+  `23d7b23c99aee8e3de5c79e7a2eeb2428113671f6c7b1ebd0af460dec6fe1abf`,
+  and the controller persisted schema-v2 proof record
+  `1642db8d51a0c67fcb8279b15287aa22301e8154cc0bc1a4adfec43235ce56fc.json`.
+  Exact results were: legacy `548 passed, 6 skipped`; Codex adapter
+  `314 passed, 2 skipped`; root/scaffold sync `11` pairs identical;
+  scaffold bundle matched source; hook runtime and definition matched source;
+  all release-version locations agreed at `0.12.1` with a changelog entry; and
+  packet verification reported `38 complete, 3 pending`. Every step returned
+  zero. The proof record reports `terminal_status: passed`, exit code `0`,
+  `timed_out: false`, 184.719 seconds elapsed, environment digest
+  `593a134a4358db13ac8bb6d74cfc001f52c53c1785ceefd4dfe519d25f1501b4`,
+  and output digest
+  `acbe16162e01aae63088e093b60619f918eaa612c091cacf4475204311dda853`.
+  Local `final_suite_acceptance` returned accepted for the current clean
+  candidate while retaining `authenticated: false` and
+  `provenance_attested: false`. The outer controller process exited zero but
+  its captured stdout was empty; no result is inferred from that absence.
+  Counts come from the durable 3,401-byte suite summary (SHA-256
+  `292470fa45cf3f9415d7d14b21a671e930ac152c9841af8d76e507395352a071`),
+  and proof acceptance from the separately read persisted record.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
