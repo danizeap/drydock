@@ -173,6 +173,17 @@ def test_git_object_batch_pins_canonical_root_and_strips_hostile_git_env(
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
 
 
+def test_git_path_resolution_failure_is_structured_evidence_error(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing repository"
+    with pytest.raises(
+        evidence.EvidenceError,
+        match="Git repository path could not be resolved",
+    ):
+        evidence._resolved_git_path(missing)
+
+
 def test_envelope_rejects_invalid_values() -> None:
     with pytest.raises(evidence.EvidenceError, match="positive"):
         evidence.Envelope(0, 1, 1, 1)

@@ -84,7 +84,7 @@ orchestration-efficiency-hardening
 - [x] Pin command-scoped Git trust on the internal `cat-file --batch` object
   reader and regress the actual batch subprocess under hostile inherited Git
   state.
-- [ ] Obtain focused peer cross-review of the final-verifier Git-helper
+- [x] Obtain focused peer cross-review of the final-verifier Git-helper
   remediation.
 - [ ] Re-freeze the new executable fingerprint and run a new replacement full
   required suite; the proof for the prior fingerprint is not reusable.

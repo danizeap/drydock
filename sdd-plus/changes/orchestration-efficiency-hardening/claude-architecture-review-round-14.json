@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": true,
+  "overall": "No blocker. The follow-up range cleanly removes repeated resolution from `_git_arguments`, shapes `OSError` through `_resolved_git_path`, expands the hostile Git-variable family, asserts exact `GIT_*` key-set equality, preserves the real batch subprocess, and drops the unrelated reuse-eligibility assertion. The supplied text also keeps round-13 evidence and verification language honest: neither peer review nor the sandbox probe is described as authentication, freeze, reusable proof, or final PASS. The review could not directly inspect the unchanged `cat-file --batch` call site, every `_git_arguments` caller, or `_git_environment()` because it received a bounded text diff rather than repository tools. Those are repository-side confirmation items, not blockers. Nothing in the supplied range weakens exact-tree fingerprinting, task projection, archive equality, proof admission, or fail-closed semantics. A fresh freeze, full suite, and final verdict remain mandatory.",
+  "blocking_concerns": [],
+  "gaps": [
+    "The supplied diff does not show the unchanged `cat-file --batch` call site, so the already-resolved path argument and retained `env=_git_environment()` keyword require repository-side confirmation.",
+    "The reported spawn grep does not by itself enumerate every caller of the refactored `_git_arguments`; caller-side resolution requires a separate repository search.",
+    "The strength of the exact-set assertion depends on whether `_git_environment()` generically excludes inherited `GIT_*` keys or removes only named keys; the supplied diff does not show that function.",
+    "The new `_resolved_git_path` error-shaping behavior was not covered by a new test in the reviewed range.",
+    "HEAD, range exclusivity, fingerprints, schema counts, packet verification, and diff checks were reported by Codex rather than independently demonstrated to this text-only peer."
+  ],
+  "risks": [
+    "`_git_arguments` accepts an already-resolved path by contract rather than proving resolution at runtime, so future callers require the same review discipline.",
+    "Path resolution can raise exception classes beyond `OSError` for unusual invalid paths; those still fail closed but may not receive the same structured message.",
+    "`_git_tree_entries` resolves once before calling `_git`, and `_git` resolves again for `ls-tree`; this residual window is negligible but remains.",
+    "The capture shim remains coupled to argv-positional and cwd-keyword subprocess style.",
+    "The regression now focuses correctly on argv, cwd, and environment shape; it does not separately assert fingerprint semantic correctness, which is covered by the other fingerprint tests.",
+    "The prior full-suite proof remains unusable for the new executable fingerprint."
+  ],
+  "required_changes": [
+    "Before freeze, confirm every `_git_arguments` caller passes an already-resolved path and the batch subprocess retains `env=_git_environment()`.",
+    "Confirm from source whether `_git_environment()` generically removes all inherited `GIT_*` keys or only the variables explicitly poisoned by the regression.",
+    "Add focused coverage that a missing or unresolvable repository path raises the structured `EvidenceError` rather than degrading to a soft result."
+  ]
+}

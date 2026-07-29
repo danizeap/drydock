@@ -398,6 +398,22 @@ orchestration-efficiency-hardening
   argv helper no longer repeats path resolution. Focused results remained
   `2 passed, 39 deselected` and `84 passed`. These post-review executable/test
   changes still require a narrow follow-up peer check.
+- [x] The second and final bounded Opus 5 review of
+  `385cb405c6c2fa6dbf610a02241b5e4886f439bf..c0dcacbebd151350b408014520276400c975ee56`
+  converged with no blocker. It used 13,173 outbound bytes and cost $0.4149295
+  against the second $1 call ceiling; the two-call successor run stayed below
+  its phase envelope at 26,760 bytes, 284.13 seconds of peer execution, and
+  $0.8792125 observed provider cost. Repository-side source checks closed the
+  text-only peer's remaining uncertainty: `_git_arguments` has exactly two
+  callers and both pass `_resolved_git_path` output; the batch subprocess uses
+  that resolved value and retains `env=_git_environment()`; and
+  `_git_environment()` removes every inherited key with a case-insensitive
+  `GIT_` prefix before adding only the pinned keys. A focused regression now
+  also proves a missing repository path raises the structured `EvidenceError`.
+  Final focused results were `3 passed, 39 deselected` for the Git-trust
+  selection and `85 passed` for the orchestration/evidence set. Round 14 is
+  recorded as peer evidence only; it does not freeze the candidate or satisfy
+  final verification.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -411,9 +427,9 @@ orchestration-efficiency-hardening
 
 FINAL SEPARATE VERIFICATION REMAINS BLOCKED BY THE RECORDED FAIL VERDICT.
 THE REPRODUCED INTERNAL `git cat-file --batch` TRUST DEFECT IS REMEDIATED
-LOCALLY WITH FOCUSED TEST AND DIRECT READ-ONLY-SANDBOX EVIDENCE, BUT THE FIX
-HAS NOT YET RECEIVED PEER CROSS-REVIEW, A NEW FROZEN FULL-SUITE PROOF, OR A
-NEW FINAL VERDICT. THE PREVIOUS FULL-SUITE RECORD CANNOT VERIFY THIS NEW
+WITH FOCUSED TESTS, DIRECT READ-ONLY-SANDBOX EVIDENCE, AND TWO-ROUND OPUS 5
+PEER CONVERGENCE. A NEW CANDIDATE FREEZE, FULL-REQUIRED-SUITE PROOF, AND FINAL
+VERDICT ARE STILL PENDING. THE PREVIOUS FULL-SUITE RECORD CANNOT VERIFY THIS
 EXECUTABLE REVISION. THIS PACKET IS NOT VERIFIED OR ARCHIVE-READY, AND NO PASS
 IS INFERRED. The implementation does not claim fixed-root mutation
 containment. Remaining disclosed risks include stacked unsynced deltas,
