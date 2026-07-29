@@ -306,6 +306,18 @@ orchestration-efficiency-hardening
   required change. The exact result is recorded as
   `claude-architecture-review-round-12.json`; it does not authenticate itself,
   freeze the candidate, or satisfy final verification.
+- [x] Replacement candidate freeze: exact clean reviewed HEAD
+  `1842db937a40891b553f54c96c3e060f38b9941b` produced v2 executable
+  fingerprint
+  `23d7b23c99aee8e3de5c79e7a2eeb2428113671f6c7b1ebd0af460dec6fe1abf`
+  and non-self-inclusive packet-evidence-parent fingerprint
+  `2c7322779510b38671d4ea03bcfda7a293accfc6bb853426a6d3fbcee6712419`,
+  computed with
+  `sdd-plus/changes/orchestration-efficiency-hardening/verification.md`
+  explicitly excluded. Reuse eligibility was true, canonical active-task
+  projection was applied, and no tracked bytecode, ignored code-injection path,
+  or invalid packet evidence was present. This freeze does not reuse the prior
+  full-suite proof; one replacement full-required-suite run remains pending.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
