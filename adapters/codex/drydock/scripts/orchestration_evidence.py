@@ -823,16 +823,21 @@ def _git_executable() -> str:
     return executable
 
 
+def _git_arguments(repo: Path, arguments: Sequence[str]) -> list[str]:
+    resolved_repo = repo.resolve(strict=True)
+    return [
+        _git_executable(),
+        "-c",
+        f"safe.directory={resolved_repo.as_posix()}",
+        *arguments,
+    ]
+
+
 def _git(repo: Path, arguments: Sequence[str]) -> bytes:
     resolved_repo = repo.resolve(strict=True)
     try:
         result = subprocess.run(
-            [
-                _git_executable(),
-                "-c",
-                f"safe.directory={resolved_repo.as_posix()}",
-                *arguments,
-            ],
+            _git_arguments(resolved_repo, arguments),
             cwd=resolved_repo,
             capture_output=True,
             timeout=60,
@@ -869,7 +874,8 @@ class GitTreeEntry:
 
 
 def _git_tree_entries(repo: Path, commit: str = "HEAD") -> list[GitTreeEntry]:
-    raw = _git(repo, ["ls-tree", "-r", "-z", "--full-tree", commit])
+    resolved_repo = repo.resolve(strict=True)
+    raw = _git(resolved_repo, ["ls-tree", "-r", "-z", "--full-tree", commit])
     metadata: list[tuple[bytes, str, str, str]] = []
     for record in raw.split(b"\0"):
         if not record:
@@ -905,8 +911,8 @@ def _git_tree_entries(repo: Path, commit: str = "HEAD") -> list[GitTreeEntry]:
     )
     try:
         result = subprocess.run(
-            [_git_executable(), "cat-file", "--batch"],
-            cwd=repo,
+            _git_arguments(resolved_repo, ["cat-file", "--batch"]),
+            cwd=resolved_repo,
             input=request,
             capture_output=True,
             timeout=60,

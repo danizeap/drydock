@@ -370,6 +370,19 @@ orchestration-efficiency-hardening
   exact suite-count summary body is not committed, so it did not independently
   infer the recorded counts. The exact gate result is preserved in
   `codex-final-verifier.json`; no PASS or final verification is inferred.
+- [x] Internal Git-helper remediation: `_git_arguments` now constructs the
+  canonical root-scoped `safe.directory` argv for both ordinary Git calls and
+  the separate `git cat-file --batch` object reader. A new regression invokes
+  `repository_fingerprints` through the actual batch subprocess under a hostile
+  inherited `GIT_OBJECT_DIRECTORY` and asserts the canonical argv, resolved
+  cwd, and scrubbed Git environment. The two Git-trust selections passed
+  (`2 passed, 39 deselected`) and the focused orchestration/evidence set passed
+  (`84 passed`). A direct point-in-time native-Windows probe then ran the
+  fingerprint command through Codex's `:read-only` sandbox profile with the
+  absolute Python 3.11 interpreter; it exited `0` and completed the internal
+  object read without `dubious ownership`. It reported `clean: false` because
+  this remediation was still uncommitted, so the probe is mechanism evidence,
+  not a candidate freeze or reusable full-suite proof.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -381,13 +394,14 @@ orchestration-efficiency-hardening
 
 ## Result
 
-FINAL SEPARATE VERIFICATION IS BLOCKED BY A REPRODUCED INTERNAL GIT-TRUST
-DEFECT: THE PROOF-IDENTITY `git cat-file --batch` HELPER OMITS THE
-COMMAND-SCOPED `safe.directory` USED BY THE OTHER GIT HELPER. THE PREVIOUS
-REPLACEMENT FULL-SUITE RECORD CANNOT VERIFY A FUTURE EXECUTABLE FIX. THIS
-PACKET IS NOT VERIFIED OR ARCHIVE-READY, AND NO PASS IS INFERRED. The
-implementation does not claim fixed-root mutation containment. Remaining
-disclosed risks include stacked unsynced deltas,
+FINAL SEPARATE VERIFICATION REMAINS BLOCKED BY THE RECORDED FAIL VERDICT.
+THE REPRODUCED INTERNAL `git cat-file --batch` TRUST DEFECT IS REMEDIATED
+LOCALLY WITH FOCUSED TEST AND DIRECT READ-ONLY-SANDBOX EVIDENCE, BUT THE FIX
+HAS NOT YET RECEIVED PEER CROSS-REVIEW, A NEW FROZEN FULL-SUITE PROOF, OR A
+NEW FINAL VERDICT. THE PREVIOUS FULL-SUITE RECORD CANNOT VERIFY THIS NEW
+EXECUTABLE REVISION. THIS PACKET IS NOT VERIFIED OR ARCHIVE-READY, AND NO PASS
+IS INFERRED. The implementation does not claim fixed-root mutation
+containment. Remaining disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
 state is user-writable rather than attested, proof-root test behavior may differ

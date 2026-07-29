@@ -103,6 +103,58 @@ def test_git_helper_pins_canonical_root_and_strips_hostile_git_env(
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
 
 
+def test_git_object_batch_pins_canonical_root_and_strips_hostile_git_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = tmp_path / "proof root with spaces"
+    parent.mkdir()
+    repo = _repo(parent)
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "poison"))
+    observed: list[dict[str, object]] = []
+    original = evidence.subprocess.run
+
+    def capture(
+        arguments: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        if "cat-file" in arguments:
+            observed.append(
+                {
+                    "arguments": list(arguments),
+                    "cwd": kwargs["cwd"],
+                    "env": dict(kwargs["env"]),
+                }
+            )
+        return original(arguments, *args, **kwargs)
+
+    monkeypatch.setattr(evidence.subprocess, "run", capture)
+    report = evidence.repository_fingerprints(
+        repo,
+        packet_root="sdd-plus/changes/change",
+    )
+    assert report["reuse_eligible"] is True
+    assert len(observed) == 1
+
+    invocation = observed[0]
+    arguments = invocation["arguments"]
+    assert isinstance(arguments, list)
+    assert arguments[1:5] == [
+        "-c",
+        f"safe.directory={repo.resolve().as_posix()}",
+        "cat-file",
+        "--batch",
+    ]
+    assert invocation["cwd"] == repo.resolve()
+    environment = invocation["env"]
+    assert isinstance(environment, dict)
+    assert "GIT_OBJECT_DIRECTORY" not in environment
+    assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert environment["GIT_CONFIG_SYSTEM"] == os.devnull
+    assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert environment["GIT_ATTR_NOSYSTEM"] == "1"
+    assert environment["GIT_OPTIONAL_LOCKS"] == "0"
+    assert environment["GIT_TERMINAL_PROMPT"] == "0"
+
+
 def test_envelope_rejects_invalid_values() -> None:
     with pytest.raises(evidence.EvidenceError, match="positive"):
         evidence.Envelope(0, 1, 1, 1)

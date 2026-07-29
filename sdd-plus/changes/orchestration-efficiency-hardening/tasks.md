@@ -81,6 +81,13 @@ orchestration-efficiency-hardening
   blocked result and prove the provider does not start.
 - [x] Re-freeze the executable candidate and run one replacement full required
   suite on its exact v2 fingerprint.
+- [x] Pin command-scoped Git trust on the internal `cat-file --batch` object
+  reader and regress the actual batch subprocess under hostile inherited Git
+  state.
+- [ ] Obtain focused peer cross-review of the final-verifier Git-helper
+  remediation.
+- [ ] Re-freeze the new executable fingerprint and run a new replacement full
+  required suite; the proof for the prior fingerprint is not reusable.
 - [ ] Obtain final separate verification against the remediated frozen
   candidate.
 
