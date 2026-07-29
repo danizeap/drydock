@@ -15,6 +15,47 @@
 - Worktree created: no.
 - Integration or push performed from this plan: no.
 
+## 2026-07-29 execution rebase — Round 1
+
+- Run ID: `73318eaf444b429d952e0fbe09119056`.
+- Reviewed clean HEAD:
+  `347d06a3eff7587a9a3d41259b7179527a21b8fe`.
+- Reviewed v2 executable fingerprint:
+  `c1ae2c92f0df895d57ebf40fbfdea31d04953758cfa43a16b5b939641405403e`.
+- Controller result: schema-valid; `pre_mutation_critique.gate_satisfied:
+  false`; no worker started.
+- Requested `claude-opus-5` observed, with the CLI's Haiku helper also
+  reported.
+- Outbound input: 19,467 bytes.
+- Elapsed peer phase: 257.34 seconds.
+- Observed provider cost: `$0.702121` against the configured `$1.50` call
+  ceiling.
+- Verdict: `converged: false`, four blockers.
+
+Reconciliation:
+
+- Accepted: add an execution-time exact guide-blob/anchor/postimage freshness
+  gate and pin the actual clean worktree base before launch.
+- Refined from source: the runner already pins `core.hooksPath` to the null
+  device, disables fsmonitor/external diff/textconv, scrubs inherited Git
+  environment, nulls global/system config, and recursively fingerprints the
+  bounded common hooks directory. The peer's statement that hooks are outside
+  every fingerprint is false for the runner. The plan now repeats equivalent
+  pins for the later control-plane commit/push and broadens direct config and
+  remote checks instead of changing the reviewed runner.
+- Accepted as claim correction: the prior failed Render MCP cleanup attempt is
+  positive counterevidence to no-egress wording. The plan now claims only
+  requested argv/profile configuration, retains the complete reported worker
+  event stream, and treats absence of a host-reported connection attempt as
+  unknown.
+- Accepted: the Round-2 peer receives the complete frozen note and both
+  adjacent paragraphs, not only the note digest.
+- Accepted gaps: both anchor uniqueness checks; 50,224-byte post-fast-forward
+  on-disk expectation; public-remote and prior-disclosure recheck; no-retry
+  partial/unconfirmable-push behavior; enumerative ignored-injection wording;
+  point-in-time hook interpreter identity; and verifier #2 as freshness
+  binding rather than independent corroboration.
+
 ## Round 1
 
 - Controller result: schema-valid.

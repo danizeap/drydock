@@ -88,6 +88,11 @@ and normalized Git blob SHA-1
   offset 12,413, and the current preimage/postimage values above were
   recomputed from exact committed blob bytes. No worker may start until a fresh
   peer critique accepts this rebased plan.
+- Both instruction anchors are unique in the current committed blob: the
+  complete preceding paragraph ending with `context.` occurs once, and
+  `Readiness may call` occurs once. The worker instruction identifies the
+  unique following anchor; the complete preceding and following paragraphs are
+  included verbatim below for peer content review.
 
 ## Existing runner safeguards relevant to the peer concern
 
@@ -95,6 +100,13 @@ and normalized Git blob SHA-1
   `_assert_worktree_boundary` checks it before every `_run_worktree_git` call.
 - Post-worker Git uses explicit `--git-dir` and `--work-tree`, an absolute Git
   executable, pinned configuration, and a controlled environment.
+- The runner already pins `core.hooksPath` to the null device,
+  `core.fsmonitor=false`, `diff.external=` and `--no-textconv`; scrubs inherited
+  `GIT_*`; nulls global and system Git config; and includes the complete bounded
+  common `.git/hooks` directory in `git_control_fingerprint`. Round 1's claim
+  that hooks were outside every fingerprint was therefore not adopted. The
+  later control-plane commit and push are separate commands and must repeat the
+  null hooks/fsmonitor/external-diff pins plus `--no-verify`.
 - `git_control_fingerprint` covers common, Owner, and worker Git control paths
   before launch, after process-tree shutdown, and after extraction. Drift
   refuses later evidence.
@@ -135,21 +147,28 @@ cross-review peer. The mutation runs through
 worktree. The worker result is a non-green handoff until deliberate
 cross-review and a separate `process_runner.py verify` verdict.
 
-The runner fixes empty MCP servers, disabled web search and direct network,
-ignored repository rules, disabled plugin/app/browser/computer-use features,
-an ephemeral workspace-write process, and the dedicated worktree root. These
-are requested/tested host boundaries, not full host isolation. After the
-runner releases its lease, Codex schedules no second writer and checks the
-captured worktree fingerprint again before review and verification; this is
-detection rather than continuing exclusive prevention.
+The runner requests empty MCP servers, disabled web search and network-enabled
+features, ignored repository rules, disabled plugin/app/browser/computer-use
+features, an ephemeral workspace-write process, and the dedicated worktree
+root. Those are requested argv/profile boundaries, not proof that the host
+made no connection attempt and not full host isolation. After the runner
+releases its lease, Codex schedules no second writer and checks the captured
+worktree fingerprint again before review and verification; this is detection
+rather than continuing exclusive prevention.
 
-The live mutation child later emitted a failed `DELETE` cleanup attempt for a
+The prior live mutation child emitted a failed `DELETE` cleanup attempt for a
 Render MCP session despite the empty-MCP and disabled-feature argv contract.
-The request failed with a closed channel and is not evidence that a remote
-resource changed, but it is positive evidence that the tested host can still
-attempt MCP-related transport outside the intended empty configuration. This
-run therefore claims only the requested argv boundary; it does not claim zero
-MCP transport, zero network attempts, or non-contact with personal Codex state.
+The attempt was emitted by host/session cleanup after the bounded worker turn,
+not by a task-authorized tool call; the closed channel is not evidence that a
+remote resource changed. Its deeper host source and personal-state dependency
+remain unproven. This is accepted positive counterevidence to a no-egress claim:
+the run claims only requested argv/profile configuration and does not claim
+direct-network denial, zero MCP transport, zero connection attempts, or
+non-contact with personal Codex state. The task contains only the public
+operator-guide paragraph and no secret-bearing content. The complete worker
+event/result stream is retained as an acceptance artifact and any host-reported
+MCP/network attempt is recorded; absence of a reported attempt remains
+`unknown`, never proof that none occurred.
 
 The separate verifier is a new ephemeral Codex process with `read-only`
 sandbox; hooks, plugins, apps, browser, computer-use, MCP, web search, and
@@ -163,9 +182,10 @@ and diff bytes enter that fingerprint, and the linked-worktree probe above
 proves sensitivity to an added scratch byte on the exact repository shape used
 here. The current v2 proof preflight separately blocks tracked bytecode and
 ignored `conftest.py`, `sitecustomize.py`, `usercustomize.py`, and `*.pth`
-injection paths. Ordinary ignored bytecode caches are disclosed but do not
-block because the full required suite runs from a fresh exact-commit
-materialization with bytecode writes disabled.
+injection paths. This is enumerative coverage, not proof that every possible
+ignored injection path has been classified. Ordinary ignored bytecode caches
+are disclosed but do not block because the full required suite runs from a
+fresh exact-commit materialization with bytecode writes disabled.
 
 `verify()` does not itself call `_assert_safe_local_git_configuration()`.
 `mutate()` called that precheck immediately before creating the linked
@@ -176,7 +196,9 @@ revalidates the linked `.git` pointer, requires the captured Git-control
 fingerprint to equal the value recorded before worker launch, and directly
 parses each existing local/worktree config file named by `GitControlBoundary`
 with `git config --file <exact-path> --no-includes --name-only --list`. Any
-`include.*`, `includeIf.*`, or `filter.*.(clean|smudge|process)` key aborts.
+`include.*`, `includeIf.*`, `filter.*.(clean|smudge|process)`,
+`url.*.(insteadOf|pushInsteadOf)`, `credential.helper`, `core.hooksPath`,
+`core.fsmonitor`, `diff.*.textconv`, or `alias.*` key aborts.
 That preserves the pre-launch safe-config result without claiming an unusable
 post-creation helper call. The current verifier also refuses a dirty or
 unproven candidate before provider discovery. After cross-review, the Codex
@@ -211,12 +233,42 @@ interpreter. All control-plane Python calls for this run use `-B` and
 `PYTHONDONTWRITEBYTECODE=1` so their own bytecode caches cannot trip the
 ignored-artifact gate.
 
+The hook interpreter is point-in-time state, not implied by the `py -3`
+launcher forever. Immediately before mutation, Codex records the resolved path
+`C:\Users\Daniel Paez\AppData\Local\Python\pythoncore-3.14-64\python.exe`,
+version `3.14.0`, `stdin_encoding: cp1252`, and `utf8_mode: 0` alongside the
+runtime digest. Any change is recorded and forces a fresh claim review if it
+invalidates the note; absence of a change is not generalized beyond this run.
+
 The only authorized outward action is a deliberate push of the integrated,
 verified documentation commit to remote `origin`, branch
 `codex/codex-host-mvp-checkpoint`. The Owner's requested end-to-end workflow
 already names push as its terminal action. Release, archive, merge to another
 branch, publication, deployment, and personal plugin changes remain
 unauthorized.
+
+The expected configured push URL is the literal
+`git@github-personal:danizeap/drydock.git`; the current SSH resolution must
+report host `github.com`, user `git`, and port `22`. Before mutation and again
+immediately before push, Codex resolves the push URL in an environment that
+scrubs inherited `GIT_*` and nulls global/system Git config. Every directly
+parsed local/worktree config aborts on `include.*`, `includeIf.*`,
+`filter.*.(clean|smudge|process)`, `url.*.insteadOf`,
+`url.*.pushInsteadOf`, `credential.helper`, `core.hooksPath`,
+`core.fsmonitor`, `diff.*.textconv`, or `alias.*`. The control-plane commit and
+push pin `core.hooksPath` to an empty exact directory,
+`core.fsmonitor=false`, `diff.external=`, and `credential.helper=`, and use
+`--no-verify`; the push URL must still equal the registered literal. The
+runner's own extraction keeps its existing stronger pinned Git wrapper.
+
+The repository is publicly readable at `https://github.com/danizeap/drydock`.
+At current remote checkpoint
+`ae9735511fade16780f78435213f5047a32e3900`, the exact remote branch already
+contains `claude-final-readiness-review-result.md`,
+`integrated-dogfood-negotiation.md`, and `decision-log.md`, and the last file
+contains the locale-decoding finding. Those facts are rechecked immediately
+before push; a mismatch or unconfirmable visibility stops before the outward
+action.
 
 The finding is already present on the same remote branch in
 `claude-final-readiness-review-result.md`,
@@ -235,6 +287,11 @@ to continue this bounded run. Packet evidence records that chat authorization
 as a push precondition. If it cannot be tied to the current task at execution
 time, the run stops at the local commit.
 
+If push reports success but the remote SHA cannot be confirmed or differs, the
+run does not retry, force, delete, or rewrite any ref. It stops and returns to
+the Owner with the local commit, exact push output, and observed or
+unconfirmable remote state.
+
 The locale-decoding remediation is already tracked outside this one-file
 mutation in `decision-log.md` under `PEER-DIAGNOSED GAP`: explicit UTF-8 byte
 decoding, failure-taxonomy separation, a byte-level regression, executed-
@@ -246,7 +303,16 @@ program probe recognition, and Windows tokenization remain follow-ups.
 2. Before mutation, Codex records passing `git diff --check`,
    `python scripts/check_sync.py`, and
    `python scripts/sdd.py verify codex-host-mvp`, plus runtime SHA-256
-   `a04cf380...`.
+   `a04cf380...`, the resolved hook interpreter path/version/encoding above,
+   and the sanitized effective push URL/SSH destination. The exact clean HEAD
+   after Round-2 evidence is recorded as the sole worktree `base_commit`.
+   Immediately before worktree creation, Codex asserts
+   `git rev-parse <base_commit>:docs/AI_OPERATOR_GUIDE.md` equals
+   `cba390733d524eeaea518b8b7372ad7d06d9f7bb`, recomputes the unique
+   `Readiness may call` anchor at byte offset 12,413, and independently
+   re-derives the registered 50,224-byte postimage and both hashes. Any
+   mismatch aborts to a fresh plan round; values are never recomputed into a
+   new mid-run contract.
 3. The mutation runner reports the Owner checkout and Git control fingerprints
    unchanged, its lease released, `merged: false`, and exactly the allowed
    documentation file changed.
@@ -255,7 +321,11 @@ program probe recognition, and Windows tokenization remain follow-ups.
    produced by `git hash-object --path docs/AI_OPERATOR_GUIDE.md` against
    `0093b7d...`, and confirms no claim exceeds the reproduced mechanism. Any
    mismatch aborts rather than being waived as line-ending noise.
-5. Claude cross-reviews the exact diff as untrusted data and reports no blocker.
+5. Claude cross-reviews the exact diff as untrusted data, receiving the
+   complete verbatim 1,255-byte note plus both adjacent paragraphs, and reports
+   no blocker. A content rejection stops the run, freezes no replacement
+   in-place, and returns to plan review with a newly hashed note; neither the
+   worker nor controller edits the rejected text opportunistically.
 6. The control plane commits only the reviewed one-file diff on the isolated
    branch, then `proof-run --scope full_required_suite` runs the required
    legacy, Codex-adapter, root/scaffold, bundle, hook, release-version, and
@@ -274,12 +344,16 @@ program probe recognition, and Windows tokenization remain follow-ups.
 8. Codex deliberately fast-forwards the Owner branch only to the exact reviewed
    and separately verified isolated commit, then verifies that the 1,256-byte
    insertion, normalized Git blob, executable fingerprint, and packet-evidence
-   fingerprint equal the verified worktree values. A second separate read-only
+   fingerprint equal the verified worktree values. The Owner checkout's
+   expected on-disk guide becomes exactly 50,224 LF-only bytes after the
+   fast-forward; the prior mixed-EOL 49,217-byte representation and its 249 CR
+   bytes are not misreported as content loss. A second separate read-only
    verifier runs against the same clean integrated commit and accepted proof
-   record before any push. Verifier #2 uses the same separate ephemeral
-   `read-only` sandbox, disabled features, absolute Python 3.11.9 interpreter,
-   `-B`, packet root, proof record, and timeout as verifier #1, with this exact
-   target shape:
+   record before any push. It adds freshness/anti-replay binding to the
+   integrated Owner HEAD, not a second independent judgment or corroborating
+   vote. Verifier #2 uses the same separate ephemeral `read-only` sandbox,
+   disabled features, absolute Python 3.11.9 interpreter, `-B`, packet root,
+   proof record, and timeout as verifier #1, with this exact target shape:
 
    ```powershell
    $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -309,9 +383,42 @@ program probe recognition, and Windows tokenization remain follow-ups.
    deployment, and personal plugin changes unauthorized except for the single
    deliberate documentation integration and branch push named above.
 
-Any mismatch, extra or ignored file, peer blocker, verifier non-PASS, failed
-gate, digest drift, remote-tip drift, or byte-comparison failure aborts before
-integration or push. Before integration, the reviewable worktree is retained
-for inspection and cleanup is not forced. After a local commit, failure stops
-before push and returns to the Owner; no destructive reset or automatic
-rollback is authorized.
+Any mismatch, extra tracked/untracked file, blocked ignored injection path,
+peer blocker, verifier non-PASS, failed gate, digest drift, remote-tip drift,
+or byte-comparison failure aborts before integration or push. Before
+integration, the reviewable worktree is retained for inspection and cleanup is
+not forced. After a local commit, failure stops before push and returns to the
+Owner; no destructive reset or automatic rollback is authorized.
+
+## Peer-visible frozen content
+
+The planning and cross-review peers receive this exact content, not only its
+digest. The middle paragraph is the 1,255-byte frozen note; the first and third
+paragraphs are the unique adjacent committed guide context.
+
+```text
+The current `model` and `permission_mode` evidence comes from the fresh
+PreToolUse activity record. The older SessionStart record remains only the
+packet-fingerprint baseline and is not presented as current model/permission
+context.
+
+Known tested-host limitation (Codex CLI `0.146.0-alpha.3.1`, Windows 11 Pro `10.0.26200` build `26200`, Python `3.14.0`, locale encoding `cp1252`): the current `py -3 -I -S` inline verifier reads hook stdin through the interpreter's locale-decoded text stream before re-encoding it as UTF-8 for the verified runtime. Direct installed-definition probes accepted ASCII and an em-dash payload in both current locale mode and forced UTF-8 mode; U+0081 (`c2 81`) and U+008D (`c2 8d`) were denied with the generic runtime-integrity message only in locale mode and were allowed with the otherwise identical `-X utf8=1` verifier. Static byte-flow inspection confirms the accepted em-dash bytes are transformed by the cp1252 decode and UTF-8 re-encode before policy evaluation. The current policy patterns are ASCII and no decision flip was reproduced, which is not proof that every non-ASCII decision is unaffected; any future non-ASCII policy pattern would be evaluated against transformed text until this is fixed. The undefined-byte cases failed closed and created no false green, but the generic message did not establish an integrity failure. Explicit UTF-8 byte decoding and separate decode/parse versus integrity failure reasons remain tracked follow-ups.
+
+Readiness may call `claude auth status --json`, which spends no model quota.
+`auth_ready` proves only authentication; `operational_ready` requires a
+successful schema-validated live peer round. Claude is optional: its absence
+removes cross-model agreement, not Codex-hosted lifecycle governance.
+Single-pilot continuation is fail-closed to four proven benign availability
+cases: authentication unavailable before provider spawn, an exact supported
+rate-limit marker, timeout with bounded cleanup, or a bare non-zero exit with
+no subtype/contract output plus requested-model evidence and finite
+`total_cost_usd` exactly equal to zero. The pilot may then continue the ordinary
+packet, approval, mutation, review, and verification gates in `single_pilot`
+mode while reporting `peer_convergence: not_established`. This is continuity
+of governance, not a substitute claim of cross-model agreement. Budget
+ceilings, policy/refusal/context-limit failures, unknown structured subtypes,
+malformed output, model mismatch, and missing, malformed, negative, or positive
+cost instead return `return_to_owner`. Rate limiting is identified only from
+exact supported structured markers or explicit rate-limit phrases, not from
+generic `rate`, `quota`, or `usage` substrings.
+```
