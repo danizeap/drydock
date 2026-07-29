@@ -12,6 +12,10 @@
   returned no critique because the configured provider budget was exhausted.
   The earlier convergence does not cover the current guide preimage or the
   hardened clean-candidate, full-suite-proof verifier flow.
+- 2026-07-29 superseding cycle: explicitly Owner-authorized and not yet
+  started. It must create a new durable run with the prior blocked run recorded
+  only as `previous_run_id`, at most two peer calls, `$1.50` configured
+  provider ceiling per call, and `$3.00` total peer-phase ceiling.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
@@ -80,6 +84,26 @@ Reconciliation:
 - Mutation process started: no.
 - Worktree created: no.
 - Commit/integration/push from this dogfood plan: no.
+
+## 2026-07-29 one-use Owner authorization
+
+The Owner explicitly authorized:
+
+1. One fresh durable peer cycle for this exact existing
+   `codex-host-mvp` dogfood objective. It supersedes rather than restarts or
+   reinterprets closed blocked run `73318eaf444b429d952e0fbe09119056`.
+   Each peer call has a `$1.50` provider-reported ceiling and the two-call peer
+   phase has a `$3.00` total ceiling.
+2. One non-force push to
+   `origin/codex/codex-host-mvp-checkpoint` only if plan convergence, isolated
+   mutation, cross-review, exact candidate proof, separate verification,
+   integration, clean-tree, remote/preimage, and every packet gate all pass.
+
+The authorization does not permit force push, another destination, merge to
+another branch, archive, release, publication, deployment, weakened
+verification, a third peer round, or continuation after an unknown, failed,
+stale, malformed, mismatched, unavailable, or unproven gate. It is consumed
+once by this exact cycle.
 
 ## Round 1
 
