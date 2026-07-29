@@ -586,9 +586,10 @@ from a Git checkout, and default envelopes remain uncalibrated.
 THE SECOND OPUS 5 ARCHITECTURE ROUND CONVERGED AND THE CONVERGED
 CONTROL-PLANE CORRECTIONS ARE NOW IMPLEMENTED LOCALLY. THE COMBINED FOCUSED
 CONTROLLER, PEER-WRAPPER, EVIDENCE, AND PROCESS-RUNNER SUITE PASSED. THE
-IMPLEMENTATION HAS NOT YET RECEIVED ITS REQUIRED CROSS-REVIEW, FROZEN FULL
-REQUIRED SUITES, OR SEPARATE VERIFICATION, SO THE PACKET REMAINS OPEN AND IS
-NOT ARCHIVED, RELEASED, INSTALLED, OR READY FOR DOGFOOD.
+IMPLEMENTATION RECEIVED A CONVERGED BOUNDED OPUS 5 CROSS-REVIEW WITH NO
+BLOCKERS. FROZEN FULL REQUIRED SUITES AND SEPARATE VERIFICATION HAVE NOT YET
+RUN, SO THE PACKET REMAINS OPEN AND IS NOT ARCHIVED, RELEASED, INSTALLED, OR
+READY FOR DOGFOOD.
 
 ## Control-Plane Architecture Peer Evidence
 
@@ -670,12 +671,33 @@ NOT ARCHIVED, RELEASED, INSTALLED, OR READY FOR DOGFOOD.
   argv routing, review-kind prompts and ledger phases, durable fingerprint
   separation for both controls, pre-spawn refusal of unsupported controls, and
   runtime enforcement of structured-output bounds. Its maximum-shape
-  regression keeps the encoded critique below half of the 64 KiB durable
-  terminal-record ceiling, leaving space for result metadata.
+  regression proves only that the ASCII critique JSON stays below half of the
+  64 KiB durable terminal-record ceiling. It does not prove worst-case
+  multibyte UTF-8 or the complete stored result body; no positive headroom
+  claim is made for those cases.
 - [x] The combined focused control-plane, peer-wrapper, evidence, and
   process-runner suite then returned
   `188 passed, 1 skipped in 137.66s`. The skip remains the unavailable Windows
   symlink privilege case; the real junction/reparse regression passed and no
   positive symlink result is inferred.
-- [ ] Independently cross-review and verify the converged implementation before any
-  mutation dogfood, integration, push, archive, release, or installation claim.
+- [x] One fresh bounded implementation cross-review used durable run
+  `4023d50c6a624175afd1baf541d87bab` against clean commit
+  `5f3f5704cd8995697a027e4e5583969fab48a383` and executable fingerprint
+  `55d7812b3b71f843c9170994a6e2eb2a82afe70d62ffd06783a1b832db0324f4`.
+  The exact review body was 42,417 bytes; the complete outbound prompt was
+  44,311 bytes. The controller requested `claude-opus-5`,
+  `review_kind=implementation`, `effort=medium`, one call, USD 1.25, and 480
+  seconds. It returned after 79.835 provider seconds with observed cost
+  USD 0.4105505, a persisted terminal body, `context_status=sufficient`,
+  the exact review-input digest, `converged=true`, and zero blocking concerns.
+  No retry or second peer call ran.
+- [x] The peer recorded five non-blocking gaps and four risks in
+  `claude-architecture-review-round-15.json`. The ASCII-only headroom
+  overclaim above was narrowed immediately. The unchanged CLI parser was
+  checked locally: `--workflow-phase` accepts only `plan_peer` or
+  `cross_review`, so the peer's conditional `KeyError` concern is not reachable
+  through this CLI surface. No absence of coverage for the remaining gaps is
+  treated as a positive result.
+- [ ] Freeze the unchanged executable fingerprint, run the full required
+  suites, and obtain separate verification before any mutation dogfood,
+  integration, push, archive, release, or installation claim.
