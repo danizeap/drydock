@@ -146,6 +146,32 @@ PreToolUse activity record. The older SessionStart record remains only the
 packet-fingerprint baseline and is not presented as current model/permission
 context.
 
+Known tested-host limitation (Codex CLI `0.146.0-alpha.3.1`, Windows 11
+Pro `10.0.26200` build `26200`, Python `3.14.0`, locale encoding
+`cp1252`): the current `py -3 -I -S` inline verifier reads hook stdin
+through the interpreter's locale-decoded text stream before re-encoding it
+as UTF-8 for the verified runtime. On this host, cp1252 cannot decode input
+bytes `81`, `8d`, `8f`, `90`, or `9d`; any UTF-8 payload containing one of
+those bytes fails before the verified runtime evaluates policy and is denied
+under the generic runtime-integrity message. Matched installed-definition
+probes denied witnesses for all five bytes only in locale mode and allowed
+them with the otherwise identical `-X utf8=1` verifier. The same A/B result
+held for ordinary UTF-8 examples from Cyrillic (U+0401, bytes `d0 81`, and
+U+044D, bytes `d1 8d`), CJK (U+4E0D, bytes `e4 b8 8d`), and emoji (U+1F50D,
+bytes `f0 9f 94 8d`, and U+1F601, bytes `f0 9f 98 81`). These witnesses show
+that the availability failure is not limited to obscure control codepoints;
+they do not establish that every non-ASCII payload is denied. ASCII and an
+em-dash payload were allowed in both modes, but static byte-flow inspection
+confirms the accepted em-dash bytes are transformed by the cp1252 decode and
+UTF-8 re-encode before policy evaluation. The current policy patterns are
+ASCII and no decision flip was reproduced, which is not proof that every
+non-ASCII decision is unaffected; any future non-ASCII policy pattern would
+be evaluated against transformed text until this is fixed. The undefined-byte
+cases failed closed and created no false green, but the displayed integrity
+reason did not establish an integrity failure: the observed cause was payload
+decoding. Explicit UTF-8 byte decoding and separate decode/parse versus
+integrity failure reasons remain tracked follow-ups.
+
 Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a
 successful schema-validated live peer round. Claude is optional: its absence
