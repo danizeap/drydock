@@ -469,6 +469,11 @@ SHALL reject a caller-supplied classification that differs from the stored
 result. A procedural transport failure may preserve the candidate only when a
 fresh keyed record binds the exact consumed admission, candidate, failure
 stage, process/liveness result, and unchanged Owner checkout.
+The stored failure stage SHALL be cross-consistent with measured process facts:
+an unavailable executable has no started process, a timeout has a discovered
+executable plus `timed_out=true` and absent process identity, and invalid output
+does not masquerade as a timeout. A blocking report remains a technical
+blocker even when the scanner process also exits non-zero.
 
 Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS` with valid LGF configuration,
 zero open blocking findings, and every expected scanner (`gitleaks`, `semgrep`,

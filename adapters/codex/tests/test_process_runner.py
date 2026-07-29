@@ -770,6 +770,7 @@ def test_communicate_bounds_post_termination_pipe_drain(
         "blocked",
         "owner_drift",
         "process_timeout",
+        "process_live",
         "malformed_report",
         "expected_ok",
         "expected_outcome",
@@ -779,6 +780,7 @@ def test_communicate_bounds_post_termination_pipe_drain(
         (
             "APPROVED",
             "ran",
+            False,
             False,
             False,
             False,
@@ -795,12 +797,14 @@ def test_communicate_bounds_post_termination_pipe_drain(
             False,
             False,
             False,
+            False,
             "technical_blocker",
             "security_review_blocked",
         ),
         (
             "INCOMPLETE",
             "unavailable",
+            False,
             False,
             False,
             False,
@@ -814,6 +818,7 @@ def test_communicate_bounds_post_termination_pipe_drain(
             "ran",
             False,
             True,
+            False,
             False,
             False,
             False,
@@ -828,6 +833,7 @@ def test_communicate_bounds_post_termination_pipe_drain(
             True,
             False,
             False,
+            False,
             "procedural_failure",
             "launchguardian_timeout",
         ),
@@ -837,7 +843,32 @@ def test_communicate_bounds_post_termination_pipe_drain(
             False,
             False,
             False,
+            False,
             True,
+            False,
+            "procedural_failure",
+            "security_review_invalid",
+        ),
+        (
+            "APPROVED",
+            "ran",
+            False,
+            True,
+            True,
+            False,
+            False,
+            False,
+            "procedural_failure",
+            "security_review_invalid",
+        ),
+        (
+            "APPROVED",
+            "ran",
+            False,
+            False,
+            True,
+            True,
+            False,
             False,
             "procedural_failure",
             "security_review_invalid",
@@ -852,6 +883,7 @@ def test_security_review_is_admission_bound_and_fail_closed(
     blocked: bool,
     owner_drift: bool,
     process_timeout: bool,
+    process_live: bool,
     malformed_report: bool,
     expected_ok: bool,
     expected_outcome: str,
@@ -958,7 +990,7 @@ def test_security_review_is_admission_bound_and_fail_closed(
     monkeypatch.setattr(
         process_runner,
         "exact_process_liveness",
-        lambda identity: "absent",
+        lambda identity: "present" if process_live else "absent",
     )
 
     result = process_runner.security_review(
@@ -977,9 +1009,12 @@ def test_security_review_is_admission_bound_and_fail_closed(
     assert result["workflow_outcome"] == expected_outcome
     assert result["stage"] == expected_stage
     assert result["input_contract_sha256"] == input_digest
-    if owner_drift:
+    if owner_drift or process_live:
         assert result["security_review"] is None
-        assert "Owner checkout identity changed" in result["error"]
+        if owner_drift:
+            assert "Owner checkout identity changed" in result["error"]
+        else:
+            assert "remained live" in result["error"]
         assert store.read()["admission"]["state"] == "consumed"
         return
     assert result["security_review"] is not None

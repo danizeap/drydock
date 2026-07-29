@@ -87,7 +87,9 @@ Data flow:
    result. A pass additionally requires the raw report; a procedural retry
    additionally requires a keyed failure-stage/process/liveness record. Both
    bind the consumed admission, objective, plan, mechanism, prior gates,
-   candidate, age, and unchanged Owner checkout.
+   candidate, age, and unchanged Owner checkout. The runner passes measured
+   liveness and checkout equality into that record, and the store rejects a
+   failure stage that contradicts its process facts.
 8. Independent verification, integration, and optional push remain downstream.
 
 Permissions and trust: LaunchGuardian is pointed at a fresh materialization and

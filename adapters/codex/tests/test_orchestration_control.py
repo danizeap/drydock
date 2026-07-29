@@ -1049,6 +1049,36 @@ def test_security_review_refuses_caller_reclassification_of_keyed_result(
             now=NOW + 6,
         )
 
+    procedural_record = evidence.SecurityReviewStore(
+        store.root
+    ).record_procedural_failure(
+        candidate_commit="1" * 40,
+        executable_fingerprint=candidate,
+        stage="launchguardian_unavailable",
+        reason="executable missing",
+        executable_path=None,
+        executable_sha256=None,
+        process_exit_code=None,
+        process_output_sha256=hashlib.sha256(b"").hexdigest(),
+        process_liveness="not_started",
+        timed_out=False,
+        owner_checkout_unchanged=True,
+        workflow_binding_sha256=control.canonical_digest(
+            store.read()["admission"]
+        ),
+    )
+    for contradictory_outcome in ("passed", "technical_blocker"):
+        with pytest.raises(control.ControlError):
+            store.finish(
+                "security_review",
+                admission_id=security_id,
+                outcome=contradictory_outcome,
+                evidence_digest=str(procedural_record["record_key"]),
+                candidate_digest=candidate,
+                provider_usd=0.0,
+                now=NOW + 6,
+            )
+
     record = store.read()
     assert record["current_phase"] == "security_review"
     assert record["candidate_digest"] == candidate

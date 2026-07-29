@@ -1099,7 +1099,7 @@ def _communicate(
                 if stream is not None:
                     try:
                         stream.close()
-                    except OSError:
+                    except (OSError, RuntimeError, ValueError):
                         pass
             stdout = (
                 exc.output.decode("utf-8", errors="replace")
@@ -2167,6 +2167,7 @@ def _security_procedural_record(
     process_output_sha256: str,
     process_liveness: str,
     timed_out: bool,
+    owner_checkout_unchanged: bool,
 ) -> dict[str, object] | None:
     if workflow_binding_sha256 is None:
         return None
@@ -2181,7 +2182,7 @@ def _security_procedural_record(
         process_output_sha256=process_output_sha256,
         process_liveness=process_liveness,
         timed_out=timed_out,
-        owner_checkout_unchanged=True,
+        owner_checkout_unchanged=owner_checkout_unchanged,
         workflow_binding_sha256=workflow_binding_sha256,
     )
 
@@ -2255,7 +2256,11 @@ def security_review(
             executable, maximum=MAX_SECURITY_EXECUTABLE_BYTES
         )
     except RunnerError as exc:
-        if _candidate_fingerprints(repo, packet_root=packet_root) != candidate:
+        owner_checkout_unchanged = (
+            _candidate_fingerprints(repo, packet_root=packet_root)
+            == candidate
+        )
+        if not owner_checkout_unchanged:
             raise RunnerError(
                 "Owner checkout identity changed while LaunchGuardian "
                 "availability was checked"
@@ -2274,6 +2279,7 @@ def security_review(
             process_output_sha256=hashlib.sha256(b"").hexdigest(),
             process_liveness="not_started",
             timed_out=False,
+            owner_checkout_unchanged=owner_checkout_unchanged,
         )
         return {
             "ok": False,
@@ -2318,7 +2324,10 @@ def security_review(
                 identity = _initial_process_identity(process)
                 timed_out, stdout, stderr = _communicate(process, timeout)
                 _terminate_process_tree(process)
-                if exact_process_liveness(identity.as_dict()) != "absent":
+                process_liveness = exact_process_liveness(
+                    identity.as_dict()
+                )
+                if process_liveness != "absent":
                     raise RunnerError(
                         "LaunchGuardian process identity remained live after cleanup"
                     )
@@ -2326,7 +2335,8 @@ def security_review(
                     repo,
                     packet_root=packet_root,
                 )
-                if post_candidate != candidate:
+                owner_checkout_unchanged = post_candidate == candidate
+                if not owner_checkout_unchanged:
                     raise RunnerError(
                         "Owner checkout identity changed during security review"
                     )
@@ -2349,8 +2359,9 @@ def security_review(
                         executable_sha256=executable_sha256,
                         process_exit_code=process.returncode,
                         process_output_sha256=output_sha256,
-                        process_liveness="absent",
+                        process_liveness=process_liveness,
                         timed_out=True,
+                        owner_checkout_unchanged=owner_checkout_unchanged,
                     )
                     return {
                         "ok": False,
@@ -2462,6 +2473,9 @@ def security_review(
                         process_output_sha256=output_sha256,
                         process_liveness=process_liveness,
                         timed_out=False,
+                        owner_checkout_unchanged=(
+                            post_candidate == candidate
+                        ),
                     )
                     if boundary_safe
                     else None

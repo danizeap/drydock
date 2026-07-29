@@ -185,9 +185,12 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    that keyed result and refuses a caller-supplied classification that differs
    from it. A pass also reloads the raw report. A procedural retry requires a
    keyed failure-stage/process/liveness record for the unchanged candidate and
-   admission. Expired, caller-asserted, tampered, or replayed evidence cannot
-   advance or preserve the candidate. Process termination and the final output
-   drain are bounded. The
+   admission. Its stage must agree with measured process facts: unavailable
+   means not started, timeout means a discovered executable plus absent process
+   identity, and invalid output cannot be relabeled timeout. Expired,
+   caller-asserted, tampered, or replayed evidence cannot advance or preserve
+   the candidate. Process termination and the final output drain are bounded.
+   The
    scanner process is not host-filesystem write-confined; the
    runner rejects detected Owner-checkout drift and treats the local
    LaunchGuardian/scanner toolchain as trusted rather than claiming prevention

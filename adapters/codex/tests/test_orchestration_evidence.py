@@ -1275,6 +1275,14 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
             expected_target=target,
         )
 
+    unmapped_gate = json.loads(json.dumps(report))
+    unmapped_gate["findings"][0]["related_gate"] = ""
+    unmapped_gate["counts_by_gate"] = {"Unmapped": 1}
+    assert evidence.launchguardian_report_acceptance(
+        unmapped_gate,
+        expected_target=target,
+    )["accepted"] is True
+
 
 def test_security_review_store_rejects_stale_replayed_and_tampered_evidence(
     tmp_path: Path,
@@ -1438,6 +1446,100 @@ def test_security_review_nonzero_exit_cannot_be_accepted(
         candidate_commit="1" * 40,
         executable_fingerprint=DIGEST_A,
     )["accepted"] is False
+
+    blocked_report = json.dumps(
+        _launchguardian_report(
+            target,
+            launch_status="BLOCKED",
+            blocked=True,
+        ),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    blocked_record = store.record(
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+        executable_path=executable_path,
+        executable_sha256=DIGEST_B,
+        command_contract=command,
+        report_body=blocked_report,
+        expected_target=target,
+        elapsed_seconds=1.0,
+        process_exit_code=1,
+        process_output_sha256=DIGEST_C,
+        owner_checkout_unchanged=True,
+    )
+    blocked_acceptance = store.acceptance(
+        blocked_record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )
+    assert blocked_acceptance["accepted"] is False
+    assert blocked_acceptance["workflow_outcome"] == "technical_blocker"
+
+
+def test_security_procedural_record_requires_stage_process_consistency(
+    tmp_path: Path,
+) -> None:
+    store = evidence.SecurityReviewStore(
+        evidence.state_root(tmp_path / "state")
+    )
+    with pytest.raises(
+        evidence.EvidenceError,
+        match="stage contradicts",
+    ):
+        store.record_procedural_failure(
+            candidate_commit="1" * 40,
+            executable_fingerprint=DIGEST_A,
+            stage="launchguardian_timeout",
+            reason="timeout",
+            executable_path=str((tmp_path / "launchguardian.exe").resolve()),
+            executable_sha256=DIGEST_B,
+            process_exit_code=1,
+            process_output_sha256=DIGEST_C,
+            process_liveness="absent",
+            timed_out=False,
+            owner_checkout_unchanged=True,
+            workflow_binding_sha256=DIGEST_B,
+        )
+
+    record = store.record_procedural_failure(
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+        stage="launchguardian_unavailable",
+        reason="executable missing",
+        executable_path=None,
+        executable_sha256=None,
+        process_exit_code=None,
+        process_output_sha256=DIGEST_C,
+        process_liveness="not_started",
+        timed_out=False,
+        owner_checkout_unchanged=True,
+        workflow_binding_sha256=DIGEST_B,
+    )
+    accepted = store.accepted_record(
+        str(record["record_key"]),
+        executable_fingerprint=DIGEST_A,
+        workflow_binding_sha256=DIGEST_B,
+    )
+    assert accepted["workflow_outcome"] == "procedural_failure"
+
+    contradictory = json.loads(json.dumps(record))
+    contradictory["stage"] = "launchguardian_timeout"
+    unkeyed = {
+        key: value
+        for key, value in contradictory.items()
+        if key != "record_key"
+    }
+    contradictory["record_key"] = evidence._digest_bytes(
+        evidence._canonical_json(unkeyed)
+    )
+    refused = store.procedural_failure_acceptance(
+        contradictory,
+        executable_fingerprint=DIGEST_A,
+    )
+    assert refused["accepted"] is False
+    assert "stage contradicts" in str(refused["reason"])
 
 
 def test_checked_in_launchguardian_report_satisfies_strict_report_contract() -> None:

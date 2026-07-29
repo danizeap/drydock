@@ -185,6 +185,31 @@ def _require_digest(value: str, label: str) -> str:
     return value
 
 
+def _procedural_stage_consistent(
+    *,
+    stage: object,
+    executable_path: object,
+    process_liveness: object,
+    timed_out: object,
+) -> bool:
+    if stage == "launchguardian_unavailable":
+        return (
+            executable_path is None
+            and process_liveness == "not_started"
+            and timed_out is False
+        )
+    if stage == "launchguardian_timeout":
+        return (
+            isinstance(executable_path, str)
+            and bool(executable_path)
+            and process_liveness == "absent"
+            and timed_out is True
+        )
+    if stage == "security_review_invalid":
+        return timed_out is False
+    return False
+
+
 def _atomic_json(path: Path, value: object) -> None:
     body = _canonical_json(value)
     if len(body) > MAX_RECORD_BYTES:
@@ -1677,10 +1702,6 @@ def launchguardian_report_acceptance(
         any(
             field not in finding
             or type(finding[field]) is not expected_type
-            or (
-                expected_type is str
-                and not str(finding[field])
-            )
             for field, expected_type in required_finding_fields.items()
         )
         for finding in findings
@@ -1689,7 +1710,9 @@ def launchguardian_report_acceptance(
             "LaunchGuardian findings lack fields required to verify aggregates"
         )
     if any(
-        finding["severity"] not in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+        not finding["source"]
+        or not finding["status"]
+        or finding["severity"] not in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
         for finding in findings
     ):
         raise EvidenceError("LaunchGuardian finding severity is invalid")
@@ -2010,6 +2033,15 @@ class SecurityReviewStore:
             raise EvidenceError(
                 "started security process evidence is malformed"
             )
+        if not _procedural_stage_consistent(
+            stage=stage,
+            executable_path=executable_path,
+            process_liveness=process_liveness,
+            timed_out=timed_out,
+        ):
+            raise EvidenceError(
+                "security procedural stage contradicts process evidence"
+            )
         record = {
             "schema_version": 1,
             "evidence_kind":
@@ -2116,6 +2148,18 @@ class SecurityReviewStore:
             return {
                 "accepted": False,
                 "reason": "security procedural process evidence is malformed",
+            }
+        if not _procedural_stage_consistent(
+            stage=record.get("stage"),
+            executable_path=executable_path,
+            process_liveness=process_liveness,
+            timed_out=timed_out,
+        ):
+            return {
+                "accepted": False,
+                "reason": (
+                    "security procedural stage contradicts process evidence"
+                ),
             }
         keyed_record = {
             key: value for key, value in record.items() if key != "record_key"
