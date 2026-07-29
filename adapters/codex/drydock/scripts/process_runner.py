@@ -48,6 +48,7 @@ LEASE_DIRECTORY = "drydock-codex/leases"
 DEFAULT_TIMEOUT = 900
 MAX_TIMEOUT = 3600
 DEFAULT_CLEANUP_GRACE = 120
+OUTPUT_DRAIN_TIMEOUT = 1
 MAX_TASK_BYTES = 256 * 1024
 MAX_DIFF_BYTES = 4 * 1024 * 1024
 MAX_FINGERPRINT_BYTES = 32 * 1024 * 1024
@@ -1088,8 +1089,33 @@ def _communicate(
         return False, stdout, stderr
     except subprocess.TimeoutExpired:
         _terminate_process_tree(process)
-        stdout, stderr = process.communicate()
-        return True, stdout, stderr
+        try:
+            stdout, stderr = process.communicate(
+                timeout=OUTPUT_DRAIN_TIMEOUT
+            )
+            return True, stdout, stderr
+        except subprocess.TimeoutExpired as exc:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            stdout = (
+                exc.output.decode("utf-8", errors="replace")
+                if isinstance(exc.output, bytes)
+                else exc.output
+                if isinstance(exc.output, str)
+                else ""
+            )
+            stderr = (
+                exc.stderr.decode("utf-8", errors="replace")
+                if isinstance(exc.stderr, bytes)
+                else exc.stderr
+                if isinstance(exc.stderr, str)
+                else ""
+            )
+            return True, stdout, stderr
 
 
 def _worktree_root(repo: Path) -> Path:
@@ -2127,6 +2153,39 @@ def _security_input_body(
     )
 
 
+def _security_procedural_record(
+    root: Path,
+    *,
+    workflow_binding_sha256: str | None,
+    candidate_commit: str,
+    executable_fingerprint: str,
+    stage: str,
+    reason: str,
+    executable_path: str | None,
+    executable_sha256: str | None,
+    process_exit_code: int | None,
+    process_output_sha256: str,
+    process_liveness: str,
+    timed_out: bool,
+) -> dict[str, object] | None:
+    if workflow_binding_sha256 is None:
+        return None
+    return SecurityReviewStore(root).record_procedural_failure(
+        candidate_commit=candidate_commit,
+        executable_fingerprint=executable_fingerprint,
+        stage=stage,
+        reason=reason,
+        executable_path=executable_path,
+        executable_sha256=executable_sha256,
+        process_exit_code=process_exit_code,
+        process_output_sha256=process_output_sha256,
+        process_liveness=process_liveness,
+        timed_out=timed_out,
+        owner_checkout_unchanged=True,
+        workflow_binding_sha256=workflow_binding_sha256,
+    )
+
+
 def security_review(
     repo: Path,
     *,
@@ -2184,25 +2243,53 @@ def security_review(
         ),
         state_directory=workflow_state_dir,
     )
+    root = state_root(workflow_state_dir, repository_root=repo)
+    workflow_binding_sha256 = (
+        canonical_digest(workflow_admission)
+        if workflow_admission is not None
+        else None
+    )
     try:
         executable = discover_launchguardian()
         executable_sha256 = _file_sha256(
             executable, maximum=MAX_SECURITY_EXECUTABLE_BYTES
         )
     except RunnerError as exc:
+        if _candidate_fingerprints(repo, packet_root=packet_root) != candidate:
+            raise RunnerError(
+                "Owner checkout identity changed while LaunchGuardian "
+                "availability was checked"
+            ) from exc
+        reason = str(exc)
+        procedural_record = _security_procedural_record(
+            root,
+            workflow_binding_sha256=workflow_binding_sha256,
+            candidate_commit=commit,
+            executable_fingerprint=executable_fingerprint,
+            stage="launchguardian_unavailable",
+            reason=reason,
+            executable_path=None,
+            executable_sha256=None,
+            process_exit_code=None,
+            process_output_sha256=hashlib.sha256(b"").hexdigest(),
+            process_liveness="not_started",
+            timed_out=False,
+        )
         return {
             "ok": False,
             "stage": "launchguardian_unavailable",
             "workflow_outcome": "procedural_failure",
-            "error": str(exc),
+            "error": reason,
             "candidate": candidate,
             "input_contract_sha256": hashlib.sha256(
                 input_body.encode("utf-8")
             ).hexdigest(),
-            "security_review": None,
+            "security_review": procedural_record,
         }
-    root = state_root(workflow_state_dir, repository_root=repo)
     process: subprocess.Popen[str] | None = None
+    identity: ProcessIdentity | None = None
+    stdout = ""
+    stderr = ""
     started = time.monotonic()
     with fresh_proof_root(repo, commit) as proof_root:
         with tempfile.TemporaryDirectory(
@@ -2247,10 +2334,29 @@ def security_review(
                 output_body = (stdout + stderr).encode("utf-8", "replace")
                 output_sha256 = hashlib.sha256(output_body).hexdigest()
                 if timed_out:
+                    reason = (
+                        "LaunchGuardian exceeded the bounded security-review "
+                        "deadline"
+                    )
+                    procedural_record = _security_procedural_record(
+                        root,
+                        workflow_binding_sha256=workflow_binding_sha256,
+                        candidate_commit=commit,
+                        executable_fingerprint=executable_fingerprint,
+                        stage="launchguardian_timeout",
+                        reason=reason,
+                        executable_path=str(executable),
+                        executable_sha256=executable_sha256,
+                        process_exit_code=process.returncode,
+                        process_output_sha256=output_sha256,
+                        process_liveness="absent",
+                        timed_out=True,
+                    )
                     return {
                         "ok": False,
                         "stage": "launchguardian_timeout",
                         "workflow_outcome": "procedural_failure",
+                        "error": reason,
                         "candidate": candidate,
                         "input_contract_sha256": hashlib.sha256(
                             input_body.encode("utf-8")
@@ -2262,7 +2368,7 @@ def security_review(
                             "stdout_tail": stdout[-2000:],
                             "stderr_tail": stderr[-1000:],
                         },
-                        "security_review": None,
+                        "security_review": procedural_record,
                     }
                 report_body = _read_launchguardian_report(
                     report_root / "launchguardian-report.json"
@@ -2280,9 +2386,7 @@ def security_review(
                     process_output_sha256=output_sha256,
                     owner_checkout_unchanged=True,
                     workflow_binding_sha256=(
-                        canonical_digest(workflow_admission)
-                        if workflow_admission is not None
-                        else None
+                        workflow_binding_sha256
                     ),
                 )
                 acceptance = record["acceptance"]
@@ -2312,16 +2416,66 @@ def security_review(
             except (RunnerError, EvidenceError) as exc:
                 if process is not None:
                     _terminate_process_tree(process)
+                process_liveness = (
+                    exact_process_liveness(identity.as_dict())
+                    if identity is not None
+                    else "not_started"
+                )
+                post_candidate = _candidate_fingerprints(
+                    repo,
+                    packet_root=packet_root,
+                )
+                boundary_safe = (
+                    post_candidate == candidate
+                    and process_liveness in {"absent", "not_started"}
+                    and not (
+                        process is not None and identity is None
+                    )
+                )
+                reason = str(exc)
+                output_sha256 = hashlib.sha256(
+                    (stdout + stderr).encode("utf-8", "replace")
+                ).hexdigest()
+                procedural_record = (
+                    _security_procedural_record(
+                        root,
+                        workflow_binding_sha256=workflow_binding_sha256,
+                        candidate_commit=commit,
+                        executable_fingerprint=executable_fingerprint,
+                        stage="security_review_invalid",
+                        reason=reason,
+                        executable_path=(
+                            str(executable)
+                            if process is not None
+                            else None
+                        ),
+                        executable_sha256=(
+                            executable_sha256
+                            if process is not None
+                            else None
+                        ),
+                        process_exit_code=(
+                            process.returncode
+                            if process is not None
+                            else None
+                        ),
+                        process_output_sha256=output_sha256,
+                        process_liveness=process_liveness,
+                        timed_out=False,
+                    )
+                    if boundary_safe
+                    else None
+                )
                 return {
                     "ok": False,
                     "stage": "security_review_invalid",
                     "workflow_outcome": "procedural_failure",
-                    "error": str(exc),
+                    "error": reason,
                     "candidate": candidate,
                     "input_contract_sha256": hashlib.sha256(
                         input_body.encode("utf-8")
                     ).hexdigest(),
-                    "security_review": None,
+                    "security_review": procedural_record,
                 }
 
 

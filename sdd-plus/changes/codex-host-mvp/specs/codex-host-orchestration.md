@@ -463,11 +463,21 @@ gates), candidate fingerprint, fixed command contract, report digest,
 observed process result, bounded record age, structural acceptance, and
 non-zero-exit rule, and refuse missing, malformed, stale, future-dated,
 replayed, or non-accepted evidence. The record key SHALL cover every stored
-security-result field other than the key itself.
+security-result field other than the key itself. The controller SHALL reload
+keyed evidence for `passed`, `technical_blocker`, and `procedural_failure` and
+SHALL reject a caller-supplied classification that differs from the stored
+result. A procedural transport failure may preserve the candidate only when a
+fresh keyed record binds the exact consumed admission, candidate, failure
+stage, process/liveness result, and unchanged Owner checkout.
 
 Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS` with valid LGF configuration,
 zero open blocking findings, and every expected scanner (`gitleaks`, `semgrep`,
 `trivy`, `frontend_exposure`, and `api_surface`) reporting `ran` SHALL pass.
+The runner SHALL recompute severity, scanner, status, gate, blocking, and
+per-scanner counts from the actual finding rows and reject reassigned,
+invented, or otherwise contradictory aggregates. Process timeout cleanup and
+the final stdout/stderr drain SHALL remain bounded even when descendant pipe
+handles remain open.
 Missing LaunchGuardian, timeout, non-zero exit, malformed or oversized report,
 wrong candidate, invalid LGF, skipped or incomplete validation, a missing,
 disabled, unavailable, or failed scanner, another launch status, or any open

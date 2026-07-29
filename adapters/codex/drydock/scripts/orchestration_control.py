@@ -1491,36 +1491,47 @@ class WorkflowStore:
                 totals["procedural_failures"] = (
                     int(totals["procedural_failures"]) + 1
                 )
+            security: dict[str, object] | None = None
+            if phase == "security_review":
+                if (
+                    not isinstance(candidate, str)
+                    or candidate != record["candidate_digest"]
+                ):
+                    raise ControlError(
+                        "security review candidate is not current"
+                    )
+                try:
+                    security = SecurityReviewStore(
+                        self.root
+                    ).accepted_record(
+                        evidence_digest,
+                        executable_fingerprint=candidate,
+                        workflow_binding_sha256=canonical_digest(
+                            admission
+                        ),
+                    )
+                except (OSError, EvidenceError) as exc:
+                    raise ControlError(
+                        "security review could not validate its evidence "
+                        f"store: {exc}"
+                    ) from exc
+                if (
+                    outcome == "passed"
+                    and security.get("accepted") is not True
+                ):
+                    raise ControlError(
+                        "passing security review lacks accepted "
+                        "candidate-bound LaunchGuardian evidence: "
+                        f"{security.get('reason', 'unknown reason')}"
+                    )
+                if security.get("workflow_outcome") != outcome:
+                    raise ControlError(
+                        "security review outcome contradicts its keyed "
+                        "candidate-bound evidence"
+                    )
             if outcome == "passed":
                 if phase == "security_review":
-                    if (
-                        not isinstance(candidate, str)
-                        or candidate != record["candidate_digest"]
-                    ):
-                        raise ControlError(
-                            "passing security review candidate is not current"
-                        )
-                    try:
-                        security = SecurityReviewStore(
-                            self.root
-                        ).accepted_record(
-                            evidence_digest,
-                            executable_fingerprint=candidate,
-                            workflow_binding_sha256=canonical_digest(
-                                admission
-                            ),
-                        )
-                    except (OSError, EvidenceError) as exc:
-                        raise ControlError(
-                            "passing security review could not validate "
-                            f"its evidence store: {exc}"
-                        ) from exc
-                    if security.get("accepted") is not True:
-                        raise ControlError(
-                            "passing security review lacks accepted "
-                            "candidate-bound LaunchGuardian evidence: "
-                            f"{security.get('reason', 'unknown reason')}"
-                        )
+                    assert security is not None
                 if phase == "mutation":
                     if candidate is None:
                         raise ControlError(

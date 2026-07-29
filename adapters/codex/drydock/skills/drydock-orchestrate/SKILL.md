@@ -178,11 +178,16 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    `APPROVED` or `APPROVED_WITH_DISPOSITIONS`, zero open blockers, and all five
    expected scanners reporting `ran` may pass. Missing, timed-out, malformed,
    stale, disabled, unavailable, failed, incomplete, or blocking evidence is
-   non-green. Finish the phase using the returned `security_review.record_key`
-   as `--evidence-digest`; the controller reloads that keyed record and raw
-   report, binds it to the exact consumed admission and prior gates, and
-   refuses an expired, caller-asserted, tampered, or replayed PASS without
-   accepted evidence. The
+   non-green. Report aggregates are recomputed from the actual finding rows;
+   reassigned scanner/severity/status/gate counts are malformed evidence.
+   Finish every security outcome using the returned
+   `security_review.record_key` as `--evidence-digest`; the controller reloads
+   that keyed result and refuses a caller-supplied classification that differs
+   from it. A pass also reloads the raw report. A procedural retry requires a
+   keyed failure-stage/process/liveness record for the unchanged candidate and
+   admission. Expired, caller-asserted, tampered, or replayed evidence cannot
+   advance or preserve the candidate. Process termination and the final output
+   drain are bounded. The
    scanner process is not host-filesystem write-confined; the
    runner rejects detected Owner-checkout drift and treats the local
    LaunchGuardian/scanner toolchain as trusted rather than claiming prevention

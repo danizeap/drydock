@@ -37,14 +37,19 @@ def _launchguardian_report(
     }
     findings: list[dict[str, object]] = []
     blocking_findings: list[dict[str, object]] = []
-    counts_by_severity: dict[str, int] = {}
+    counts_by_severity = {
+        severity: 0
+        for severity in evidence.EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
     counts_by_scanner: dict[str, int] = {}
     counts_by_status: dict[str, int] = {}
     counts_by_gate: dict[str, int] = {}
     if blocked:
         finding = {
             "source": "semgrep",
+            "severity": "high",
             "status": "open",
+            "related_gate": "Gate 3",
             "blocks_launch": True,
         }
         findings.append(finding)
@@ -1182,6 +1187,7 @@ def test_launchguardian_policy_blocker_is_technical_and_target_is_exact(
     invalid_lgf = _launchguardian_report(
         target,
         launch_status="BLOCKED",
+        blocked=True,
     )
     invalid_lgf["lgf_config_valid"] = False
     invalid_lgf["lgf_validation_status"] = "invalid"
@@ -1218,9 +1224,54 @@ def test_launchguardian_report_rejects_schema_drift_and_duplicate_json(
 
     contradictory = _launchguardian_report(target)
     contradictory["scanner_counts"]["semgrep"] = 1
-    with pytest.raises(evidence.EvidenceError, match="aggregate counts"):
+    with pytest.raises(evidence.EvidenceError, match="scanner counts"):
         evidence.launchguardian_report_acceptance(
             contradictory,
+            expected_target=target,
+        )
+
+
+def test_launchguardian_report_recomputes_every_finding_aggregate(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(target)
+    finding = {
+        "source": "semgrep",
+        "severity": "medium",
+        "status": "open",
+        "related_gate": "Gate 3",
+        "blocks_launch": False,
+    }
+    report["findings"] = [finding]
+    report["scanner_counts"]["semgrep"] = 1
+    report["counts_by_severity"] = {
+        severity: int(severity == "medium")
+        for severity in evidence.EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
+    report["counts_by_scanner"] = {"semgrep": 1}
+    report["counts_by_status"] = {"open": 1}
+    report["counts_by_gate"] = {"Gate 3": 1}
+    assert evidence.launchguardian_report_acceptance(
+        report,
+        expected_target=target,
+    )["accepted"] is True
+
+    reassigned_aggregate = json.loads(json.dumps(report))
+    reassigned_aggregate["counts_by_scanner"] = {"gitleaks": 1}
+    with pytest.raises(evidence.EvidenceError, match="aggregate counts"):
+        evidence.launchguardian_report_acceptance(
+            reassigned_aggregate,
+            expected_target=target,
+        )
+
+    reassigned_scanner_count = json.loads(json.dumps(report))
+    reassigned_scanner_count["scanner_counts"]["semgrep"] = 0
+    reassigned_scanner_count["scanner_counts"]["gitleaks"] = 1
+    with pytest.raises(evidence.EvidenceError, match="scanner counts"):
+        evidence.launchguardian_report_acceptance(
+            reassigned_scanner_count,
             expected_target=target,
         )
 

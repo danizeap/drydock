@@ -152,6 +152,8 @@ def _security_evidence_digest(
     tmp_path: Path,
     *,
     candidate: str,
+    blocked: bool = False,
+    process_exit_code: int = 0,
 ) -> str:
     target = tmp_path / "security-target"
     target.mkdir(exist_ok=True)
@@ -160,6 +162,31 @@ def _security_evidence_digest(
     scanner_counts = {
         name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
     }
+    findings: list[dict[str, object]] = []
+    blocking_findings: list[dict[str, object]] = []
+    counts_by_severity = {
+        severity: 0
+        for severity in evidence.EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
+    counts_by_scanner: dict[str, int] = {}
+    counts_by_status: dict[str, int] = {}
+    counts_by_gate: dict[str, int] = {}
+    if blocked:
+        finding = {
+            "source": "semgrep",
+            "severity": "high",
+            "status": "open",
+            "related_gate": "Gate 3",
+            "blocks_launch": True,
+        }
+        findings.append(finding)
+        blocking_findings.append(finding)
+        scanner_counts["semgrep"] = 1
+        counts_by_severity["high"] = 1
+        counts_by_scanner["semgrep"] = 1
+        counts_by_status["open"] = 1
+        counts_by_gate["Gate 3"] = 1
+    scanner_blocking_counts = dict(scanner_counts)
     report = {
         "schema_name": "launchguardian.report",
         "schema_version": "0.2.0",
@@ -171,7 +198,7 @@ def _security_evidence_digest(
         "scan_mode": "local",
         "lgf_validation_skipped": False,
         "strict_scanners": True,
-        "launch_status": "APPROVED",
+        "launch_status": "BLOCKED" if blocked else "APPROVED",
         "lgf_config_valid": True,
         "lgf_validation_status": "valid",
         "scanner_availability": {
@@ -179,15 +206,15 @@ def _security_evidence_digest(
             for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
         },
         "scanner_counts": scanner_counts,
-        "scanner_blocking_counts": dict(scanner_counts),
-        "counts_by_severity": {},
-        "counts_by_scanner": {},
-        "counts_by_status": {},
-        "counts_by_gate": {},
-        "blocking_findings": [],
+        "scanner_blocking_counts": scanner_blocking_counts,
+        "counts_by_severity": counts_by_severity,
+        "counts_by_scanner": counts_by_scanner,
+        "counts_by_status": counts_by_status,
+        "counts_by_gate": counts_by_gate,
+        "blocking_findings": blocking_findings,
         "launchguardian_config": {},
-        "blocked": False,
-        "findings": [],
+        "blocked": blocked,
+        "findings": findings,
     }
     record = evidence.SecurityReviewStore(store.root).record(
         candidate_commit="1" * 40,
@@ -211,7 +238,7 @@ def _security_evidence_digest(
         ).encode("utf-8"),
         expected_target=target,
         elapsed_seconds=1.0,
-        process_exit_code=0,
+        process_exit_code=process_exit_code,
         process_output_sha256=hashlib.sha256(b"output").hexdigest(),
         owner_checkout_unchanged=True,
         workflow_binding_sha256=control.canonical_digest(
@@ -916,11 +943,18 @@ def test_security_review_failure_has_conservative_resume_boundary(
         now=NOW + 5,
         candidate=candidate,
     )
+    security_evidence = _security_evidence_digest(
+        store,
+        tmp_path,
+        candidate=candidate,
+        blocked=outcome == "technical_blocker",
+        process_exit_code=1 if outcome == "procedural_failure" else 0,
+    )
     blocked = store.finish(
         "security_review",
         admission_id=security_id,
         outcome=outcome,
-        evidence_digest=security_digest,
+        evidence_digest=security_evidence,
         candidate_digest=candidate,
         provider_usd=0.0,
         now=NOW + 6,
@@ -938,6 +972,89 @@ def test_security_review_failure_has_conservative_resume_boundary(
         assert completed == ["preflight", "mutation", "proof"]
     else:
         assert completed == ["preflight"]
+
+
+def test_security_review_refuses_caller_reclassification_of_keyed_result(
+    tmp_path: Path,
+) -> None:
+    repo, store = _store(tmp_path)
+    actions = ["mutate", "proof", "security_review"]
+    phases = [
+        "preflight",
+        "mutation",
+        "proof",
+        "security_review",
+        "complete",
+    ]
+    store.start(
+        _authority(repo, actions=actions),
+        _plan(actions=actions, phases=phases),
+        expected_task_id=TASK_ID,
+        now=NOW,
+    )
+    mutation_id, mutation_digest = _admit_consume(
+        store, "mutation", body=b"mutation", now=NOW + 1
+    )
+    candidate = hashlib.sha256(b"candidate").hexdigest()
+    store.finish(
+        "mutation",
+        admission_id=mutation_id,
+        outcome="passed",
+        evidence_digest=mutation_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 2,
+    )
+    proof_id, proof_digest = _admit_consume(
+        store,
+        "proof",
+        body=b"proof",
+        now=NOW + 3,
+        candidate=candidate,
+    )
+    store.finish(
+        "proof",
+        admission_id=proof_id,
+        outcome="passed",
+        evidence_digest=proof_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 4,
+    )
+    security_id, _ = _admit_consume(
+        store,
+        "security_review",
+        body=b"security",
+        now=NOW + 5,
+        candidate=candidate,
+    )
+    technical_evidence = _security_evidence_digest(
+        store,
+        tmp_path,
+        candidate=candidate,
+        blocked=True,
+    )
+
+    with pytest.raises(
+        control.ControlError,
+        match="outcome contradicts",
+    ):
+        store.finish(
+            "security_review",
+            admission_id=security_id,
+            outcome="procedural_failure",
+            evidence_digest=technical_evidence,
+            candidate_digest=candidate,
+            provider_usd=0.0,
+            now=NOW + 6,
+        )
+
+    record = store.read()
+    assert record["current_phase"] == "security_review"
+    assert record["candidate_digest"] == candidate
+    assert [
+        item["phase"] for item in record["completed_phases"]
+    ] == ["preflight", "mutation", "proof"]
 
 
 def test_ambiguous_integration_failure_is_terminal_not_resumable(

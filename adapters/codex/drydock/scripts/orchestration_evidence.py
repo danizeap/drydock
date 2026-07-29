@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import time
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable, Iterator, Mapping, Sequence
@@ -71,6 +72,13 @@ EXPECTED_LAUNCHGUARDIAN_SCANNERS = (
     "semgrep",
     "trivy",
 )
+EXPECTED_LAUNCHGUARDIAN_SEVERITIES = (
+    "critical",
+    "high",
+    "medium",
+    "low",
+    "info",
+)
 ACCEPTED_LAUNCHGUARDIAN_STATUSES = frozenset(
     {"APPROVED", "APPROVED_WITH_DISPOSITIONS"}
 )
@@ -123,6 +131,36 @@ SECURITY_REVIEW_RECORD_FIELDS = frozenset(
         "provenance_attested",
         "record_key",
         "workflow_binding_sha256",
+    }
+)
+SECURITY_PROCEDURAL_RECORD_FIELDS = frozenset(
+    {
+        "schema_version",
+        "evidence_kind",
+        "candidate_commit",
+        "executable_path",
+        "executable_sha256",
+        "executable_surface_sha256",
+        "fingerprint_version",
+        "stage",
+        "reason",
+        "owner_checkout_unchanged",
+        "process_exit_code",
+        "process_output_sha256",
+        "process_liveness",
+        "timed_out",
+        "recorded_at",
+        "authenticated",
+        "provenance_attested",
+        "record_key",
+        "workflow_binding_sha256",
+    }
+)
+SECURITY_PROCEDURAL_STAGES = frozenset(
+    {
+        "launchguardian_unavailable",
+        "launchguardian_timeout",
+        "security_review_invalid",
     }
 )
 
@@ -1607,7 +1645,10 @@ def launchguardian_report_acceptance(
         or any(not isinstance(value, str) for value in availability.values())
         or not valid_count_map(scanner_counts, exact_keys=scanner_keys)
         or not valid_count_map(blocking_counts, exact_keys=scanner_keys)
-        or not valid_count_map(report.get("counts_by_severity"))
+        or not valid_count_map(
+            report.get("counts_by_severity"),
+            exact_keys=set(EXPECTED_LAUNCHGUARDIAN_SEVERITIES),
+        )
         or not valid_count_map(report.get("counts_by_scanner"))
         or not valid_count_map(report.get("counts_by_status"))
         or not valid_count_map(report.get("counts_by_gate"))
@@ -1625,29 +1666,67 @@ def launchguardian_report_acceptance(
         raise EvidenceError(
             "LaunchGuardian scanner or finding collections are malformed"
         )
+    required_finding_fields = {
+        "blocks_launch": bool,
+        "related_gate": str,
+        "severity": str,
+        "source": str,
+        "status": str,
+    }
+    if any(
+        any(
+            field not in finding
+            or type(finding[field]) is not expected_type
+            or (
+                expected_type is str
+                and not str(finding[field])
+            )
+            for field, expected_type in required_finding_fields.items()
+        )
+        for finding in findings
+    ):
+        raise EvidenceError(
+            "LaunchGuardian findings lack fields required to verify aggregates"
+        )
+    if any(
+        finding["severity"] not in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+        for finding in findings
+    ):
+        raise EvidenceError("LaunchGuardian finding severity is invalid")
     open_blockers = [
         finding
         for finding in findings
-        if isinstance(finding, dict)
-        and finding.get("blocks_launch") is True
-        and finding.get("status") == "open"
+        if finding["blocks_launch"] is True and finding["status"] == "open"
     ]
-    if len(open_blockers) != len(blocking_findings):
+    if blocking_findings != open_blockers:
         raise EvidenceError(
             "LaunchGuardian open-blocker summary contradicts its findings"
         )
-    aggregate_counts = (
-        scanner_counts,
-        report["counts_by_severity"],
-        report["counts_by_scanner"],
-        report["counts_by_status"],
-        report["counts_by_gate"],
+    severity_counter = Counter(
+        str(finding["severity"]) for finding in findings
     )
-    if any(
-        sum(int(value) for value in counts.values()) != len(findings)
-        for counts in aggregate_counts
-    ) or sum(int(value) for value in blocking_counts.values()) != len(
-        open_blockers
+    expected_by_severity = {
+        severity: severity_counter.get(severity, 0)
+        for severity in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
+    expected_by_scanner = dict(
+        Counter(str(finding["source"]) for finding in findings)
+    )
+    expected_by_status = dict(
+        Counter(str(finding["status"]) for finding in findings)
+    )
+    expected_by_gate = dict(
+        Counter(
+            str(finding["related_gate"]) or "Unmapped"
+            for finding in findings
+        )
+    )
+    if (
+        report["counts_by_severity"] != expected_by_severity
+        or report["counts_by_scanner"] != expected_by_scanner
+        or report["counts_by_status"] != expected_by_status
+        or report["counts_by_gate"] != expected_by_gate
+        or report["blocked"] is not bool(open_blockers)
     ):
         raise EvidenceError(
             "LaunchGuardian aggregate counts contradict its findings"
@@ -1670,6 +1749,22 @@ def launchguardian_report_acceptance(
         if value
         not in {"ran", "disabled", "unavailable", "execution_failed", "failed"}
     )
+    for name, state in scanner_states.items():
+        if state != "ran":
+            continue
+        expected_scanner_count = expected_by_scanner.get(name, 0)
+        expected_blocking_count = sum(
+            1
+            for finding in open_blockers
+            if finding["source"] == name
+        )
+        if (
+            int(scanner_counts[name]) != expected_scanner_count
+            or int(blocking_counts[name]) != expected_blocking_count
+        ):
+            raise EvidenceError(
+                "LaunchGuardian scanner counts contradict its findings"
+            )
     launch_status = report.get("launch_status")
     technical_blocker = (
         report.get("lgf_config_valid") is not True
@@ -1850,6 +1945,207 @@ class SecurityReviewStore:
         _atomic_json(self.record_root / f"{key}.json", record)
         return record
 
+    def record_procedural_failure(
+        self,
+        *,
+        candidate_commit: str,
+        executable_fingerprint: str,
+        stage: str,
+        reason: str,
+        executable_path: str | None,
+        executable_sha256: str | None,
+        process_exit_code: int | None,
+        process_output_sha256: str,
+        process_liveness: str,
+        timed_out: bool,
+        owner_checkout_unchanged: bool,
+        workflow_binding_sha256: str,
+    ) -> dict[str, object]:
+        if not re.fullmatch(r"[0-9a-f]{40,64}", candidate_commit):
+            raise EvidenceError("security candidate commit is invalid")
+        _require_digest(
+            executable_fingerprint, "security candidate fingerprint"
+        )
+        _require_digest(
+            workflow_binding_sha256, "security workflow binding digest"
+        )
+        _require_digest(
+            process_output_sha256, "security process output digest"
+        )
+        if stage not in SECURITY_PROCEDURAL_STAGES:
+            raise EvidenceError("security procedural stage is invalid")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or len(reason.encode("utf-8")) > 4096
+        ):
+            raise EvidenceError("security procedural reason is invalid")
+        if type(owner_checkout_unchanged) is not bool:
+            raise EvidenceError(
+                "security Owner-checkout drift result is invalid"
+            )
+        if type(timed_out) is not bool:
+            raise EvidenceError("security timeout result is invalid")
+        if process_liveness not in {"absent", "not_started"}:
+            raise EvidenceError("security process liveness result is invalid")
+        if process_exit_code is not None and type(process_exit_code) is not int:
+            raise EvidenceError("security process exit code is invalid")
+        if executable_path is None:
+            if (
+                executable_sha256 is not None
+                or process_exit_code is not None
+                or process_liveness != "not_started"
+                or timed_out
+            ):
+                raise EvidenceError(
+                    "unstarted security process evidence is contradictory"
+                )
+        elif (
+            not isinstance(executable_path, str)
+            or not Path(executable_path).is_absolute()
+            or not isinstance(executable_sha256, str)
+            or not SAFE_DIGEST.fullmatch(executable_sha256)
+            or process_liveness != "absent"
+        ):
+            raise EvidenceError(
+                "started security process evidence is malformed"
+            )
+        record = {
+            "schema_version": 1,
+            "evidence_kind":
+                "launchguardian_security_procedural_failure",
+            "candidate_commit": candidate_commit,
+            "executable_path": executable_path,
+            "executable_sha256": executable_sha256,
+            "executable_surface_sha256": executable_fingerprint,
+            "fingerprint_version": FINGERPRINT_VERSION,
+            "stage": stage,
+            "reason": reason.strip(),
+            "owner_checkout_unchanged": owner_checkout_unchanged,
+            "process_exit_code": process_exit_code,
+            "process_output_sha256": process_output_sha256,
+            "process_liveness": process_liveness,
+            "timed_out": timed_out,
+            "recorded_at": time.time(),
+            "authenticated": False,
+            "provenance_attested": False,
+            "workflow_binding_sha256": workflow_binding_sha256,
+        }
+        key = _digest_bytes(_canonical_json(record))
+        record["record_key"] = key
+        _atomic_json(self.record_root / f"{key}.json", record)
+        return record
+
+    def procedural_failure_acceptance(
+        self,
+        record: Mapping[str, object],
+        *,
+        executable_fingerprint: str,
+        now: float | None = None,
+    ) -> dict[str, object]:
+        recorded_at = record.get("recorded_at")
+        record_key = record.get("record_key")
+        executable_path = record.get("executable_path")
+        executable_sha256 = record.get("executable_sha256")
+        process_exit_code = record.get("process_exit_code")
+        process_liveness = record.get("process_liveness")
+        timed_out = record.get("timed_out")
+        if (
+            set(record) != SECURITY_PROCEDURAL_RECORD_FIELDS
+            or record.get("schema_version") != 1
+            or record.get("evidence_kind")
+            != "launchguardian_security_procedural_failure"
+            or record.get("fingerprint_version") != FINGERPRINT_VERSION
+            or record.get("executable_surface_sha256")
+            != executable_fingerprint
+            or record.get("stage") not in SECURITY_PROCEDURAL_STAGES
+            or not isinstance(record.get("reason"), str)
+            or not str(record.get("reason")).strip()
+            or len(str(record.get("reason")).encode("utf-8")) > 4096
+            or record.get("owner_checkout_unchanged") is not True
+            or record.get("authenticated") is not False
+            or record.get("provenance_attested") is not False
+            or not isinstance(record.get("candidate_commit"), str)
+            or not re.fullmatch(
+                r"[0-9a-f]{40,64}", str(record.get("candidate_commit"))
+            )
+            or not isinstance(record.get("workflow_binding_sha256"), str)
+            or not SAFE_DIGEST.fullmatch(
+                str(record.get("workflow_binding_sha256"))
+            )
+            or not isinstance(record.get("process_output_sha256"), str)
+            or not SAFE_DIGEST.fullmatch(
+                str(record.get("process_output_sha256"))
+            )
+            or not isinstance(record_key, str)
+            or not SAFE_DIGEST.fullmatch(record_key)
+            or not isinstance(recorded_at, (int, float))
+            or isinstance(recorded_at, bool)
+            or not math.isfinite(float(recorded_at))
+            or type(timed_out) is not bool
+            or process_liveness not in {"absent", "not_started"}
+            or (
+                process_exit_code is not None
+                and type(process_exit_code) is not int
+            )
+        ):
+            return {
+                "accepted": False,
+                "reason": (
+                    "security procedural evidence is absent, stale, or malformed"
+                ),
+            }
+        if executable_path is None:
+            if (
+                executable_sha256 is not None
+                or process_exit_code is not None
+                or process_liveness != "not_started"
+                or timed_out
+            ):
+                return {
+                    "accepted": False,
+                    "reason": "security procedural evidence is contradictory",
+                }
+        elif (
+            not isinstance(executable_path, str)
+            or not Path(executable_path).is_absolute()
+            or not isinstance(executable_sha256, str)
+            or not SAFE_DIGEST.fullmatch(executable_sha256)
+            or process_liveness != "absent"
+        ):
+            return {
+                "accepted": False,
+                "reason": "security procedural process evidence is malformed",
+            }
+        keyed_record = {
+            key: value for key, value in record.items() if key != "record_key"
+        }
+        if _digest_bytes(_canonical_json(keyed_record)) != record_key:
+            return {
+                "accepted": False,
+                "reason": "security review record key is mismatched",
+            }
+        clock = time.time() if now is None else now
+        if (
+            not isinstance(clock, (int, float))
+            or isinstance(clock, bool)
+            or not math.isfinite(float(clock))
+            or float(recorded_at) > float(clock) + 2.0
+            or float(clock) - float(recorded_at) > MAX_RESULT_AGE_SECONDS
+        ):
+            return {
+                "accepted": False,
+                "reason": "security review record is stale or future-dated",
+            }
+        return {
+            "accepted": False,
+            "workflow_outcome": "procedural_failure",
+            "reason": str(record["reason"]),
+            "stage": record["stage"],
+            "authenticated": False,
+            "provenance_attested": False,
+        }
+
     def acceptance(
         self,
         record: Mapping[str, object],
@@ -2013,6 +2309,24 @@ class SecurityReviewStore:
                 "accepted": False,
                 "reason": "security review record is absent or malformed",
             }
+        if (
+            record.get("evidence_kind")
+            == "launchguardian_security_procedural_failure"
+        ):
+            if (
+                record.get("workflow_binding_sha256")
+                != workflow_binding_sha256
+            ):
+                return {
+                    "accepted": False,
+                    "reason": (
+                        "security review belongs to another workflow admission"
+                    ),
+                }
+            return self.procedural_failure_acceptance(
+                record,
+                executable_fingerprint=executable_fingerprint,
+            )
         candidate_commit = record.get("candidate_commit")
         if not isinstance(candidate_commit, str):
             return {

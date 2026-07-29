@@ -601,4 +601,28 @@ Its schema-valid packet summary is
 cross-review half of the remaining task; it is not independent verification or
 release readiness.
 
+The first separate Codex verifier then reviewed frozen commit
+`5ab33ed308ec2b44a95f00ddace58f6e65419c5a` against accepted full-suite proof
+record `3740578cd1711f3dc237715946542a8a455ea29cd87cbcd0c127f0f45c074c6f`.
+The runner positively preserved HEAD and working-tree identity, exited zero,
+and returned a schema-valid `BLOCKED` verdict with two blocking mechanisms and
+one major cleanup defect:
+
+- report aggregates could be reassigned between scanners while preserving only
+  their total;
+- a keyed technical result could be finished as caller-asserted
+  `procedural_failure`, preserving candidate-dependent proof;
+- timeout cleanup performed an unbounded second `communicate()` call.
+
+That verdict is treated as a failed candidate, not as verification. The local
+remediation recomputes every aggregate from the finding rows, requires every
+security outcome to match a fresh candidate/admission-bound keyed record,
+records procedural failure stage/process/liveness evidence before allowing a
+same-candidate retry, and bounds the post-termination output drain. Regression
+tests include cross-scanner aggregate reassignment, technical-to-procedural
+reclassification, unavailable/timeout/malformed procedural records, and pipes
+that remain open after termination. The corrected focused run reports 214
+passed and 1 skipped in 143.44 seconds. A new frozen proof, peer review, and
+separate verifier verdict are required; the failed verdict cannot be reused.
+
 No publication, release, archive, or push is authorized by this evidence.

@@ -39,14 +39,19 @@ def _launchguardian_report(
     }
     findings: list[dict[str, object]] = []
     blocking_findings: list[dict[str, object]] = []
-    counts_by_severity: dict[str, int] = {}
+    counts_by_severity = {
+        severity: 0
+        for severity in evidence.EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
     counts_by_scanner: dict[str, int] = {}
     counts_by_status: dict[str, int] = {}
     counts_by_gate: dict[str, int] = {}
     if blocked:
         finding = {
             "source": "semgrep",
+            "severity": "high",
             "status": "open",
+            "related_gate": "Gate 3",
             "blocks_launch": True,
         }
         findings.append(finding)
@@ -714,6 +719,50 @@ def test_official_candidate_is_committed_then_fast_forwarded_only_by_integration
     assert completed["status"] == "complete"
 
 
+def test_communicate_bounds_post_termination_pipe_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Pipe:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Process:
+        def __init__(self) -> None:
+            self.stdout = Pipe()
+            self.stderr = Pipe()
+            self.timeouts: list[int] = []
+
+        def communicate(self, *, timeout: int) -> tuple[str, str]:
+            self.timeouts.append(timeout)
+            raise subprocess.TimeoutExpired(
+                "launchguardian",
+                timeout,
+                output=b"partial stdout",
+                stderr="partial stderr",
+            )
+
+    process = Process()
+    terminated: list[Process] = []
+    monkeypatch.setattr(
+        process_runner,
+        "_terminate_process_tree",
+        lambda value: terminated.append(value),
+    )
+
+    timed_out, stdout, stderr = process_runner._communicate(process, 7)
+
+    assert timed_out is True
+    assert stdout == "partial stdout"
+    assert stderr == "partial stderr"
+    assert process.timeouts == [7, process_runner.OUTPUT_DRAIN_TIMEOUT]
+    assert terminated == [process]
+    assert process.stdout.closed is True
+    assert process.stderr.closed is True
+
+
 @pytest.mark.parametrize(
     (
         "launch_status",
@@ -928,18 +977,21 @@ def test_security_review_is_admission_bound_and_fail_closed(
     assert result["workflow_outcome"] == expected_outcome
     assert result["stage"] == expected_stage
     assert result["input_contract_sha256"] == input_digest
-    if owner_drift or process_timeout or malformed_report:
+    if owner_drift:
         assert result["security_review"] is None
-        if owner_drift:
-            assert "Owner checkout identity changed" in result["error"]
-        elif process_timeout:
-            assert result["launchguardian"]["timed_out"] is True
-        else:
-            assert "strict UTF-8 JSON" in result["error"]
+        assert "Owner checkout identity changed" in result["error"]
         assert store.read()["admission"]["state"] == "consumed"
         return
     assert result["security_review"] is not None
-    assert observed["command"] == result["security_review"]["command_contract"]
+    if process_timeout:
+        assert result["launchguardian"]["timed_out"] is True
+    elif malformed_report:
+        assert "strict UTF-8 JSON" in result["error"]
+    else:
+        assert (
+            observed["command"]
+            == result["security_review"]["command_contract"]
+        )
     completed = store.finish(
         "security_review",
         admission_id=admission_id,
@@ -1007,8 +1059,18 @@ def test_security_review_missing_executable_is_procedural_after_admission(
     assert result["ok"] is False
     assert result["stage"] == "launchguardian_unavailable"
     assert result["workflow_outcome"] == "procedural_failure"
-    assert result["security_review"] is None
-    assert store.read()["admission"]["state"] == "consumed"
+    assert result["security_review"] is not None
+    completed = store.finish(
+        "security_review",
+        admission_id=admission_id,
+        outcome="procedural_failure",
+        evidence_digest=str(result["security_review"]["record_key"]),
+        provider_usd=0.0,
+        candidate_digest=candidate_digest,
+    )
+    assert completed["status"] == "blocked"
+    assert completed["current_phase"] == "security_review"
+    assert completed["candidate_digest"] == candidate_digest
 
 
 def test_security_review_rejects_stale_candidate_before_admission(

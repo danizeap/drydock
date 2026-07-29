@@ -76,16 +76,18 @@ Data flow:
 5. The runner reads a bounded regular JSON report once and records the report,
    observed LaunchGuardian launcher digest/reported version, exact command
    contract, candidate commit, executable fingerprint, and scanner statuses in
-   durable workflow evidence.
+   durable workflow evidence. It recomputes all report aggregates from the
+   actual finding rows instead of trusting count labels.
 6. Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS`, valid LGF configuration,
    zero open blocking findings, and all five expected scanners reporting
    `ran` may pass. Missing tools, disabled/skipped/failed scanners, timeout,
    malformed output, stale identity, or another status is non-green.
-7. `workflow-finish` independently reloads the keyed security record and raw
-   report from the external state store and refuses `passed` unless their
-   consumed admission, objective, plan, mechanism, prior gates, candidate,
-   command, observed process result, report, age, and acceptance bindings
-   remain valid.
+7. `workflow-finish` independently reloads keyed evidence for every security
+   outcome and refuses a caller classification that differs from the recorded
+   result. A pass additionally requires the raw report; a procedural retry
+   additionally requires a keyed failure-stage/process/liveness record. Both
+   bind the consumed admission, objective, plan, mechanism, prior gates,
+   candidate, age, and unchanged Owner checkout.
 8. Independent verification, integration, and optional push remain downstream.
 
 Permissions and trust: LaunchGuardian is pointed at a fresh materialization and
@@ -100,13 +102,17 @@ hostile-user authentication or toolchain provenance attestation.
 
 Failure behavior: a substantive security finding invalidates the candidate and
 returns to mutation. A procedural scanner failure may retry only
-`security_review`, only while the exact candidate and prior-gate digests remain
-unchanged. No missing or failed scan is converted into PASS.
+`security_review`, only while a keyed procedural record proves the exact
+candidate and prior-gate digests remain unchanged. Process-tree termination
+and the final output-pipe drain are independently bounded. No missing or failed
+scan is converted into PASS.
 
 Testing strategy: prove the happy path plus wrong-candidate, missing executable,
 timeout, malformed report, invalid LGF, missing/disabled/failed scanner, open
-blocker, stale evidence, replayed admission, and substantive-versus-procedural
-resume behavior. Focused tests run before any full suite or peer call.
+blocker, aggregate reassignment, stale evidence, replayed admission,
+caller-result reclassification, bounded post-timeout drain, and
+substantive-versus-procedural resume behavior. Focused tests run before any
+full suite or peer call.
 
 Non-goals for this slice: publishing LaunchGuardian, changing its companion
 repository, archiving either active Drydock packet, releasing Drydock, or
