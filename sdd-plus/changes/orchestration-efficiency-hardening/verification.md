@@ -414,6 +414,17 @@ orchestration-efficiency-hardening
   selection and `85 passed` for the orchestration/evidence set. Round 14 is
   recorded as peer evidence only; it does not freeze the candidate or satisfy
   final verification.
+- [x] Final Git-trust remediation freeze: exact clean reviewed HEAD
+  `2b8c0de58b700d526bb9d742c065ece130bc64b3` produced v2 executable
+  fingerprint
+  `b0f6cff44dfae8db561149ec9bf0f1b45d2479a570000076baefcc3547c981d6`
+  and non-self-inclusive packet-evidence-parent fingerprint
+  `f084f6f6a2cbea66fd31e255e98edfdc9000d2c2dddb16bb7d79ee92c65d2a7d`,
+  computed with this `verification.md` excluded. Reuse eligibility was true,
+  canonical active-task projection was applied, and no tracked bytecode,
+  ignored code-injection path, or invalid packet evidence was present. The
+  earlier proof for executable fingerprint `23d7b23c...1abf` is not reusable;
+  a new full-required-suite run remains pending.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -428,10 +439,10 @@ orchestration-efficiency-hardening
 FINAL SEPARATE VERIFICATION REMAINS BLOCKED BY THE RECORDED FAIL VERDICT.
 THE REPRODUCED INTERNAL `git cat-file --batch` TRUST DEFECT IS REMEDIATED
 WITH FOCUSED TESTS, DIRECT READ-ONLY-SANDBOX EVIDENCE, AND TWO-ROUND OPUS 5
-PEER CONVERGENCE. A NEW CANDIDATE FREEZE, FULL-REQUIRED-SUITE PROOF, AND FINAL
-VERDICT ARE STILL PENDING. THE PREVIOUS FULL-SUITE RECORD CANNOT VERIFY THIS
-EXECUTABLE REVISION. THIS PACKET IS NOT VERIFIED OR ARCHIVE-READY, AND NO PASS
-IS INFERRED. The implementation does not claim fixed-root mutation
+PEER CONVERGENCE. THE NEW CANDIDATE IS FROZEN; ITS FULL-REQUIRED-SUITE PROOF
+AND FINAL VERDICT ARE STILL PENDING. THE PREVIOUS FULL-SUITE RECORD CANNOT
+VERIFY THIS EXECUTABLE REVISION. THIS PACKET IS NOT VERIFIED OR ARCHIVE-READY,
+AND NO PASS IS INFERRED. The implementation does not claim fixed-root mutation
 containment. Remaining disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
