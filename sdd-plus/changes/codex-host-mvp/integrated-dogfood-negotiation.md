@@ -13,9 +13,9 @@
   The earlier convergence does not cover the current guide preimage or the
   hardened clean-candidate, full-suite-proof verifier flow.
 - 2026-07-29 superseding cycle: explicitly Owner-authorized and not yet
-  started. It must create a new durable run with the prior blocked run recorded
-  only as `previous_run_id`, at most two peer calls, `$1.50` configured
-  provider ceiling per call, and `$3.00` total peer-phase ceiling.
+  started. It must create a new durable run without modifying the prior blocked
+  ledger, at most two peer calls, `$1.50` configured provider ceiling per call,
+  and `$3.00` total peer-phase ceiling.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
@@ -104,6 +104,14 @@ another branch, archive, release, publication, deployment, weakened
 verification, a third peer round, or continuation after an unknown, failed,
 stale, malformed, mismatched, unavailable, or unproven gate. It is consumed
 once by this exact cycle.
+
+The first new-run command attempted to pass closed run
+`73318eaf444b429d952e0fbe09119056` as `--previous-run-id`. The controller
+returned `{ok:false, stage:"input_error", error:"only an active run may be
+superseded"}` and created no run. The closed ledger remains unchanged. The
+fresh cycle therefore uses an independent new run ID, while this packet records
+the predecessor relationship; it does not restart, reopen, supersede in-place,
+or reinterpret the blocked run.
 
 ## Round 1
 
