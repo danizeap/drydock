@@ -139,21 +139,141 @@ Before pass/fail, the gate SHALL decide whether it applies. Docs/config-only →
 - **THEN** the verdict is `red`/`blocked` with `clears: false`
 
 ### Requirement: Never green on a result the gate cannot trust
-Trust SHALL be decided by an **allow-list**: a test command is trusted only when it is a SIMPLE command, optionally `&&`-chained (the one chain that short-circuits, so failure propagates). A pipe, `;` or bare `&` sequencing, `||`, a newline, a backtick or `$( )` subshell makes the exit code untrustworthy; an **unrecognised construct defaults to untrusted**, as does an **absent trust signal** (fail-closed). `2>&1` remains trusted (a redirect, not a separator). Quoting SHALL be platform-aware (`'` quotes only on POSIX; cmd.exe does not). A broken environment (worktree with `package.json` but no `node_modules`) is likewise untrusted. In every untrusted case the verdict SHALL be **`unverifiable`** with `clears: false` — never `green` — and the reason SHALL name the actual cause. Honest passes SHALL still reach `green` and honest failures `red`, so the gate stays usable.
+Before Codex discovery, worktree creation, or delegation, the mutation runner
+SHALL compile an optional test plan into one or more structured argument
+vectors. Structured argv SHALL be authoritative. The legacy `--test-cmd`
+adapter SHALL accept only simple commands and `&&` short-circuit chains; it
+SHALL reject pipes, sequencing/background operators, `||`, redirects,
+newlines, command substitution, malformed quoting, or any unrecognized shell
+syntax without executing it. An invalid plan SHALL return a structured
+`test_plan` failure before Codex or a test process starts.
 
-**Declared limit:** the gate judges the top-level command's SHAPE only. Masking *inside* a delegated script (`npm run ci`, `bash -c "false; true"`) is invisible to any top-level scan and SHALL be disclosed as an advisory at point of use, never silently trusted.
+Each step SHALL name a bare executable rather than a caller-selected path. The
+runner SHALL resolve that executable to an absolute file from an absolute
+parent PATH entry before delegation, and SHALL refuse an executable beneath a
+temporary root writable by the mutating worker. Before the mutating worker
+starts, the runner SHALL also discover, validate, and pin a model-free Codex
+sandbox runner. Post-worker execution SHALL invoke the captured absolute test
+executable through that pinned sandbox with `shell=False`; no direct-controller
+fallback is allowed. Shell launchers and Windows batch/command shims SHALL be
+refused when selected directly. Drydock SHALL NOT claim that pinning the
+top-level executable prevents an allowed executable from invoking a shell or
+another runner transitively. Known indirection and interpreter launchers SHALL
+produce an advisory stating that their internal execution is unproven. The
+complete plan SHALL have finite step, argument, and character bounds. Steps SHALL
+execute sequentially under one total timeout budget and stop at the first
+non-zero result, preserving the safe failure-propagation behavior formerly
+provided by `&&`.
 
-#### Scenario: A masked exit code cannot read as green
-- **WHEN** the test command contains a pipe, `;`, bare `&`, `||`, a newline or a subshell and the shell exits 0 on a failing test
-- **THEN** the verdict is `unverifiable` with `clears: false`
+The sandbox invocation SHALL request writes only to the assigned worktree and
+SHALL request direct network denial. Native Windows execution SHALL pin the
+elevated sandbox backend rather than inherit a weaker Owner default, and
+managed constraints SHALL remain included. Its result SHALL identify those as
+requested configuration rather than per-run verified facts and SHALL disclose
+any platform boundary that was not established. In particular, native-Windows
+filesystem read isolation SHALL NOT be claimed from the current mechanism: the
+local point-in-time platform spike observed out-of-worktree write denial and
+direct-network denial, but an explicit deny profile still read the Owner
+checkout. This is requested write/network containment with point-in-time probe
+evidence, not full host isolation or per-run boundary verification.
 
-#### Scenario: Absent trust signal fails closed
-- **WHEN** a test result carries no trust signal
-- **THEN** it is treated as untrusted and the verdict is `unverifiable`
+When a sandbox readiness probe or launched test exceeds its deadline, the
+runner SHALL attempt bounded process-tree termination using a POSIX process
+group or Windows tree termination. The refusal or timeout result SHALL state
+whether cleanup was confirmed; test timeout evidence SHALL also state the
+mechanism and that descendants escaping the grouping mechanism may survive.
+Tests execute after the review diff is extracted; the result SHALL disclose
+that test-created files may therefore remain unstaged in the retained worktree
+even though they are absent from that reviewed diff. Runner delegation SHALL
+remain an advisory, and an absent or unverifiable trust signal SHALL remain
+non-green.
 
-#### Scenario: The gate stays usable
-- **WHEN** a simple or `&&`-chained command passes (or fails) in a sound environment
-- **THEN** the verdict is `green` (or `red`) as before
+#### Scenario: Structured argv passes honestly
+- **WHEN** the Owner supplies a bounded structured argv test step whose
+  executable resolves before delegation and the step exits zero
+- **THEN** the runner invokes the captured absolute executable without a shell
+  through the pinned Codex sandbox, and the test result may be trusted by the
+  existing applicability gate
+
+#### Scenario: Safe legacy command remains usable
+- **WHEN** `--test-cmd` contains a simple command or a well-quoted `&&` chain
+- **THEN** it is compiled to one or more argv steps and executed sequentially
+  without a shell, stopping at the first failure
+
+#### Scenario: Shell syntax is refused before delegation
+- **WHEN** a legacy test command contains a pipe, redirect, `;`, bare `&`,
+  `||`, newline, command substitution, or malformed quoting
+- **THEN** mutation returns `stage: test_plan` before Codex discovery,
+  worktree creation, or any test process spawn
+
+#### Scenario: Worker plants a test executable
+- **WHEN** the worker creates an executable in its assigned worktree with the
+  same name as the selected test runner
+- **THEN** post-worker test execution still invokes the absolute executable
+  resolved before delegation
+
+#### Scenario: PATH resolves inside worker-writable temporary storage
+- **WHEN** the first matching executable is beneath `TEMP`, `TMP`, `TMPDIR`, or
+  the platform temporary root that the mutating worker can write
+- **THEN** test-plan compilation refuses it rather than pinning a path whose
+  bytes the worker can replace
+
+#### Scenario: Direct known shell escape is refused
+- **WHEN** a structured or legacy test step selects `bash`, `sh`, `cmd`,
+  PowerShell, or a Windows `.cmd`/`.bat` shim
+- **THEN** compilation refuses rather than relabelling shell execution as
+  structured no-shell execution
+
+#### Scenario: Allowed executable invokes a shell transitively
+- **WHEN** a structured or legacy test step selects a known indirection or
+  interpreter launcher such as `env`, `xargs`, Python, or Node
+- **THEN** Drydock pins and invokes that top-level executable without an
+  implicit shell, reports that its internal execution is unproven, and relies
+  on the requested sandbox restrictions rather than claiming transitive shell
+  prevention
+
+#### Scenario: Multi-step timeout is globally bounded
+- **WHEN** a structured plan has several steps
+- **THEN** they share one total deadline rather than receiving the full timeout
+  independently
+
+#### Scenario: Timed-out test leaves descendants
+- **WHEN** a sandboxed test exceeds the shared deadline after spawning a child
+  process
+- **THEN** the runner attempts bounded process-tree termination and the result
+  reports the cleanup mechanism, confirmation state, and escaped-descendant
+  limitation rather than silently assuming the child is gone
+
+#### Scenario: Sandbox readiness fails closed
+- **WHEN** a test plan is present but the installed Codex CLI cannot prepare its
+  model-free sandbox command
+- **THEN** mutation returns a structured `test_sandbox` failure before worktree
+  creation or mutating delegation, no test runs as the controller, and a
+  timed-out readiness process receives the same bounded tree-cleanup attempt
+
+#### Scenario: Sandboxed test restrictions are reported honestly
+- **WHEN** project-authored test code runs through the configured sandbox
+- **THEN** the result reports the requested worktree write scope and
+  direct-network denial separately from per-run verified behavior
+
+#### Scenario: Worker config requests a weaker sandbox
+- **WHEN** the worktree's project config requests legacy
+  `danger-full-access` sandboxing or a danger-full-access default permission
+  profile
+- **THEN** the explicit CLI test profile remains authoritative, managed
+  constraints remain included, and an out-of-worktree write is denied
+
+#### Scenario: Native Windows read boundary is reported honestly
+- **WHEN** a sandboxed test result is produced on native Windows
+- **THEN** the result reports that worktree-write and direct-network
+  restrictions were requested, per-run boundary verification was not
+  performed, and host filesystem read isolation remains unestablished
+
+#### Scenario: Tests create files after diff extraction
+- **WHEN** project tests create or modify files in a retained worker worktree
+- **THEN** the result warns that those unstaged artifacts were not part of the
+  previously extracted review diff and must be inspected before any manual
+  commit
 
 ### Requirement: Advisories inform, never gate
 The gate SHALL emit an `advisories` list — including a coverage-gap note when the diff changes code with no test file, and a disclosure when the command delegates to a script runner — and advisories SHALL NEVER affect `verdict` or `clears`.
