@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Fixed-boundary Codex mutation and verification process runners.
+"""Fixed-boundary Codex mutation, verification, and integration runners.
 
 The mutating worker edits only a dedicated Git worktree. This runner owns all
-Git metadata writes. The verifier is a separate ephemeral read-only process.
-Neither path merges, pushes, deploys, or accepts caller-provided sandbox/root
-flags.
+Git metadata writes and may commit an official candidate only after the worker
+is quiescent and the workflow admission was consumed. The verifier is a
+separate ephemeral read-only process. Integration is a separate, admission-
+bound fast-forward. No path pushes or deploys, and worker/verifier paths do not
+accept caller-provided sandbox/root flags.
 """
 
 from __future__ import annotations
@@ -29,10 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from orchestration_control import WorkflowStore
 from orchestration_evidence import (
     EvidenceError,
     final_suite_acceptance,
     repository_fingerprints,
+    state_root,
 )
 
 
@@ -47,6 +51,7 @@ MAX_DIFF_BYTES = 4 * 1024 * 1024
 MAX_FINGERPRINT_BYTES = 32 * 1024 * 1024
 MAX_VERDICT_BYTES = 1024 * 1024
 MAX_PROOF_RECORD_BYTES = 64 * 1024
+MAX_INTEGRATION_REQUEST_BYTES = 64 * 1024
 MAX_GIT_CONTROL_BYTES = 8 * 1024 * 1024
 MAX_WORKTREE_ENTRIES = 100_000
 FIXED_CONFIG_OVERRIDES = (
@@ -83,6 +88,7 @@ WORKTREE_GIT_CONFIG_OVERRIDES = (
 )
 _PINNED_GIT_EXECUTABLE: Path | None = None
 SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+SAFE_GIT_OID = re.compile(r"^[0-9a-f]{40,64}$")
 SECRET_INPUT = re.compile(
     r"(?i)(-----BEGIN [A-Z ]*PRIVATE KEY-----|"
     r"\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*"
@@ -393,6 +399,7 @@ def _run_git(
     *,
     controlled_environment: dict[str, str] | None = None,
     ceiling: Path | None = None,
+    allowed_returncodes: tuple[int, ...] = (0,),
 ) -> subprocess.CompletedProcess[bytes]:
     resolved_repo = repo.resolve(strict=True)
     pinned = [
@@ -417,7 +424,7 @@ def _run_git(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise RunnerError(f"Git command could not run: {exc}") from exc
-    if result.returncode != 0:
+    if result.returncode not in allowed_returncodes:
         error = result.stderr.decode("utf-8", "replace")[-1000:].strip()
         raise RunnerError(f"Git command failed ({' '.join(arguments)}): {error}")
     return result
@@ -425,7 +432,26 @@ def _run_git(
 
 def _assert_safe_local_git_configuration(repo: Path) -> None:
     unsafe: set[str] = set()
-    for scope in ("--local", "--worktree"):
+    scopes = ["--local"]
+    worktree_config = _run_git(
+        repo,
+        [
+            "config",
+            "--local",
+            "--no-includes",
+            "--type=bool",
+            "--get",
+            "extensions.worktreeConfig",
+        ],
+        allowed_returncodes=(0, 1),
+    )
+    if (
+        worktree_config.returncode == 0
+        and worktree_config.stdout.decode("ascii", "replace").strip()
+        == "true"
+    ):
+        scopes.append("--worktree")
+    for scope in scopes:
         result = _run_git(
             repo,
             [
@@ -1589,6 +1615,151 @@ def _test_applicability(
     }
 
 
+def _consume_workflow_admission(
+    repo: Path,
+    *,
+    phase: str,
+    body: str,
+    objective_id: str | None,
+    admission_id: str | None,
+    input_digest: str | None,
+    candidate_digest: str | None,
+    state_directory: Path | None,
+) -> None:
+    values = (objective_id, admission_id, input_digest)
+    if not any(value is not None for value in values):
+        return
+    if not all(value is not None for value in values):
+        raise RunnerError(
+            "official runner execution requires complete workflow admission"
+        )
+    observed = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    if observed != input_digest:
+        raise RunnerError(
+            "workflow admission input digest differs from runner input"
+        )
+    root = state_root(state_directory, repository_root=repo)
+    WorkflowStore(root, str(objective_id)).consume_admission(
+        phase,
+        admission_id=str(admission_id),
+        input_digest=str(input_digest),
+        candidate_digest=candidate_digest,
+    )
+
+
+def _official_workflow_request(
+    objective_id: str | None,
+    admission_id: str | None,
+    input_digest: str | None,
+) -> bool:
+    values = (objective_id, admission_id, input_digest)
+    if any(value is not None for value in values) and not all(
+        value is not None for value in values
+    ):
+        raise RunnerError(
+            "official runner execution requires complete workflow admission"
+        )
+    return all(value is not None for value in values)
+
+
+def _git_status(repo: Path) -> bytes:
+    return _run_git(
+        repo,
+        [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ],
+    ).stdout
+
+
+def _git_head(repo: Path) -> str:
+    return _run_git(repo, ["rev-parse", "HEAD"]).stdout.decode(
+        "ascii", "replace"
+    ).strip()
+
+
+def _commit_official_candidate(
+    boundary: WorktreeBoundary,
+    *,
+    expected_changed: list[str],
+    expected_diff: str,
+    packet_root: str,
+) -> dict[str, object]:
+    changed, diff, ignored = _extract_changes(boundary)
+    if changed != expected_changed or diff != expected_diff or ignored:
+        raise RunnerError(
+            "isolated worktree changed after review snapshot; refusing commit"
+        )
+    controlled_environment = {
+        "GIT_AUTHOR_EMAIL": "drydock-candidate@invalid",
+        "GIT_AUTHOR_NAME": "Drydock Candidate Runner",
+        "GIT_COMMITTER_EMAIL": "drydock-candidate@invalid",
+        "GIT_COMMITTER_NAME": "Drydock Candidate Runner",
+    }
+    _run_worktree_git(
+        boundary,
+        ["add", "-A"],
+        controlled_environment=controlled_environment,
+    )
+    _run_worktree_git(
+        boundary,
+        [
+            "-c",
+            "commit.gpgSign=false",
+            "commit",
+            "--no-gpg-sign",
+            "--no-verify",
+            "-m",
+            "Drydock isolated candidate",
+        ],
+        controlled_environment=controlled_environment,
+    )
+    candidate_commit = _git_head(boundary.path)
+    if candidate_commit == boundary.base_commit:
+        raise RunnerError("official mutation did not create a candidate commit")
+    if _git_status(boundary.path):
+        raise RunnerError("official candidate worktree is not clean after commit")
+    committed_names = [
+        value.decode("utf-8", "surrogateescape")
+        for value in _run_worktree_git(
+            boundary,
+            [
+                "diff",
+                "--name-only",
+                "-z",
+                boundary.base_commit,
+                candidate_commit,
+            ],
+        ).stdout.split(b"\0")
+        if value
+    ]
+    if committed_names != expected_changed:
+        raise RunnerError(
+            "official candidate commit paths differ from the reviewed snapshot"
+        )
+    fingerprints = _candidate_fingerprints(
+        boundary.path,
+        packet_root=packet_root,
+    )
+    executable = fingerprints.get("executable_surface_sha256")
+    if (
+        fingerprints.get("head") != candidate_commit
+        or fingerprints.get("reuse_eligible") is not True
+        or not isinstance(executable, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", executable)
+    ):
+        raise RunnerError(
+            "official candidate commit lacks a clean executable identity"
+        )
+    return {
+        "commit": candidate_commit,
+        "executable_surface_sha256": executable,
+        "fingerprints": fingerprints,
+    }
+
+
 def mutate(
     repo: Path,
     task: str,
@@ -1598,6 +1769,11 @@ def mutate(
     timeout: int = DEFAULT_TIMEOUT,
     cleanup_grace: int = DEFAULT_CLEANUP_GRACE,
     codex_prefix: Sequence[str] | None = None,
+    workflow_objective_id: str | None = None,
+    workflow_admission_id: str | None = None,
+    workflow_input_digest: str | None = None,
+    workflow_state_dir: Path | None = None,
+    packet_root: str | None = None,
 ) -> dict[str, object]:
     task = _validate_text(task, "task")
     model = _validate_model(model)
@@ -1607,6 +1783,29 @@ def mutate(
         raise RunnerError("cleanup grace must be positive")
     repo = canonical_repo(repo)
     _assert_safe_local_git_configuration(repo)
+    official = _official_workflow_request(
+        workflow_objective_id,
+        workflow_admission_id,
+        workflow_input_digest,
+    )
+    if official and packet_root is None:
+        raise RunnerError(
+            "official mutation requires packet_root for candidate identity"
+        )
+    if not official and packet_root is not None:
+        raise RunnerError(
+            "packet_root is accepted only by the official mutation wrapper"
+        )
+    _consume_workflow_admission(
+        repo,
+        phase="mutation",
+        body=task,
+        objective_id=workflow_objective_id,
+        admission_id=workflow_admission_id,
+        input_digest=workflow_input_digest,
+        candidate_digest=None,
+        state_directory=workflow_state_dir,
+    )
     owner_before = repository_fingerprint(repo)
     boundary = _create_worktree(repo, task, base)
     worktree = boundary.path
@@ -1687,8 +1886,30 @@ def mutate(
             }
         lease.release()
         lease_released = True
+        candidate: dict[str, object] | None = None
+        if (
+            official
+            and owner_unchanged
+            and not timed_out
+            and process.returncode == 0
+            and changed
+            and not ignored
+        ):
+            assert packet_root is not None
+            candidate = _commit_official_candidate(
+                boundary,
+                expected_changed=changed,
+                expected_diff=diff,
+                packet_root=packet_root,
+            )
+            owner_after = repository_fingerprint(repo)
+            owner_unchanged = owner_after == owner_before
+            if not owner_unchanged:
+                raise RunnerError(
+                    "Owner checkout changed while committing isolated candidate"
+                )
         windows_job_lifetime_contained = os.name == "nt"
-        result_ok = False
+        result_ok = candidate is not None
         if not owner_unchanged:
             stage = "owner_drift"
         elif timed_out:
@@ -1699,6 +1920,8 @@ def mutate(
             stage = "no_changes"
         elif ignored:
             stage = "ignored_artifacts"
+        elif candidate is not None:
+            stage = "candidate_ready_for_cross_review"
         elif gate["verdict"] == "not_applicable":
             stage = "review_required"
         elif gate["verdict"] == "blocked":
@@ -1757,6 +1980,7 @@ def mutate(
                 git_control_after_extract == git_control_before
             ),
             "lease_released": lease_released,
+            "candidate": candidate,
             "merged": False,
         }
     except BaseException:
@@ -1850,6 +2074,11 @@ def verify(
     proof_record: Mapping[str, object],
     timeout: int = DEFAULT_TIMEOUT,
     codex_prefix: Sequence[str] | None = None,
+    workflow_objective_id: str | None = None,
+    workflow_admission_id: str | None = None,
+    workflow_input_digest: str | None = None,
+    workflow_candidate_digest: str | None = None,
+    workflow_state_dir: Path | None = None,
 ) -> dict[str, object]:
     prompt = _validate_text(prompt, "verification prompt")
     model = _validate_model(model)
@@ -1918,6 +2147,23 @@ def verify(
                 "timed_out": False,
             },
         }
+    if (
+        workflow_candidate_digest is not None
+        and workflow_candidate_digest != executable_fingerprint
+    ):
+        raise RunnerError(
+            "workflow verifier candidate differs from current identity"
+        )
+    _consume_workflow_admission(
+        repo,
+        phase="verification",
+        body=prompt,
+        objective_id=workflow_objective_id,
+        admission_id=workflow_admission_id,
+        input_digest=workflow_input_digest,
+        candidate_digest=workflow_candidate_digest,
+        state_directory=workflow_state_dir,
+    )
     prefix = list(codex_prefix) if codex_prefix is not None else [str(discover_codex())]
     with tempfile.TemporaryDirectory(prefix="drydock-verifier-") as temporary:
         temp = Path(temporary)
@@ -2261,6 +2507,219 @@ def cleanup_orphaned_leases(repo: Path) -> dict[str, object]:
     return {"ok": not retained, "cleaned": cleaned, "retained": retained}
 
 
+def _integration_request(body: str) -> dict[str, str]:
+    encoded = body.encode("utf-8")
+    if not encoded or len(encoded) > MAX_INTEGRATION_REQUEST_BYTES:
+        raise RunnerError("integration request is empty or exceeds its byte bound")
+    try:
+        value = _strict_json_loads(body)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RunnerError(f"integration request is not strict JSON: {exc}") from exc
+    required = {
+        "base_commit",
+        "candidate_branch",
+        "candidate_commit",
+        "candidate_digest",
+        "candidate_worktree",
+        "owner_branch",
+        "packet_root",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise RunnerError(
+            "integration request must contain only the exact required fields"
+        )
+    result: dict[str, str] = {}
+    for key in sorted(required):
+        item = value.get(key)
+        if not isinstance(item, str) or not item:
+            raise RunnerError(f"integration request {key} is invalid")
+        result[key] = item
+    for key in ("base_commit", "candidate_commit"):
+        if not SAFE_GIT_OID.fullmatch(result[key]):
+            raise RunnerError(f"integration request {key} is not an exact Git OID")
+    if not re.fullmatch(r"[0-9a-f]{64}", result["candidate_digest"]):
+        raise RunnerError("integration candidate digest is invalid")
+    if not result["candidate_branch"].startswith(BRANCH_PREFIX):
+        raise RunnerError("integration candidate branch is outside Drydock scope")
+    candidate_worktree = Path(result["candidate_worktree"])
+    if not candidate_worktree.is_absolute():
+        raise RunnerError("integration candidate worktree must be absolute")
+    return result
+
+
+def _current_branch(repo: Path) -> str:
+    value = _run_git(repo, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    branch = value.stdout.decode("utf-8", "replace").strip()
+    if not branch:
+        raise RunnerError("integration requires an attached Owner branch")
+    return branch
+
+
+def _integration_preconditions(
+    repo: Path,
+    request: Mapping[str, str],
+) -> dict[str, object]:
+    if _current_branch(repo) != request["owner_branch"]:
+        raise RunnerError("Owner branch differs from the integration request")
+    if _git_head(repo) != request["base_commit"]:
+        raise RunnerError("Owner HEAD differs from the integration base")
+    if _git_status(repo):
+        raise RunnerError("Owner working tree is not clean before integration")
+    candidate_worktree = Path(request["candidate_worktree"])
+    _, resolved_worktree = _validate_cleanup_target(
+        repo,
+        candidate_worktree,
+        request["candidate_branch"],
+    )
+    boundary = _existing_worktree_boundary(
+        repo,
+        resolved_worktree,
+        request["candidate_branch"],
+    )
+    candidate_commit = _git_head(resolved_worktree)
+    if (
+        boundary.base_commit != request["candidate_commit"]
+        or candidate_commit != request["candidate_commit"]
+    ):
+        raise RunnerError(
+            "candidate branch or worktree differs from the integration commit"
+        )
+    if _git_status(resolved_worktree):
+        raise RunnerError("candidate worktree is not clean before integration")
+    _run_git(
+        repo,
+        [
+            "merge-base",
+            "--is-ancestor",
+            request["base_commit"],
+            request["candidate_commit"],
+        ],
+    )
+    fingerprints = _candidate_fingerprints(
+        resolved_worktree,
+        packet_root=request["packet_root"],
+    )
+    if (
+        fingerprints.get("head") != request["candidate_commit"]
+        or fingerprints.get("reuse_eligible") is not True
+        or fingerprints.get("executable_surface_sha256")
+        != request["candidate_digest"]
+    ):
+        raise RunnerError(
+            "candidate worktree does not match its admitted executable identity"
+        )
+    return {
+        "candidate_fingerprints": fingerprints,
+        "candidate_worktree": str(resolved_worktree),
+        "owner_fingerprint": repository_fingerprint(repo),
+    }
+
+
+def integrate(
+    repo: Path,
+    request_body: str,
+    *,
+    workflow_objective_id: str | None,
+    workflow_admission_id: str | None,
+    workflow_input_digest: str | None,
+    workflow_state_dir: Path | None = None,
+) -> dict[str, object]:
+    repo = canonical_repo(repo)
+    _assert_safe_local_git_configuration(repo)
+    if not _official_workflow_request(
+        workflow_objective_id,
+        workflow_admission_id,
+        workflow_input_digest,
+    ):
+        raise RunnerError("integration is available only through workflow admission")
+    request = _integration_request(request_body)
+    before = _integration_preconditions(repo, request)
+    _consume_workflow_admission(
+        repo,
+        phase="integration",
+        body=request_body,
+        objective_id=workflow_objective_id,
+        admission_id=workflow_admission_id,
+        input_digest=workflow_input_digest,
+        candidate_digest=request["candidate_digest"],
+        state_directory=workflow_state_dir,
+    )
+    # Close the read-check/side-effect gap as far as the disclosed same-user
+    # trusted computing base permits. A hostile same-user process can still
+    # race or edit controller state; the postconditions fail closed.
+    second = _integration_preconditions(repo, request)
+    if second != before:
+        raise RunnerError("integration preconditions changed after admission")
+    try:
+        _run_git(
+            repo,
+            [
+                "-c",
+                "merge.autoStash=false",
+                "merge",
+                "--ff-only",
+                "--no-edit",
+                "--no-stat",
+                "--no-verify",
+                request["candidate_commit"],
+            ],
+        )
+        owner_after = repository_fingerprint(repo)
+        owner_fingerprints = _candidate_fingerprints(
+            repo,
+            packet_root=request["packet_root"],
+        )
+        if (
+            _current_branch(repo) != request["owner_branch"]
+            or _git_head(repo) != request["candidate_commit"]
+            or _git_status(repo)
+            or owner_fingerprints.get("head") != request["candidate_commit"]
+            or owner_fingerprints.get("reuse_eligible") is not True
+            or owner_fingerprints.get("executable_surface_sha256")
+            != request["candidate_digest"]
+        ):
+            raise RunnerError(
+                "integrated Owner checkout failed exact candidate postconditions"
+            )
+        return {
+            "ok": True,
+            "stage": "integrated",
+            "base_commit": request["base_commit"],
+            "candidate_commit": request["candidate_commit"],
+            "candidate_digest": request["candidate_digest"],
+            "candidate_worktree": before["candidate_worktree"],
+            "owner_before": before["owner_fingerprint"],
+            "owner_after": owner_after,
+            "owner_branch": request["owner_branch"],
+            "owner_fingerprints": owner_fingerprints,
+            "integration_unchanged": False,
+            "merged": True,
+            "pushed": False,
+        }
+    except RunnerError as exc:
+        try:
+            owner_after = repository_fingerprint(repo)
+            unchanged: bool | None = (
+                owner_after == before["owner_fingerprint"]
+            )
+        except RunnerError:
+            owner_after = None
+            unchanged = None
+        return {
+            "ok": False,
+            "stage": "integration_failed",
+            "error": str(exc),
+            "base_commit": request["base_commit"],
+            "candidate_commit": request["candidate_commit"],
+            "candidate_digest": request["candidate_digest"],
+            "owner_before": before["owner_fingerprint"],
+            "owner_after": owner_after,
+            "integration_unchanged": unchanged,
+            "merged": False,
+            "pushed": False,
+        }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2273,6 +2732,11 @@ def main(argv: list[str] | None = None) -> int:
     mutate_parser.add_argument("--model", required=True)
     mutate_parser.add_argument("--base", default="HEAD")
     mutate_parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    mutate_parser.add_argument("--workflow-objective-id")
+    mutate_parser.add_argument("--workflow-admission-id")
+    mutate_parser.add_argument("--workflow-input-digest")
+    mutate_parser.add_argument("--workflow-state-dir", type=Path)
+    mutate_parser.add_argument("--packet-root")
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("--repo", required=True, type=Path)
     verify_parser.add_argument(
@@ -2288,6 +2752,21 @@ def main(argv: list[str] | None = None) -> int:
         help="bounded full-suite proof JSON read once by the parent runner",
     )
     verify_parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    verify_parser.add_argument("--workflow-objective-id")
+    verify_parser.add_argument("--workflow-admission-id")
+    verify_parser.add_argument("--workflow-input-digest")
+    verify_parser.add_argument("--workflow-candidate-digest")
+    verify_parser.add_argument("--workflow-state-dir", type=Path)
+    integration_parser = subparsers.add_parser("integrate")
+    integration_parser.add_argument("--repo", required=True, type=Path)
+    integration_parser.add_argument(
+        "--request",
+        help="exact integration JSON; omit to read it from stdin",
+    )
+    integration_parser.add_argument("--workflow-objective-id", required=True)
+    integration_parser.add_argument("--workflow-admission-id", required=True)
+    integration_parser.add_argument("--workflow-input-digest", required=True)
+    integration_parser.add_argument("--workflow-state-dir", type=Path)
     cleanup_parser = subparsers.add_parser("cleanup")
     cleanup_parser.add_argument("--repo", required=True, type=Path)
     cleanup_parser.add_argument("--worktree", required=True, type=Path)
@@ -2305,6 +2784,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.model,
                 base=args.base,
                 timeout=args.timeout,
+                workflow_objective_id=args.workflow_objective_id,
+                workflow_admission_id=args.workflow_admission_id,
+                workflow_input_digest=args.workflow_input_digest,
+                workflow_state_dir=args.workflow_state_dir,
+                packet_root=args.packet_root,
             )
         elif args.command == "verify":
             prompt = args.prompt if args.prompt is not None else sys.stdin.read()
@@ -2315,6 +2799,25 @@ def main(argv: list[str] | None = None) -> int:
                 packet_root=args.packet_root,
                 proof_record=_read_proof_record(args.proof_record),
                 timeout=args.timeout,
+                workflow_objective_id=args.workflow_objective_id,
+                workflow_admission_id=args.workflow_admission_id,
+                workflow_input_digest=args.workflow_input_digest,
+                workflow_candidate_digest=args.workflow_candidate_digest,
+                workflow_state_dir=args.workflow_state_dir,
+            )
+        elif args.command == "integrate":
+            request = (
+                args.request
+                if args.request is not None
+                else sys.stdin.read()
+            )
+            result = integrate(
+                args.repo,
+                request,
+                workflow_objective_id=args.workflow_objective_id,
+                workflow_admission_id=args.workflow_admission_id,
+                workflow_input_digest=args.workflow_input_digest,
+                workflow_state_dir=args.workflow_state_dir,
             )
         elif args.command == "cleanup":
             result = cleanup_worktree(
@@ -2322,7 +2825,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             result = cleanup_orphaned_leases(args.repo)
-    except RunnerError as exc:
+    except (RunnerError, EvidenceError) as exc:
         result = {"ok": False, "stage": "blocked", "error": str(exc)}
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get("ok") else 1

@@ -95,3 +95,53 @@ orchestration-efficiency-hardening
 
 - Deferred follow-up: collect multiple real dogfood observations before
   choosing automatic default phase budgets or model-routing thresholds.
+
+## Control-Plane Recovery
+
+- [x] Record the failed dogfood incident as a revision of this packet rather
+  than creating another active plan or packet.
+- [x] Define strict authority-manifest and compact technical-plan schemas.
+- [x] Enforce one current plan revision with explicit supersession lineage.
+- [x] Add objective-level circuit state that survives individual run closure.
+- [x] Require a material plan, authority, or mechanism change plus explicit
+  Owner action before a tripped circuit can close.
+- [x] Add deterministic authority-to-plan and phase-transition preflight.
+- [x] Add compact blocker/delta input for later peer rounds.
+- [x] Expose one workflow-controller CLI surface without weakening the existing
+  peer, mutation, proof, or verifier gates.
+- [x] Update source skill and operator documentation for single-task/direct
+  coordination and no manual relay by default.
+- [x] Run focused controller tests and packet verification before any new live
+  peer call or dogfood retry.
+- [x] Correct the observed Codex-shell stdin transport failure without putting
+  authority or plan bodies in argv, and re-run focused verification.
+- [x] Bind each structured revision to the exact canonical packet `plan.md`
+  bytes, recheck before executor admission, and make circuit thresholds
+  manifest-configurable.
+
+## Peer-Converged Control-Plane Completion
+
+- [x] Add immutable Owner-issued objective IDs and atomically consume
+  Owner-action digests once across create, revise, resume, and circuit
+  resolution.
+- [x] Extend the objective circuit across post-worker phase entries, retries,
+  bytes, time, and observed spend without resetting on worker start; enforce a
+  monotonic one-resolution maximum.
+- [x] Implement the explicit failure/resume graph and invalidate downstream
+  evidence when plan, authority, mechanism, or candidate identity changes.
+- [x] Validate referenced immutable plan bodies on every workflow read and
+  prove torn or ambiguous state fails closed.
+- [x] Issue and atomically consume short-lived admissions in every official
+  executor wrapper; keep push unavailable until its dedicated wrapper exists.
+- [x] Add `insufficient_context` end to end with truncation detection and
+  technical-outcome classification.
+- [x] Replace environment-body workflow transport with a bounded, digest-bound
+  out-of-tree payload file and orphan cleanup.
+- [x] Add actual-Windows concurrency, atomic replacement, reparse-point,
+  consume-then-crash, replay, invalidation, circuit, transport, and disabled
+  push/feature-path regressions.
+- [x] Update source skill and operator guidance with the same-user TCB,
+  cumulative circuit, token-burn, unknown-cost, and push-unavailable
+  disclosures.
+- [ ] Re-run focused tests, packet verification, implementation cross-review,
+  frozen full required suites, and separate verification before dogfood.

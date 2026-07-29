@@ -500,7 +500,7 @@ orchestration-efficiency-hardening
   project purpose, stack, or durable Owner-level defaults.
 - [x] Delta spec written before runtime code.
 
-## Result
+## Revision 1 Result (Superseded By Active Plan Revision 2)
 
 FINAL SEPARATE VERIFICATION PASSED. THE PREVIOUS SANDBOX-SID
 `git cat-file --batch` BLOCKER IS POSITIVELY CLOSED, THE NEW
@@ -516,3 +516,142 @@ pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
 state is user-writable rather than attested, proof-root test behavior may differ
 from a Git checkout, and default envelopes remain uncalibrated.
+
+## Control-Plane Revision 2 Verification
+
+- [x] The packet was reopened in place rather than creating another packet or
+  active plan. `python scripts/sdd.py status` changed the packet from
+  `44 complete, 0 pending` to `44 complete, 10 pending`; the incident-record
+  task then advanced independently. The historical dogfood negotiation and
+  recovery evidence was not deleted or presented as the active plan.
+- [x] Added strict authority-manifest and compact technical-plan validation,
+  including exact objective/task/repository identity, exact sorted
+  paths/actions, exact optional push remote/branch, expiry, resource ceilings,
+  schema closure, canonical digests, and authority-to-plan subset checks.
+- [x] Added one out-of-tree objective workflow record with a single current
+  plan digest, monotonically increasing revision, exact predecessor binding,
+  bounded immutable plan bodies, and explicit superseded history. A second
+  start with identical state recovers; a competing or stale start/revision
+  refuses.
+- [x] Added ordered phase admissions for plan peer, mutation, cross-review,
+  proof, verification, integration, and optional push. Exact admission and
+  evidence digests are required; a skipped, stale, duplicate, or mismatched
+  phase refuses without advancing state.
+- [x] Added an objective circuit independent of individual run IDs. Before
+  worker start, two procedural failures, 900 controller-observed executor
+  seconds, or USD 1.50 reported provider spend opens it. Reapproval alone is
+  insufficient: resolution also requires changed plan, authority-scope, or
+  mechanism identity. Authority timestamps and a new Owner-action digest do
+  not masquerade as a material scope change.
+- [x] Added stable blocker IDs and compact delta-review payloads containing only
+  unresolved blockers and exact changed plan fields. The Claude prompt now
+  scopes blocking review to technical correctness, security, contracts, and
+  verification and explicitly denies the peer authority widening.
+- [x] Added `workflow-start`, `workflow-revise`, `workflow-resolve`,
+  `workflow-status`, `workflow-admit`, and `workflow-finish` to the existing
+  controller CLI. CLI output is a bounded status summary; it omits the full
+  authority and plan bodies.
+- [x] Focused command:
+  `python -m pytest adapters/codex/tests/test_orchestration_control.py adapters/codex/tests/test_orchestrator.py adapters/codex/tests/test_orchestration_evidence.py -q -p no:cacheprovider`
+  with `PYTHONDONTWRITEBYTECODE=1` returned `94 passed in 45.30s`.
+- [x] `python scripts/sdd.py verify orchestration-efficiency-hardening`
+  returned exit zero and `Verified artifacts`; at that checkpoint it honestly
+  reported `53 complete, 1 pending`.
+- [x] `git diff --check` returned exit zero. Git emitted only expected
+  worktree EOL-normalization warnings; it reported no whitespace error.
+- [x] No Claude/provider call, mutating worker, dogfood retry, integration,
+  commit, push, archive, release, publication, or deployment occurred during
+  this tranche.
+- [x] The first two local workflow bootstrap attempts failed before state or
+  provider creation because this Codex PowerShell surface delivered empty stdin
+  to the native child. The first attempt also used the unavailable
+  `Convert.ToHexString` API; the second corrected digest computation but
+  reproduced empty stdin. No third live bootstrap was attempted. The CLI now
+  accepts `--payload-env <UPPERCASE_NAME>` as a bounded fallback, passes only
+  the variable name in argv, removes the payload from its process environment
+  immediately after reading, and refuses missing/empty/malformed names.
+  Focused verification after that correction returned
+  `95 passed in 44.92s`.
+- [x] A follow-up source audit found two spec/implementation gaps before any
+  provider call: the structured current plan was not bound to canonical packet
+  `plan.md` bytes, and circuit defaults were not actually configurable. The
+  controller now validates and rechecks the exact source-plan path/SHA-256
+  before every executor admission and reads strict circuit thresholds from the
+  authority manifest. A drift regression proves no admission is created and
+  the phase remains unchanged. Focused verification returned
+  `96 passed in 40.99s`.
+
+## Current Result
+
+THE SECOND OPUS 5 ARCHITECTURE ROUND CONVERGED AND THE CONVERGED
+CONTROL-PLANE CORRECTIONS ARE NOW IMPLEMENTED LOCALLY. THE COMBINED FOCUSED
+CONTROLLER, PEER-WRAPPER, EVIDENCE, AND PROCESS-RUNNER SUITE PASSED. THE
+IMPLEMENTATION HAS NOT YET RECEIVED ITS REQUIRED CROSS-REVIEW, FROZEN FULL
+REQUIRED SUITES, OR SEPARATE VERIFICATION, SO THE PACKET REMAINS OPEN AND IS
+NOT ARCHIVED, RELEASED, INSTALLED, OR READY FOR DOGFOOD.
+
+## Control-Plane Architecture Peer Evidence
+
+- [x] Round one used the same durable objective workflow and run:
+  objective `05899a284437257a2e5bf84cc1e7ababd5428ffd6be94088a9362541bbd31273`,
+  run `b2382adf30e14e9f89a72038666937a5`, structured plan revision one
+  `dc02996f5428724f2fa1764d979774fc0af42e02bf9a6f7dfadd5b3076b12976`.
+  Opus 5 returned five technical blockers. The call used 20,863 outbound bytes,
+  237.228 provider seconds, and USD 0.6694075. It was recorded as
+  `technical_blocker`, not a procedural failure.
+- [x] The canonical `plan.md` and delta spec were revised without opening a new
+  packet, objective, or run. Structured plan revision two exactly superseded
+  revision one as
+  `1e751374f31a0e4155649db1bd1976e210fa85c995df69a3be8a07384322d128`
+  and bound canonical plan SHA-256
+  `802a688395ec53057201f63c82d26d439b1a991a12e435a8eadf494ea7ffafce`.
+- [x] The compact final delta was 9,126 bytes with SHA-256
+  `e5a11c01294c625081194a1568f94c81f3252ea5bc9116640f7308f9acd0c472`.
+  Opus 5 returned `converged: true` with no blocking concerns. The call used
+  10,079 outbound bytes, 135.934 provider seconds, and USD 0.3982485.
+- [x] Cumulative plan-peer evidence remained inside the original objective
+  circuit: 30,942 outbound bytes, USD 1.067656 observed provider spend, zero
+  procedural failures, and a closed circuit. The workflow finished `complete`
+  at plan revision two. The persisted result body SHA-256 is
+  `e01d6e3781d75658b028a705c37146776b2d2630d43cc2638f67f8c4317b4ec5`.
+- [x] Implemented immutable Owner-issued objective IDs, the one-time
+  Owner-action ledger, objective-wide post-worker circuit, explicit
+  retry/invalidation graph, crash-burn recovery, immutable plan-body checks,
+  bounded payload files, review-input identity, `insufficient_context`, and
+  fail-closed feature/push paths.
+- [x] Wired single-use admission consumption into the official peer, mutation,
+  cross-review, proof, verifier, and integration paths. Official mutation now
+  rechecks and commits one clean isolated candidate after the worker is
+  quiescent. Integration separately rechecks the clean unchanged Owner base and
+  exact candidate, consumes its admission, performs only a fast-forward, and
+  verifies the integrated v2 identity. Push remains unavailable.
+- [x] Actual Windows regressions exercised cross-process single-winner
+  Owner-action consumption, concurrent atomic JSON replacement without torn
+  reads, linked-worktree configuration, and junction/reparse refusal. The
+  payload-file symlink case remained skipped because this Windows account
+  cannot create a symlink; that skip is not reported as positive symlink
+  evidence.
+- [x] Focused command:
+  `python -m pytest adapters/codex/tests/test_orchestration_control.py adapters/codex/tests/test_orchestrator.py adapters/codex/tests/test_orchestration_evidence.py adapters/codex/tests/test_process_runner.py -q -p no:cacheprovider`
+  with `PYTHONDONTWRITEBYTECODE=1` returned
+  `179 passed, 1 skipped in 128.53s`.
+- [x] The first bounded implementation cross-review attempt used durable run
+  `124c677c0b484046994f81da00b48718`, one 263,313-byte Opus 5 request,
+  420.065 provider seconds, and USD 2.1257315 reported provider cost. It
+  terminated as `error_max_budget_usd` / `structured_budget_ceiling` and
+  produced no critique. The run was closed `blocked`; absence of a verdict was
+  not treated as convergence, and no second call was started automatically.
+- [x] The Owner authorized one fresh two-part bounded review under durable run
+  `34a37ee3aaa14dde9e60eb1a67559cac`. Part one sent a 62,245-byte
+  controller/peer-boundary packet to Opus 5 and timed out after 450.073
+  provider seconds with bounded Windows Job cleanup; provider cost remained
+  unknown and no verdict was emitted. Part two sent a 64,338-byte combined
+  high-risk controller/executor packet to the CLI-confirmed
+  `claude-fable-5` model. It ran 217.935 provider seconds, reported
+  USD 1.679656 and 16,255 Fable output tokens, then returned
+  `error_max_budget_usd` under the USD 1.50 call ceiling. No critique was
+  emitted. The two-call cap was exhausted, the run was closed `blocked`, and
+  no third call was started. These observations show that input partitioning
+  alone does not bound high-effort reasoning/output cost.
+- [ ] Independently cross-review and verify the converged implementation before any
+  mutation dogfood, integration, push, archive, release, or installation claim.

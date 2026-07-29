@@ -168,16 +168,108 @@ not a process-launch interlock. The mutating runner or pilot must inspect it
 and refuse to start a worker when a required critique has
 `gate_satisfied: false`; the peer controller itself never launches workers.
 
-Each Owner objective receives one durable run ID. Starting another process or
-resuming the task does not reset its cumulative envelope; only an explicit
-recorded Owner action may supersede it. `start-run`, `phase-start`, and
-`phase-finish` enforce configured elapsed-time, call, outbound-byte, and
+Codex-hosted orchestration now has one objective-level workflow record outside
+the repository. The packet's `plan.md` is the only human-readable active plan.
+A compact structured plan carries an increasing revision and exact predecessor
+digest; older structured revisions remain bounded audit history but cannot
+satisfy current gates. Negotiation, recovery, and verification files do not
+silently become alternate active plans.
+
+Before provider spend, `workflow-start` reads a strict `{authority, plan}`
+payload from stdin. Authority binds an immutable Owner-issued objective ID
+independent of editable prose, objective and one-time Owner-action digests,
+optional predecessor objective ID, canonical repository root, Codex task ID,
+exact repository paths and actions, optional exact push remote/branch, expiry,
+and resource ceilings. The technical plan must be a subset. Unknown fields,
+wildcard paths, stale lineage, task mismatch, expired authority, or a
+push/path/action/resource mismatch fail locally. Owner actions are atomically
+consumed once for create, revision, blocked resume, or circuit resolution. A
+crash after consume burns the action and requires a fresh Owner action. These
+records are user-writable identifying state, not proof that the Owner authored
+them.
+
+The structured plan also binds the exact repository-relative path and SHA-256
+of the packet's sole active `plan.md`. Preflight and every later executor
+admission re-read that file. Editing or replacing the canonical plan therefore
+cannot leave an older local structured plan silently active. Circuit thresholds
+are explicit manifest fields; the shipped values are defaults, not hidden
+constants.
+
+Stdin is the primary payload transport. If a host shell cannot deliver a native
+pipeline, write the payload under the controller-owned out-of-tree `payloads`
+directory and pass only `--payload-file <absolute-path> --payload-sha256
+<digest>`. The child accepts only a canonical regular non-reparse file under
+that state root, bounds and reads it once, hashes and parses the same buffer,
+rechecks file identity, and deletes it. Expired orphan payloads are reaped; a
+failed delete is surfaced. The body never enters argv or an inherited
+environment variable.
+
+`DRYDOCK_ORCHESTRATION_CONTROL_ENABLED` accepts only `0` or `1`. Setting `0`
+is a fail-closed rollback: no governed workflow is created and no legacy or raw
+executor is automatically substituted. Workflow summaries report whether the
+control plane was enabled.
+
+`workflow-admit` issues a short-lived, single-use record bound to objective,
+workflow/run, phase, authority, plan, mechanism, input, prior gates, current
+candidate, random nonce, and expiry. Every official peer, mutation, proof, and
+verifier wrapper atomically consumes that exact record before its first
+provider call or side effect; `workflow-finish` then records the outcome.
+Consume-before-use is deliberately fail closed: a crashed executor burns its
+record, and after expiry `workflow-recover-admission` records unknown cost and
+permits a fresh controller-issued record. It does not require another Owner
+action; a crashed Owner-action transition does.
+
+The recorded order is preflight, plan peer, mutation, cross-review, proof,
+verification, integration, optional push, then complete. Failure and retry
+edges are explicit, and candidate or plan changes invalidate every dependent
+downstream gate. A raw primitive may still be invoked by the Owner or a process
+running as the same user, but absent direct tampering with controller state it
+cannot advance or satisfy the workflow. This is coordination inside a
+user-writable same-user trusted computing base, not a signature or hostile-user
+security boundary.
+
+Workflow push is currently hard-disabled. It remains unavailable until a
+dedicated wrapper consumes the strict admission and proves the clean candidate,
+destination, live remote baseline, exact pushed commit, and post-push remote
+identity. A plan may describe a future push phase; the current controller will
+not admit it.
+
+The objective circuit survives every run ID, retry, and phase entry before and
+after worker start. Worker start never resets it. It cumulatively counts
+procedural/control failures, phase entries, outbound bytes, observed executor
+time, known provider spend, and unknown-cost entries. Technical blockers do not
+increment the procedural-failure counter but still consume all observable
+axes. Manifest thresholds may narrow but cannot exceed controller safety
+maxima. One fresh, one-time Owner action bound to the exact opening snapshot
+may resolve the circuit once; a later opening is terminal for that immutable
+objective ID. Effective thresholds and unknown cost axes must be reported.
+
+Claude reviews technical correctness, security, contract alignment, and
+verification sufficiency. It does not interpret or grant Owner authority.
+After the first round, the controller builds a compact technical delta from
+stable unresolved blocker IDs and changed plan fields rather than replaying
+the full transcript and unchanged control prose. Every review declares the
+canonical UTF-8 input byte count and SHA-256, and the peer must echo the digest;
+a mismatch cannot converge. `insufficient_context` is always non-converging,
+names the exact additional bounded context, and is a technical outcome rather
+than a procedural failure.
+
+Use one Owner-facing Codex task for the normal workflow. When a separate Codex
+task is deliberate, use the host's direct task read/send/wait mechanisms and
+bind its task ID in workflow state. Asking the Owner to copy output between
+Codex tasks is a disclosed degraded fallback, never the default.
+
+Each Owner objective may contain durable run IDs, but a new process, run, or
+resumed task does not reset the objective envelope; only an explicitly created
+successor objective has a new immutable ID and recorded predecessor. `start-run`,
+`phase-start`, and `phase-finish` retain run-local evidence, while the workflow
+circuit enforces cumulative elapsed-time, phase-entry, outbound-byte, and
 provider-budget ceilings across `plan_peer`, `mutation`, `cross_review`,
-`verification`, and `integration`. Token/account usage remains `unknown` when
-the provider exposes no trustworthy evidence. Exhaustion starts no new
-automatic call and can route a cheaper model only as advisory output that
-satisfies no gate. The shipped defaults are configurable and explicitly
-uncalibrated.
+`proof`, `verification`, `integration`, and optional `push`. Token/account
+usage remains `unknown` when the provider exposes no trustworthy evidence.
+Exhaustion starts no new automatic call and can route a cheaper model only as
+advisory output that satisfies no gate. The shipped defaults are configurable
+and explicitly uncalibrated.
 Use `close-run` to record `complete`, `blocked`, or `cancelled_by_owner`;
 Owner cancellation requires the digest of the explicit Owner action.
 
@@ -228,8 +320,12 @@ Codex hook coverage is currently narrow: canonical local `Bash` and
 paths are uncovered. Mutation uses a separate ephemeral `workspace-write`
 process rooted at a dedicated worktree; verification uses a separate ephemeral
 `read-only` process. Neither is epistemically independent merely because it is
-a separate Codex process, and neither may merge, commit, push, or deploy on its
-own authority. On Codex CLI 0.146.0-alpha.3.1, repository trust requires loading
+a separate Codex process. The worker may not stage, commit, merge, push, or
+deploy. After it is quiescent, the official mutation runner may recheck the
+exact extracted snapshot and create one clean commit on the isolated Drydock
+branch under the already-consumed workflow admission. That candidate commit
+does not move the Owner branch or satisfy cross-review, proof, or verification.
+On Codex CLI 0.146.0-alpha.3.1, repository trust requires loading
 Owner config; the runner therefore reports that TCB and fixes disabled
 integration/network/rules/root-expansion/hook features on the command line.
 It supplies an exact root-bound Git map plus
@@ -271,8 +367,15 @@ lifetime shutdown; the separately tested fixed-root sandbox is the filesystem
 boundary.
 Junctions/reparse points, hardlinks or invalid link counts, worker-modified Git
 attributes, and Git-control drift invalidate review. The mutation-only result
-is never green: applicable changes wait for separate verification and
-deliberate integration. If an unsafe alias blocks cleanup, remove only the
+is never final acceptance: applicable changes wait for cross-review, separate
+proof and verification, and deliberate integration. Integration uses its own
+strict request and single-use admission. It proves the Owner branch is still
+clean at the exact base and the isolated branch/worktree is clean at the exact
+verified descendant commit, repeats those checks after admission consumption,
+performs only a hook-disabled fast-forward, and then rechecks the Owner v2
+identity. It never pushes. If a failed update cannot positively prove the
+complete Owner preimage stayed unchanged, the workflow stops terminally rather
+than retrying or rolling back. If an unsafe alias blocks cleanup, remove only the
 exact listed alias without traversing it, then retry bounded cleanup. POSIX
 process-group cleanup is best-effort and cannot clear a hostile-descendant
 gate. A read-only verifier prevents writes but may read outside `-C`; do not

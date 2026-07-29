@@ -4,6 +4,17 @@
 
 orchestration-efficiency-hardening
 
+## Active Plan State
+
+- Revision: 2
+- State: active
+- Supersedes: revision 1 completion claim
+- Canonical plan: this file only
+- Reason: the Codex-host dogfood proved that the first slice hardened
+  individual primitives but did not supply a usable end-to-end control plane.
+  All revision-1 decisions and evidence remain historical input; no separate
+  recovery plan is current.
+
 ## Approach
 
 Execution mode: FULL because this changes privileged orchestration and the
@@ -31,9 +42,10 @@ budget, duplicate-call, invalidation, and interruption cases.
    bytecode in the proof root disable reuse. Bind interpreter/tool/plugin/
    environment separately and invalidate on any unknown relationship. None of
    these digests authenticates evidence.
-3. Define phase envelopes for `plan_peer`, `mutation`, `cross_review`,
-   `verification`, and `integration`, plus a cumulative run envelope that
-   persists across every controller invocation/turn for one Owner objective:
+3. Define phase envelopes for `plan_peer`, `mutation`, `cross_review`, `proof`,
+   `verification`, `integration`, and optional `push`, plus a cumulative
+   objective envelope that persists across every controller invocation, run
+   ID, retry, and task turn for one Owner objective:
    actual elapsed time, call count, input bytes, configured provider ceiling,
    known capacity snapshot, and stop action. Do not claim token counts the
    provider did not expose or a weekly/cross-run ceiling. Only an explicit,
@@ -74,13 +86,92 @@ budget, duplicate-call, invalidation, and interruption cases.
 9. Prove negative cases with fake provider/runner processes. Run focused tests
    while building, then one final adapter and legacy pass after the candidate
    freezes.
+10. Add a strict structured authority manifest and compact structured technical
+    plan. Validate both locally, require an immutable Owner-issued objective ID
+    independent of editable plan prose, and prove every requested
+    path/action/remote/branch and resource ceiling is a subset of Owner
+    authority before provider spend. Bind the structured plan to the exact
+    current bytes of this canonical packet `plan.md` and recheck that binding
+    before each executor admission. Record each Owner-action digest in an
+    out-of-tree one-time-use ledger; a digest used to create, supersede, resume,
+    or resolve an objective cannot authorize another transition.
+11. Add an out-of-tree objective workflow record with one current plan
+    revision, explicit supersession lineage, an explicit success/failure/retry
+    transition graph, and a controller-owned suspended or terminal state.
+    Historical plans remain readable but cannot satisfy a current gate.
+    Candidate, plan, authority, or mechanism changes invalidate their exact
+    downstream gates. A blocked workflow records one permitted resume phase
+    and requires a fresh, one-time Owner action before that phase can be
+    re-admitted. The single workflow record is the atomic commit point; plan
+    bodies are written before it, and every read fails closed if its referenced
+    body is absent or digest-mismatched. Unreferenced bodies are inert orphans,
+    not alternate current plans.
+12. Add an objective-level circuit breaker across run IDs and the complete
+    workflow, including cycles after mutation begins. Count cumulative phase
+    entries, procedural/control failures, directly observed elapsed time,
+    outbound bytes, and provider spend; worker start never clears or stops
+    accumulation. Opening a new run does not reset the circuit. Closing it
+    consumes a one-time Owner action bound to the exact opening-snapshot digest
+    and requires a changed plan, authority scope, or controller mechanism
+    digest. Preserve a monotonic resolution count; after the controller's hard
+    maximum of one circuit resolution for an objective, another opening is
+    terminal and only a newly Owner-issued objective ID with explicit
+    predecessor lineage can proceed. Manifest thresholds may be lower but
+    cannot exceed controller safety maxima. Report an unavailable provider-cost
+    signal as unknown and keep every observable circuit axis active.
+13. Make peer review technical-only. Round one receives the compact current
+    plan and machine-generated control summary; later rounds receive stable
+    blocker IDs, unresolved blockers, and changed fields. Authority or push
+    bookkeeping failures are local preflight failures and consume no model
+    call. Add `insufficient_context` as a non-converging technical verdict that
+    names the exact bounded files, digests, or questions required. Truncation
+    forces that verdict; it cannot produce convergence or be relabelled a
+    procedural transport failure.
+14. Add one workflow CLI surface that validates and advances the state machine.
+    Each official peer, mutation, cross-review, proof, verifier, integration,
+    and push wrapper must atomically validate and consume a short-lived,
+    single-use admission record before its first expensive call or side effect.
+    The record binds the immutable objective ID, workflow/run, phase, authority,
+    plan, mechanism, input, exact prior gates, candidate when one exists,
+    random nonce, and expiry. It is controller-enforced coordination inside the
+    disclosed same-user, user-writable trusted computing base, not a signed
+    hostile-user security boundary. Raw primitives remain callable by the
+    Owner or same-user process but cannot advance or satisfy workflow gates.
+    After a successful worker result, the official mutation wrapper rechecks
+    the exact extracted snapshot and creates the clean isolated candidate
+    commit itself; the worker never receives Git-metadata authority. The
+    dedicated integration wrapper separately proves the unchanged clean Owner
+    base and exact verified candidate, consumes its admission, performs only a
+    fast-forward, and verifies the integrated v2 identity. An ambiguous
+    integration result is terminal rather than automatically retried.
+    Push stays unavailable until its dedicated wrapper enforces the strictest
+    token, clean-tree, remote-baseline, exact-commit, and post-push checks.
+15. Update operator guidance so one Owner-facing task or direct Codex task
+    coordination is the normal route. Manual Owner relay is an explicit
+    degraded fallback, never the default.
+16. Dogfood the same frozen one-line documentation task only after focused
+    controller tests pass. The task-specific plan must stay compact because
+    standard safety behavior lives in the controller.
+17. Replace the temporary environment-body transport fallback with a
+    controller-owned out-of-tree payload file. Pass only its absolute path and
+    expected SHA-256, require a regular non-link file under the state root,
+    bound its size, read it once into memory, verify and parse that same buffer,
+    recheck file identity, then delete it. Do not inherit the payload body into
+    provider or worker environments.
+18. Prove the complete retry graph, gate invalidation, one-time Owner actions,
+    objective circuit, admission consumption, state crash recovery,
+    insufficient-context verdict, payload transport, disabled feature-flag
+    path, and honest unknown-cost reporting with negative tests before another
+    end-to-end dogfood attempt.
 
 ## Files Expected To Change
 
 - `adapters/codex/drydock/scripts/orchestrator.py`
-- A small orchestration evidence module only if keeping the controller module
-  bounded requires it.
+- `adapters/codex/drydock/scripts/orchestration_control.py`
+- `adapters/codex/drydock/scripts/orchestration_evidence.py` only where the
+  existing run ledger must expose bounded state to the workflow controller.
 - `adapters/codex/tests/test_orchestrator.py`
+- `adapters/codex/tests/test_orchestration_control.py`
 - Focused tests for any new evidence module.
 - `adapters/codex/drydock/skills/drydock-orchestrate/SKILL.md`
 - Relevant Codex operator documentation and generated scaffold bundle.
@@ -112,6 +203,20 @@ budget, duplicate-call, invalidation, and interruption cases.
   authenticate or attest it.
 - The capability still spans stacked, unsynced deltas until archive; explicit
   scenario supersession is required to avoid contradictory lineage.
+- Structured authority is identifying controller input, not cryptographic proof
+  that the Owner authored it. Codex host, task identity, and the pilot remain
+  in the trusted computing base; the peer cannot strengthen that boundary.
+- A circuit breaker that is too sensitive can stop valid technical iteration.
+  Technical blockers do not increment the procedural-failure counter, but all
+  attempts still consume cumulative objective time, byte, call, phase-entry,
+  and observed-cost limits. One explicit bounded resolution prevents a local
+  defect from permanently stranding the objective without permitting an
+  unbounded reset loop.
+- The workflow record and admission ledger are user-writable local coordination
+  state. Random nonces prevent accidental replay by official executors but do
+  not authenticate the Owner or resist a same-user process that edits state or
+  invokes raw primitives. Drydock SHALL claim gate integrity only inside that
+  trusted computing base.
 
 ## Rollback
 

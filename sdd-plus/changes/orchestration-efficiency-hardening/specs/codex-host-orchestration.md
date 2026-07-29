@@ -8,15 +8,358 @@ LaunchGuardian, hook, integration, or release gates.
 
 ## ADDED Requirements
 
+### Requirement: One objective has one current plan and explicit lineage
+The controller SHALL maintain exactly one current structured technical-plan
+revision for an Owner objective. Objective identity SHALL include an immutable,
+Owner-issued opaque identifier that is independent of editable objective or
+plan prose. Every revision SHALL carry that identifier, the objective contract
+digest, a positive monotonically increasing revision, its own canonical digest,
+and the exact digest it supersedes except for revision one. A replacement whose
+objective identifier or predecessor is missing, stale, or not the current
+identity SHALL fail closed.
+Superseded revisions MAY remain as bounded audit history but SHALL NOT satisfy a
+current peer, mutation, proof, verification, integration, or push gate.
+
+The packet's `plan.md` SHALL be the sole human-readable active plan. Recovery,
+negotiation, and verification artifacts may record history or evidence but
+SHALL NOT silently become competing active plans.
+
+#### Scenario: A stale recovery plan is presented
+- **WHEN** a proposed revision does not name the exact current plan digest
+- **THEN** the controller rejects it before provider or worker spawn and keeps
+  the existing current revision unchanged
+
+#### Scenario: A valid compact revision replaces the current plan
+- **WHEN** the new revision increments by one, names the current digest, and
+  preserves the immutable objective identifier within the same validated Owner
+  authority
+- **THEN** the controller atomically marks the predecessor superseded and the
+  new revision current
+
+#### Scenario: Editable prose is renamed
+- **WHEN** plan or objective prose changes without a new Owner-issued objective
+  identifier
+- **THEN** the controller treats it as a revision of the same objective and
+  retains its cumulative circuit and history
+
+### Requirement: Owner authority is a deterministic preflight contract
+Before any peer, worker, proof, verifier, integration, or push process starts,
+the controller SHALL validate a strict structured authority manifest. The
+manifest SHALL bind the objective digest, immutable Owner-issued objective
+identifier, Owner-action digest, canonical repository root, host task identity,
+exact allowed repository paths, allowed actions, optional exact push remote and
+branch, resource ceilings, and expiry. Unknown fields, wildcard paths,
+non-canonical roots, expired authority, and missing action-specific fields
+SHALL fail closed.
+
+The controller SHALL persist a one-time-use ledger for Owner-action digests
+outside the repository. Objective creation, supersession, blocked-state resume,
+and circuit resolution SHALL atomically consume the exact action digest with
+the transition it authorizes. A consumed digest SHALL NOT authorize another
+transition. Circuit resolution SHALL additionally bind the action to the exact
+opening-snapshot digest.
+
+The current technical plan SHALL declare its required paths, actions, phases,
+resource request, exact canonical packet `plan.md` path, and SHA-256 of that
+file's current bytes. Every declared value SHALL be a subset of the manifest.
+Preflight and every executor admission SHALL re-read that exact repository file
+and refuse when its bytes no longer match. Circuit thresholds SHALL be explicit
+manifest fields; the configurable defaults are two procedural failures, 900
+observed pre-worker seconds, and USD 1.50 observed pre-worker peer spend.
+Claude or another peer may audit technical safety but SHALL NOT grant, widen,
+interpret, or reconcile Owner authority. A manifest digest identifies the
+controller input; it is not cryptographic proof of Owner authorship.
+
+#### Scenario: Plan requests an unapproved checkpoint push
+- **WHEN** the plan names a remote, branch, or push action absent from the
+  authority manifest
+- **THEN** local preflight rejects the plan before a peer call and reports the
+  exact unmatched field
+
+#### Scenario: Authority and plan agree
+- **WHEN** objective, repository, paths, actions, resources, and optional push
+  destination all match or narrow the manifest
+- **THEN** preflight records their canonical digests and no peer call is spent
+  interpreting authority
+
+#### Scenario: Canonical packet plan changes after peer admission
+- **WHEN** the packet's sole active `plan.md` bytes differ from the exact digest
+  in the current structured plan
+- **THEN** the next executor admission refuses before spawn and the stale
+  structured plan remains current only as blocked evidence until explicitly
+  revised
+
+#### Scenario: Owner action is replayed
+- **WHEN** an Owner-action digest already consumed by any objective transition
+  is presented again
+- **THEN** preflight refuses the transition without provider or worker spawn
+
+### Requirement: One workflow state machine owns executor admission
+The controller SHALL expose one workflow surface that owns the ordered phases
+`preflight`, `plan_peer`, `mutation`, `cross_review`, `proof`, `verification`,
+`integration`, optional `push`, and terminal `complete` or `blocked`.
+Success transitions SHALL be atomic and SHALL accept only the immediately
+permitted successor. Failure transitions SHALL be explicit:
+
+- plan-peer blocker plus a valid plan revision returns to `plan_peer`;
+- mutation failure may resume `mutation` only when the admission's
+  pre-mutation candidate is null, the failed executor returns a null candidate
+  digest, and plan identity remains exact; any observed candidate or partial
+  candidate identity requires discard/invalidation before another admission;
+- cross-review, proof, or verification rejection returns to `mutation` and
+  invalidates candidate-dependent downstream evidence;
+- integration failure may resume `integration` only when the exact candidate
+  and every prior gate remain current;
+- push failure may resume `push` only when the exact candidate, clean-tree
+  identity, destination, and remote baseline remain current and the failure is
+  proven not to have updated the remote.
+
+Every blocked transition SHALL record one permitted resume phase and its exact
+preconditions. Resume SHALL require a fresh, one-time Owner action. A plan,
+authority scope, or mechanism change invalidates every phase after `preflight`;
+a candidate change invalidates cross-review, proof, verification, integration,
+and push evidence. The controller SHALL record the exact plan, manifest,
+mechanism, candidate, and required prior-gate digests relevant to each
+transition.
+
+Existing peer, mutation, proof, verifier, integration, and push implementations
+remain separate executors. Every official executor wrapper SHALL atomically
+validate and consume one short-lived admission record before its first
+expensive call or side effect. The record SHALL bind immutable objective ID,
+workflow/run, phase, authority, plan, mechanism, input, required prior gates,
+candidate when one exists, a random nonce, and expiry. A consumed, expired,
+stale, mismatched, or missing record SHALL refuse before spawn or side effect.
+
+These records are controller-enforced coordination under the disclosed
+same-user, user-writable local trusted computing base; they are not signatures
+and do not establish hostile-user integrity. A raw manually invoked primitive
+may remain available to the Owner or same-user process but, absent direct
+tampering with controller state, SHALL NOT advance or satisfy workflow state.
+No push executor is available until a dedicated wrapper also proves exact
+clean candidate, destination, remote baseline, pushed commit, and post-push
+remote identity.
+
+Admission consumption SHALL precede spawn or side effect. A crash after
+consumption burns that admission. After its expiry, the controller MAY record
+the executor attempt as unknown-cost and issue a fresh admission without a new
+Owner action; it SHALL NOT replay the burned nonce. By contrast, a crash after
+an Owner-action digest is consumed but before its transition commits burns the
+Owner action and requires a fresh Owner action.
+
+The locked, atomically replaced workflow record SHALL be the transition commit
+point. Immutable plan bodies SHALL be written before a record points to them.
+Every workflow read SHALL verify that the referenced body exists and matches
+its recorded digest. A missing or mismatched body SHALL fail closed; an
+unreferenced body is an inert orphan and SHALL NOT become current by timestamp
+or directory scan.
+
+The official mutation wrapper SHALL consume its mutation admission before
+worktree creation. After the worker process tree is quiescent, Owner state and
+the Git control surface remain exact, and a second extraction equals the first
+review snapshot, the runner MAY create one commit on the isolated Drydock
+branch. The runner SHALL use pinned Git execution, disabled hooks and signing,
+fixed non-secret candidate identity, and the exact reviewed path set. It SHALL
+then require a clean candidate worktree and compute the current v2 executable
+fingerprint from that exact commit. The worker itself SHALL NOT stage or
+commit. The isolated candidate commit is durable review material; it does not
+move the Owner branch or satisfy cross-review, proof, or verification.
+
+The official integration wrapper SHALL accept only a bounded strict-JSON
+request binding the exact Owner branch and base commit, Drydock candidate
+branch/worktree/commit, packet root, and executable fingerprint. Before
+consuming its integration admission it SHALL prove both worktrees clean, the
+Owner branch still attached at the base, the candidate branch/worktree at the
+admitted descendant commit, and the candidate v2 identity exact. It SHALL
+repeat those checks after consumption, perform only a non-hooked
+fast-forward-only update, and require the Owner checkout to be clean at the
+exact candidate fingerprint afterward. It SHALL NOT push. An integration
+failure is resumable only when the wrapper positively proves the complete
+Owner fingerprint remained unchanged; an updated or unconfirmable Owner state
+is terminal rather than automatically retried or rolled back.
+
+#### Scenario: Pilot attempts mutation after an unproven peer gate
+- **WHEN** the current phase is `plan_peer` and convergence is absent, stale, or
+  bound to another plan digest
+- **THEN** the workflow refuses the mutation transition before worker spawn
+
+#### Scenario: Verified workflow omits push
+- **WHEN** the manifest does not authorize push and integration succeeds
+- **THEN** the workflow may complete locally without inventing or requesting a
+  push phase
+
+#### Scenario: Candidate changes after cross-review
+- **WHEN** any candidate byte changes after cross-review
+- **THEN** the controller invalidates cross-review and every later gate and
+  permits no proof, verification, integration, or push admission
+
+#### Scenario: Official executor receives a replayed admission
+- **WHEN** an executor presents an admission nonce already consumed by another
+  start attempt
+- **THEN** it refuses before provider, worker, command, commit, or push spawn
+
+#### Scenario: Candidate is ready for cross-review
+- **WHEN** official mutation produced a non-empty bounded diff without Owner,
+  Git-control, ignored-path, timeout, or worker-exit failure
+- **THEN** the runner commits exactly that snapshot only on the isolated
+  Drydock branch and returns its clean commit and v2 executable fingerprint
+- **AND** the Owner branch remains at its original commit with `merged: false`
+
+#### Scenario: Owner checkout drifts before integration
+- **WHEN** the Owner HEAD, branch, status, or working-tree fingerprint differs
+  from the admitted integration base
+- **THEN** integration refuses before consuming the admission or moving a ref
+
+#### Scenario: Integration outcome is ambiguous
+- **WHEN** a fast-forward attempt fails and the complete pre-integration Owner
+  fingerprint is not positively proven unchanged
+- **THEN** the workflow becomes terminally blocked and performs no automatic
+  retry, rollback, push, or destructive cleanup
+
+### Requirement: Procedural circuit state survives individual runs
+The controller SHALL maintain objective-level circuit evidence outside the
+repository across every run ID, retry, and phase entry for the same immutable
+objective ID. It SHALL cumulatively count procedural/control failures, phase
+entries and reentries, outbound bytes, directly observed elapsed time, and
+observed provider spend across the complete workflow. Worker start SHALL NOT
+reset, pause, or exclude any counter. Technical peer blockers SHALL NOT be
+mislabeled procedural, but their calls, bytes, elapsed time, phase entries, and
+observed spend still consume the objective circuit.
+
+Manifest circuit thresholds SHALL be explicit and may narrow but SHALL NOT
+exceed controller safety maxima. Opening or closing an individual run SHALL NOT
+reset any objective counter. An open circuit SHALL refuse another official
+executor. Closing it SHALL require a fresh one-time Owner-action digest bound to
+the exact opening-snapshot digest and at least one changed current-plan,
+authority-scope, or controller-mechanism digest. The controller SHALL preserve
+a monotonically increasing circuit-resolution count. At most one resolution is
+permitted for an objective; a later opening is terminal and only an explicitly
+Owner-created successor objective with a new immutable ID and predecessor
+lineage can proceed.
+
+If provider cost or another capacity signal is unavailable, the controller
+SHALL record that axis as unknown rather than zero or enforced. Observable
+time, calls, bytes, phase entries, and known spend remain enforced.
+
+#### Scenario: Owner says continue without a material correction
+- **WHEN** the objective circuit is open and a fresh run carries unchanged
+  plan, authority, and mechanism digests
+- **THEN** the controller refuses the run without provider spend even if a new
+  Owner-action digest exists
+
+#### Scenario: Controller defect is fixed
+- **WHEN** the circuit is open, the mechanism digest changes, and the Owner
+  explicitly authorizes resumption
+- **THEN** the controller records the resolution lineage, consumes the exact
+  action once, preserves cumulative counters and prior runs, increments the
+  resolution count, and resumes only the recorded phase
+
+#### Scenario: Cross-review repeatedly rejects changed candidates
+- **WHEN** mutation and cross-review reenter after worker start
+- **THEN** every entry, elapsed second, outbound byte, and observed provider
+  cost continues accumulating against the same objective circuit
+
+#### Scenario: Circuit opens after its one permitted resolution
+- **WHEN** an objective whose resolution count is one reaches another circuit
+  limit
+- **THEN** it becomes terminally blocked and cannot be reset by a new run,
+  renamed plan, or replayed Owner action
+
+### Requirement: Later peer rounds review bounded technical deltas
+The first plan-peer round SHALL receive the compact current technical plan and
+a machine-generated summary of satisfied control preconditions. A later round
+SHALL receive stable identifiers and text for unresolved technical blockers,
+the exact changed plan fields, and only the bounded context needed to evaluate
+those changes. It SHALL NOT replay complete negotiation history, Owner
+transcripts, or unchanged standard control prose.
+
+The peer verdict schema SHALL include `insufficient_context`. That verdict is
+non-converging and SHALL name the exact additional bounded files, digests, or
+questions needed. Input truncation SHALL force `insufficient_context` or local
+preflight refusal and SHALL NOT produce convergence. Within the configured
+round cap, an insufficient-context verdict is a technical outcome, not a
+procedural failure.
+
+The request SHALL define canonical review input as the exact UTF-8 bytes inside
+its generated boundary, excluding the boundary and surrounding prompt. It
+SHALL declare byte count and SHA-256, and the peer verdict SHALL echo that
+digest. A missing or mismatched echo SHALL make convergence unavailable.
+
+Authority mismatch, invalid phase order, stale plan identity, and local
+resource-envelope impossibility are controller preflight failures and SHALL
+consume no peer call. A peer may reopen a previously closed technical blocker
+only by naming the changed field or dependency that invalidated its closure.
+
+#### Scenario: Round two changes only verifier binding
+- **WHEN** the first verdict has one verifier-binding blocker and the plan
+  changes only the relevant verifier fields
+- **THEN** round two contains that blocker, those changed fields, and bounded
+  verifier context rather than the complete round-one request
+
+#### Scenario: The bounded delta omits a required dependency
+- **WHEN** the peer cannot evaluate a changed field without a named omitted
+  contract or implementation path
+- **THEN** it returns `insufficient_context` with that exact bounded request,
+  convergence remains false, and the controller does not count the result as a
+  procedural transport failure
+
+### Requirement: Codex coordination does not depend on Owner relay
+The normal Codex-hosted workflow SHALL use one Owner-facing task. When a
+separate Codex task is deliberately used, the pilot SHALL use available direct
+task read/send/wait mechanisms and SHALL preserve task identity in workflow
+state. Asking the Owner to copy model output between Codex tasks is a degraded
+fallback, SHALL be disclosed as such, and SHALL NOT be the default operating
+path.
+
+### Requirement: Workflow payload transport is bounded and non-inheriting
+When the host shell cannot deliver the authority/plan payload through stdin,
+the controller SHALL write the payload once under its out-of-tree state root
+and pass only an absolute path plus expected SHA-256 to the child. The child
+SHALL require that path to be a regular non-link file under the canonical state
+root, enforce a byte limit, read once into memory, verify and parse that same
+buffer, recheck file identity, and delete the file. It SHALL NOT place the
+payload body in argv or an inherited environment variable.
+
+On Windows, link/reparse rejection SHALL use metadata from the opened file
+handle plus pre/post file identity rather than trusting a path-only precheck.
+An executor crash may leave an orphan; payloads older than the bounded
+retention window SHALL be reaped only when they are regular non-reparse files
+inside the owned payload directory. A failed consume or reaper deletion SHALL
+be reported rather than ignored.
+
+#### Scenario: Windows shell delivers empty stdin
+- **WHEN** the controller selects file transport for a bounded workflow payload
+- **THEN** the child receives only path and digest metadata, consumes the exact
+  file once, and no provider or worker inherits the payload body
+
+#### Scenario: Payload file is replaced
+- **WHEN** file identity, location, type, size, or SHA-256 differs before or
+  during the bounded read
+- **THEN** the workflow refuses before state transition or provider spawn
+
+### Requirement: Control-plane rollback fails closed
+The workflow-control feature flag SHALL accept only explicit enabled or
+disabled values and SHALL be recorded in workflow evidence. Disabled or
+malformed state SHALL create no governed workflow and SHALL NOT substitute a
+legacy, raw, or unordered executor path.
+
+#### Scenario: Workflow control is disabled
+- **WHEN** the feature flag is explicitly disabled
+- **THEN** workflow creation refuses before consuming Owner authority or
+  starting any provider, worker, proof, verifier, integration, or push action
+
 ### Requirement: Every expensive phase and the whole run have explicit resource envelopes
-The controller SHALL bind each plan-peer, mutation, cross-review, verification,
-and integration phase to a configured envelope containing elapsed-time,
-model-call, outbound-input-byte, and provider-budget ceilings. The controller
-SHALL also enforce cumulative ceilings over the entire run so phase limits
-cannot multiply beyond the Owner's run boundary. It SHALL record actual
-observed values and SHALL represent unavailable token or account usage as
-unknown. Exhaustion SHALL produce a structured stop or advisory-reroute
-decision and SHALL NOT create a PASS or convergence.
+The controller SHALL bind each plan-peer, mutation, cross-review, proof,
+verification, integration, and optional push phase to a configured envelope
+containing applicable elapsed-time, call, outbound-input-byte, and
+provider-budget ceilings. The controller SHALL also enforce cumulative ceilings
+over the immutable objective so phase limits, retries, and new run IDs cannot
+multiply beyond the Owner's boundary. It SHALL record actual observed values
+and SHALL represent unavailable token, cost, or account usage as unknown.
+Exhaustion SHALL produce a structured stop or advisory-reroute decision and
+SHALL NOT create a PASS or convergence.
+
+Every phase envelope SHALL be subordinate to and SHALL NOT raise the cumulative
+objective ceiling on the same axis.
 
 An orchestration run begins when the controller accepts one Owner objective and
 assigns its durable run ID. It spans every controller invocation, subprocess,

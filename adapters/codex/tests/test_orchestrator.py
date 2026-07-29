@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import orchestrator
+import orchestration_control as control
 import orchestration_evidence as evidence
 
 
@@ -141,7 +143,145 @@ def test_peer_call_uses_only_structured_output_tool_and_stdin(
     assert plan not in " ".join(argv)
     assert plan in call["prompt"]
     assert "untrusted DATA" in call["prompt"]
+    assert "Critique only technical correctness" in call["prompt"]
+    assert "does not interpret or widen Owner authority" not in call["prompt"]
+    assert "Do not create or widen those permissions" in call["prompt"]
     assert Path(call["cwd"]) != Path.cwd()
+
+
+def test_official_peer_wrapper_consumes_admission_before_provider_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan_body = b"# exact peer plan\n"
+    (repo / "plan.md").write_bytes(plan_body)
+    state = evidence.state_root(tmp_path / "workflow-state")
+    objective_id = "34" * 16
+    objective_digest = hashlib.sha256(b"peer objective").hexdigest()
+    task_id = "peer-task"
+    owner_action = hashlib.sha256(b"peer owner action").hexdigest()
+    now = time.time()
+    authority = {
+        "allowed_actions": ["peer"],
+        "allowed_paths": ["plan.md"],
+        "circuit_limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "phase_entries": 8,
+            "procedural_failures": 2,
+            "provider_usd": 3.0,
+        },
+        "expires_at": now + 600,
+        "issued_at": now - 10,
+        "limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "peer_rounds": 2,
+            "provider_usd": 3.0,
+        },
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "owner_action_digest": owner_action,
+        "predecessor_objective_id": None,
+        "push": None,
+        "repository_root": str(repo.resolve(strict=True)),
+        "schema_version": control.SCHEMA_VERSION,
+        "task_id": task_id,
+    }
+    plan = {
+        "mode": "FULL",
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "phases": ["preflight", "plan_peer", "complete"],
+        "primary_skill": "drydock-orchestrate",
+        "push": None,
+        "required_actions": ["peer"],
+        "required_paths": ["plan.md"],
+        "resource_request": {
+            "elapsed_seconds": 600,
+            "input_bytes": 32_768,
+            "peer_rounds": 2,
+            "provider_usd": 1.0,
+        },
+        "revision": 1,
+        "schema_version": control.SCHEMA_VERSION,
+        "source_plan_path": "plan.md",
+        "source_plan_sha256": hashlib.sha256(plan_body).hexdigest(),
+        "summary": "Prove peer admission is consumed before provider spawn.",
+        "supersedes": None,
+    }
+    store = control.WorkflowStore(state, objective_id)
+    store.start(authority, plan, expected_task_id=task_id, now=now)
+    review = tmp_path / "review.md"
+    review.write_text("A bounded peer review.", encoding="utf-8")
+    review_bytes = review.read_bytes()
+    review_digest = hashlib.sha256(review_bytes).hexdigest()
+    admission = store.admit(
+        "plan_peer",
+        input_digest=review_digest,
+        input_bytes=len(review_bytes),
+        now=now + 1,
+    )
+    ledger = evidence.RunLedger.start(
+        state,
+        objective_digest=objective_digest,
+        owner_action_digest=owner_action,
+    )
+    log = tmp_path / "peer-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    original_peer = orchestrator.ClaudePeer
+
+    def fake_peer_factory(*args: object, **kwargs: object) -> object:
+        return original_peer(
+            _fake_executable(tmp_path),
+            model=str(kwargs["model"]),
+            timeout=int(kwargs["timeout"]),
+            budget_usd=float(kwargs["budget_usd"]),
+            review_input_bytes=int(kwargs["review_input_bytes"]),
+            invocation_store=kwargs["invocation_store"],
+            run_ledger=kwargs["run_ledger"],
+            candidate_fingerprint=str(kwargs["candidate_fingerprint"]),
+        )
+
+    monkeypatch.setattr(orchestrator, "ClaudePeer", fake_peer_factory)
+    monkeypatch.chdir(repo)
+    argv = [
+        "critique",
+        "--file",
+        str(review),
+        "--round",
+        "1",
+        "--cap",
+        "2",
+        "--run-id",
+        ledger.run_id,
+        "--candidate-fingerprint",
+        "c" * 64,
+        "--state-dir",
+        str(state),
+        "--workflow-objective-id",
+        objective_id,
+        "--workflow-admission-id",
+        str(admission["admission_id"]),
+        "--workflow-phase",
+        "plan_peer",
+        "--workflow-input-digest",
+        review_digest,
+    ]
+    assert orchestrator.main(argv) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["ok"] is True
+    assert store.read()["admission"]["state"] == "consumed"
+    first_calls = len(_log_lines(log))
+
+    assert orchestrator.main(argv) == 1
+    second = json.loads(capsys.readouterr().out)
+    assert second["stage"] == "input_error"
+    assert "consumed" in second["error"]
+    assert len(_log_lines(log)) == first_calls
 
 
 def test_durable_peer_result_is_recovered_without_second_model_call(
@@ -233,6 +373,40 @@ def test_round_cap_returns_unresolved_disagreement_to_owner(
     assert result["loop"]["continue"] is False
     assert result["loop"]["converged"] is False
     assert "return to Owner" in result["loop"]["reason"]
+
+
+def test_insufficient_context_is_nonconverging_technical_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "DRYDOCK_FAKE_CLAUDE_CONTEXT_STATUS", "insufficient_context"
+    )
+    monkeypatch.setenv(
+        "DRYDOCK_FAKE_CLAUDE_REQUIRED_CONTEXT",
+        '["exact transition table digest"]',
+    )
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_CONVERGED", "0")
+    result = orchestrator.NegotiationController(
+        _peer(tmp_path), round_cap=2
+    ).one_round("A bounded delta.", 1)
+    assert result["ok"] is True
+    assert result["critique"]["context_status"] == "insufficient_context"
+    assert result["loop"]["converged"] is False
+    assert result["loop"]["continue"] is True
+    assert "technical outcome" in result["loop"]["reason"]
+
+
+def test_peer_review_input_identity_mismatch_cannot_converge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "DRYDOCK_FAKE_CLAUDE_REVIEW_INPUT_SHA256", "f" * 64
+    )
+    result = _peer(tmp_path).critique(
+        "A bounded delta.", round_number=1, round_cap=2
+    )
+    assert result["ok"] is False
+    assert result["stage"] == "review_input_identity_mismatch"
 
 
 def test_nonzero_or_is_error_overrides_success_subtype(

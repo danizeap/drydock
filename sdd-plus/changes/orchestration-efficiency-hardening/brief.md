@@ -32,6 +32,16 @@ was wasteful:
 The framework has proportional modes but no executable per-phase work budget,
 candidate fingerprint, proof-reuse contract, or duplicate-work guard.
 
+The later Codex-host dogfood exposed a second, more fundamental efficiency
+failure. A one-line, 1,255-byte documentation insertion accumulated a
+505-line plan, 528 lines of negotiation evidence, nine recorded Claude calls,
+and no integrated result. Individual guards failed closed, but the pilot
+manually coordinated independent controller commands and repeatedly created
+new procedural blockers. There is no single machine-owned workflow, no
+structured authority-to-plan preflight, no objective-level circuit breaker
+across closed runs, and no unique current-plan pointer. Safe refusal without a
+bounded route to progress is not an acceptable operating result.
+
 ## Scope
 
 In scope:
@@ -58,6 +68,20 @@ In scope:
   a duplicate call.
 - Record dogfood efficiency with observable counts and timings, not fabricated
   token savings.
+- Replace manual pilot choreography with one deterministic workflow state
+  machine whose transitions are locally validated before provider spend.
+- Bind the workflow to one strict, structured Owner authority manifest. Peer
+  models review technical correctness; they neither interpret nor grant
+  side-effect authority.
+- Preserve exactly one current structured plan revision per Owner objective,
+  with explicit supersession lineage so stale plans remain auditable but cannot
+  satisfy a current gate.
+- Add an objective-level circuit breaker that survives run closure and cannot
+  be reset by opening another run without both explicit Owner action and a
+  material plan, authority, or controller change.
+- Use compact delta review after the first peer round and keep reusable
+  containment, proof, verification, and push controls in controller code rather
+  than repeating them in every task plan.
 
 Out of scope:
 
@@ -99,6 +123,22 @@ Out of scope:
   authenticated evidence.
 - [ ] The final workflow retains independent verification and all existing
   safety gates.
+- [ ] One controller entry point owns preflight, peer planning, mutation,
+  cross-review, proof, verification, integration, optional push, and terminal
+  reporting; an invalid or skipped transition fails before its side effect.
+- [ ] A schema-valid authority manifest is checked locally against the exact
+  plan before any peer or worker process, and a plan cannot request paths,
+  actions, branches, remotes, calls, time, bytes, or spend outside it.
+- [ ] One objective has exactly one current plan revision. Superseded plans are
+  identified as history and cannot satisfy current peer, mutation, proof,
+  verification, integration, or push gates.
+- [ ] Two procedural pre-worker failures, fifteen observed minutes without a
+  worker, or $1.50 of observed peer spend without a worker opens the default
+  circuit. A fresh run alone cannot close it.
+- [ ] Later peer rounds receive the unresolved technical blockers and changed
+  plan fields, not a replay of the complete workflow history.
+- [ ] The Codex operating path uses one Owner-facing task or direct task
+  coordination; manual Owner copy/paste relay is not the default transport.
 
 ## Impact Areas
 

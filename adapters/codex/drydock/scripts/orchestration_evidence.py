@@ -96,7 +96,17 @@ def _atomic_json(path: Path, value: object) -> None:
             stream.write(body)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as exc:
+                if os.name != "nt" or time.monotonic() >= deadline:
+                    raise EvidenceError(
+                        "atomic state replacement remained unavailable"
+                    ) from exc
+                time.sleep(0.005)
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()

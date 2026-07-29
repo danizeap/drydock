@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -61,9 +62,25 @@ def main() -> int:
     if sleep:
         time.sleep(sleep)
     blockers = json.loads(os.environ.get("DRYDOCK_FAKE_CLAUDE_BLOCKERS", "[]"))
+    context_status = os.environ.get(
+        "DRYDOCK_FAKE_CLAUDE_CONTEXT_STATUS", "sufficient"
+    )
+    required_context = json.loads(
+        os.environ.get("DRYDOCK_FAKE_CLAUDE_REQUIRED_CONTEXT", "[]")
+    )
+    identity_match = re.search(
+        r"Drydock review input SHA-256: ([0-9a-f]{64})", prompt
+    )
+    review_input_sha256 = os.environ.get(
+        "DRYDOCK_FAKE_CLAUDE_REVIEW_INPUT_SHA256",
+        identity_match.group(1) if identity_match else "0" * 64,
+    )
     critique: object = {
         "converged": os.environ.get("DRYDOCK_FAKE_CLAUDE_CONVERGED", "1") == "1",
+        "context_status": context_status,
         "overall": "fake peer assessment",
+        "required_context": required_context,
+        "review_input_sha256": review_input_sha256,
         "blocking_concerns": blockers,
         "gaps": [],
         "risks": [],

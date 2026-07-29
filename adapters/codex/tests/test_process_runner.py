@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import orchestration_evidence as evidence
+import orchestration_control as control
 import process_runner
 
 
@@ -67,6 +69,103 @@ def _full_suite_proof(repo: Path) -> dict[str, object]:
         "output_sha256": "b" * 64,
         "authenticated": False,
     }
+
+
+def _runner_workflow(
+    repo: Path,
+    state: Path,
+    *,
+    phases: list[str],
+    actions: list[str],
+) -> tuple[control.WorkflowStore, str]:
+    plan_body = (repo / "plan.md").read_bytes()
+    objective_id = "34" * 16
+    objective_digest = hashlib.sha256(b"runner full workflow").hexdigest()
+    task_id = "runner-full-task"
+    authority = {
+        "allowed_actions": actions,
+        "allowed_paths": ["README.md", "plan.md", "worker.py"],
+        "circuit_limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "phase_entries": 12,
+            "procedural_failures": 2,
+            "provider_usd": 3.0,
+        },
+        "expires_at": time.time() + 600,
+        "issued_at": time.time() - 10,
+        "limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "peer_rounds": 1,
+            "provider_usd": 3.0,
+        },
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "owner_action_digest": hashlib.sha256(
+            b"runner full owner action"
+        ).hexdigest(),
+        "predecessor_objective_id": None,
+        "push": None,
+        "repository_root": str(repo.resolve(strict=True)),
+        "schema_version": control.SCHEMA_VERSION,
+        "task_id": task_id,
+    }
+    plan = {
+        "mode": "FULL",
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "phases": phases,
+        "primary_skill": "drydock-orchestrate",
+        "push": None,
+        "required_actions": actions,
+        "required_paths": ["README.md", "plan.md", "worker.py"],
+        "resource_request": {
+            "elapsed_seconds": 600,
+            "input_bytes": 32_768,
+            "peer_rounds": 1,
+            "provider_usd": 1.0,
+        },
+        "revision": 1,
+        "schema_version": control.SCHEMA_VERSION,
+        "source_plan_path": "plan.md",
+        "source_plan_sha256": hashlib.sha256(plan_body).hexdigest(),
+        "summary": "Exercise official candidate and integration wrappers.",
+        "supersedes": None,
+    }
+    store = control.WorkflowStore(state, objective_id)
+    store.start(authority, plan, expected_task_id=task_id)
+    return store, objective_id
+
+
+def _pass_workflow_phase(
+    store: control.WorkflowStore,
+    phase: str,
+    *,
+    candidate: str,
+) -> None:
+    body = f"{phase} accepted".encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()
+    admission = store.admit(
+        phase,
+        input_digest=digest,
+        input_bytes=len(body),
+        candidate_digest=candidate,
+    )
+    store.consume_admission(
+        phase,
+        admission_id=str(admission["admission_id"]),
+        input_digest=digest,
+        candidate_digest=candidate,
+    )
+    store.finish(
+        phase,
+        admission_id=str(admission["admission_id"]),
+        outcome="passed",
+        evidence_digest=digest,
+        provider_usd=0.0,
+        candidate_digest=candidate,
+    )
 
 
 def test_proof_record_file_is_bounded_and_duplicate_strict(
@@ -140,6 +239,256 @@ def test_mutation_container_is_repo_local_and_must_be_ignored(
     (repo / ".gitignore").write_text("", encoding="utf-8")
     with pytest.raises(process_runner.RunnerError, match="must be ignored"):
         process_runner._worktree_root(repo)
+
+
+def test_official_mutation_wrapper_consumes_admission_before_worktree_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repository(tmp_path)
+    plan_body = b"# exact workflow plan\n"
+    (repo / "plan.md").write_bytes(plan_body)
+    state = tmp_path / "workflow-state"
+    state.mkdir()
+    objective_id = "12" * 16
+    objective_digest = hashlib.sha256(b"runner objective").hexdigest()
+    task_id = "runner-task"
+    authority = {
+        "allowed_actions": ["mutate"],
+        "allowed_paths": ["README.md", "plan.md"],
+        "circuit_limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "phase_entries": 8,
+            "procedural_failures": 2,
+            "provider_usd": 3.0,
+        },
+        "expires_at": time.time() + 600,
+        "issued_at": time.time() - 10,
+        "limits": {
+            "elapsed_seconds": 900,
+            "input_bytes": 65_536,
+            "peer_rounds": 2,
+            "provider_usd": 3.0,
+        },
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "owner_action_digest": hashlib.sha256(
+            b"runner owner action"
+        ).hexdigest(),
+        "predecessor_objective_id": None,
+        "push": None,
+        "repository_root": str(repo.resolve(strict=True)),
+        "schema_version": control.SCHEMA_VERSION,
+        "task_id": task_id,
+    }
+    plan = {
+        "mode": "FULL",
+        "objective_digest": objective_digest,
+        "objective_id": objective_id,
+        "phases": ["preflight", "mutation", "complete"],
+        "primary_skill": "drydock-orchestrate",
+        "push": None,
+        "required_actions": ["mutate"],
+        "required_paths": ["README.md", "plan.md"],
+        "resource_request": {
+            "elapsed_seconds": 600,
+            "input_bytes": 32_768,
+            "peer_rounds": 1,
+            "provider_usd": 1.0,
+        },
+        "revision": 1,
+        "schema_version": control.SCHEMA_VERSION,
+        "source_plan_path": "plan.md",
+        "source_plan_sha256": hashlib.sha256(plan_body).hexdigest(),
+        "summary": "Prove mutation admission is consumed before worktree writes.",
+        "supersedes": None,
+    }
+    store = control.WorkflowStore(state, objective_id)
+    store.start(
+        authority,
+        plan,
+        expected_task_id=task_id,
+    )
+    task = "Update the bounded test fixture."
+    input_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    admission = store.admit(
+        "mutation",
+        input_digest=input_digest,
+        input_bytes=len(task.encode("utf-8")),
+    )
+
+    def refuse_after_consume(*args: object, **kwargs: object) -> object:
+        assert store.read()["admission"]["state"] == "consumed"
+        raise process_runner.RunnerError("stop after admission proof")
+
+    monkeypatch.setattr(process_runner, "_create_worktree", refuse_after_consume)
+    with pytest.raises(process_runner.RunnerError, match="admission proof"):
+        process_runner.mutate(
+            repo,
+            task,
+            "gpt-test",
+            codex_prefix=_prefix(),
+            workflow_objective_id=objective_id,
+            workflow_admission_id=str(admission["admission_id"]),
+            workflow_input_digest=input_digest,
+            workflow_state_dir=state,
+            packet_root=TEST_PACKET_ROOT,
+        )
+    assert store.read()["admission"]["state"] == "consumed"
+
+
+def test_official_candidate_is_committed_then_fast_forwarded_only_by_integration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repository(tmp_path)
+    (repo / "plan.md").write_text("# exact workflow plan\n", encoding="utf-8")
+    _git(repo, "add", "plan.md")
+    _git(repo, "commit", "-m", "add workflow plan")
+    base_commit = _git(repo, "rev-parse", "HEAD")
+    owner_branch = _git(repo, "branch", "--show-current")
+    state = tmp_path / "workflow-state"
+    state.mkdir()
+    phases = [
+        "preflight",
+        "mutation",
+        "cross_review",
+        "proof",
+        "verification",
+        "integration",
+        "complete",
+    ]
+    actions = ["cross_review", "integrate", "mutate", "proof", "verify"]
+    store, objective_id = _runner_workflow(
+        repo,
+        state,
+        phases=phases,
+        actions=actions,
+    )
+    task = "Create the bounded worker candidate."
+    task_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    mutation_admission = store.admit(
+        "mutation",
+        input_digest=task_digest,
+        input_bytes=len(task.encode("utf-8")),
+    )
+    monkeypatch.setenv("DRYDOCK_FAKE_MUTATE", "1")
+
+    mutation = process_runner.mutate(
+        repo,
+        task,
+        "gpt-test",
+        timeout=30,
+        codex_prefix=_prefix(),
+        workflow_objective_id=objective_id,
+        workflow_admission_id=str(mutation_admission["admission_id"]),
+        workflow_input_digest=task_digest,
+        workflow_state_dir=state,
+        packet_root=TEST_PACKET_ROOT,
+    )
+
+    assert mutation["ok"] is True
+    assert mutation["stage"] == "candidate_ready_for_cross_review"
+    assert mutation["merged"] is False
+    assert _git(repo, "rev-parse", "HEAD") == base_commit
+    assert not (repo / "worker.py").exists()
+    candidate = mutation["candidate"]
+    assert isinstance(candidate, dict)
+    candidate_commit = str(candidate["commit"])
+    candidate_digest = str(candidate["executable_surface_sha256"])
+    candidate_worktree = Path(str(mutation["worktree"]))
+    candidate_branch = str(mutation["branch"])
+    assert _git(candidate_worktree, "rev-parse", "HEAD") == candidate_commit
+    assert _git(candidate_worktree, "status", "--porcelain=v1") == ""
+
+    store.finish(
+        "mutation",
+        admission_id=str(mutation_admission["admission_id"]),
+        outcome="passed",
+        evidence_digest=task_digest,
+        provider_usd=0.0,
+        candidate_digest=candidate_digest,
+    )
+    for phase in ("cross_review", "proof", "verification"):
+        _pass_workflow_phase(store, phase, candidate=candidate_digest)
+
+    request = json.dumps(
+        {
+            "base_commit": base_commit,
+            "candidate_branch": candidate_branch,
+            "candidate_commit": candidate_commit,
+            "candidate_digest": candidate_digest,
+            "candidate_worktree": str(candidate_worktree.resolve(strict=True)),
+            "owner_branch": owner_branch,
+            "packet_root": TEST_PACKET_ROOT,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    request_digest = hashlib.sha256(request.encode("utf-8")).hexdigest()
+    with pytest.raises(
+        process_runner.RunnerError,
+        match="only through workflow admission",
+    ):
+        process_runner.integrate(
+            repo,
+            request,
+            workflow_objective_id=None,
+            workflow_admission_id=None,
+            workflow_input_digest=None,
+            workflow_state_dir=state,
+        )
+    assert _git(repo, "rev-parse", "HEAD") == base_commit
+
+    integration_admission = store.admit(
+        "integration",
+        input_digest=request_digest,
+        input_bytes=len(request.encode("utf-8")),
+        candidate_digest=candidate_digest,
+    )
+    dirty_owner = repo / "owner-drift.txt"
+    dirty_owner.write_text("must block before consume\n", encoding="utf-8")
+    with pytest.raises(
+        process_runner.RunnerError,
+        match="Owner working tree is not clean",
+    ):
+        process_runner.integrate(
+            repo,
+            request,
+            workflow_objective_id=objective_id,
+            workflow_admission_id=str(integration_admission["admission_id"]),
+            workflow_input_digest=request_digest,
+            workflow_state_dir=state,
+        )
+    assert store.read()["admission"]["state"] == "issued"
+    dirty_owner.unlink()
+    integrated = process_runner.integrate(
+        repo,
+        request,
+        workflow_objective_id=objective_id,
+        workflow_admission_id=str(integration_admission["admission_id"]),
+        workflow_input_digest=request_digest,
+        workflow_state_dir=state,
+    )
+
+    assert integrated["ok"] is True
+    assert integrated["stage"] == "integrated"
+    assert integrated["merged"] is True
+    assert integrated["pushed"] is False
+    assert _git(repo, "rev-parse", "HEAD") == candidate_commit
+    assert _git(repo, "status", "--porcelain=v1") == ""
+    assert (repo / "worker.py").is_file()
+    completed = store.finish(
+        "integration",
+        admission_id=str(integration_admission["admission_id"]),
+        outcome="passed",
+        evidence_digest=request_digest,
+        provider_usd=0.0,
+        candidate_digest=candidate_digest,
+    )
+    assert completed["status"] == "complete"
 
 
 def test_runner_git_uses_a_pinned_absolute_executable(
