@@ -12,10 +12,10 @@
   returned no critique because the configured provider budget was exhausted.
   The earlier convergence does not cover the current guide preimage or the
   hardened clean-candidate, full-suite-proof verifier flow.
-- 2026-07-29 superseding cycle: explicitly Owner-authorized and not yet
-  started. It must create a new durable run without modifying the prior blocked
-  ledger, at most two peer calls, `$1.50` configured provider ceiling per call,
-  and `$3.00` total peer-phase ceiling.
+- 2026-07-29 superseding cycle: active as new durable run
+  `7156538ebf4a4f0ea4ae283a3bf734bb`. The prior blocked ledger is unchanged.
+  This cycle permits at most two peer calls, `$1.50` configured provider
+  ceiling per call, and `$3.00` total peer-phase ceiling.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
