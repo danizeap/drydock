@@ -70,6 +70,53 @@ the registered postimage is 58,477 bytes, raw SHA-256
 normalized blob `485b450af9729bbfed8d3bef1a136384bb3cb47d`. A fresh
 plan critique must accept these current commitments before any worker starts.
 
+### Current plan-peer result and bounded reconciliation
+
+Governed run `ddb6150558b842c38707e4dbb33b15fd` invoked exact
+`claude-opus-5` once with `review_kind=plan`, `effort=medium`, and the exact
+33,250-byte plan body. The complete outbound input was 35,044 bytes. The call
+finished in 275.63 seconds at provider-reported cost `$0.8736435`; exact Opus
+5 was observed, with a Haiku helper also reported. The schema-valid result was
+`converged: false`, `context_status: insufficient_context`, with three
+blockers. Admission
+`0866e3001be7bae583108cbf140963e9f1597fc27b3ca2067aebd63cf2415451`
+was finished as `insufficient_context`; the workflow is blocked and no worker
+started.
+
+The peer correctly found that the restored hard-wrapped note outpaced the
+current plan's truncated evidence section. Codex therefore re-ran the exact
+installed `commandWindows` and an otherwise identical `-X utf8=1` variant
+against canonical JSON payloads for ASCII, all five cp1252-undefined byte
+witnesses, the five cited Cyrillic/CJK/emoji witnesses, and an em dash.
+Payload lengths and SHA-256 values now appear in the plan's Evidence basis.
+Every locale/UTF-8 pair used identical bytes and exited 0. ASCII and em dash
+allowed in both modes; every other locale payload emitted the generic
+integrity denial and every forced-UTF-8 payload allowed. Runtime SHA-256 before
+and after remained exact `a04cf380...`.
+
+The other requested context was also resolved mechanically. The current Codex
+executable returned exact `codex-cli 0.146.0-alpha.3.1`; preflight now requires
+that output and rehashes the committed note before worktree creation.
+`core.autocrlf=true` comes from
+`C:/Program Files/Git/etc/gitconfig`, not `common/config`; the pinned Git
+environment nulls that system source. Integration is now explicitly the
+official admitted `merge --ff-only` wrapper with an exact LF postimage, never
+`update-ref`. The push uses `-F NUL` plus disabled multiplexing/local-command
+and an explicit remote-command setting, closing the ambient SSH gaps the peer
+identified.
+
+The one-time action for this bounded revision is the earlier still-applicable
+Owner utterance, quoted verbatim:
+
+```text
+starting to see a patern about how we are failing about this and always hitting budgets and we have to redo reviews which is hurtfull by design, anyways yeah lets do it again, idk what else to tell you like at this point I cant lose this work, I cant say fuck it im done, we just gotta keep going so yeah do what you gotta do
+```
+
+Its controller input digest is
+`097358d0efb3983ccad46b574276f89b1f4507a78ae086f10df1fe75ca03bc55`.
+It authorizes continuing the same existing dogfood objective; it does not widen
+paths, destinations, release authority, or the two remaining peer calls.
+
 ## 2026-07-29 execution rebase — Round 1
 
 - Run ID: `73318eaf444b429d952e0fbe09119056`.

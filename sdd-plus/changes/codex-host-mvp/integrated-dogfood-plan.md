@@ -51,12 +51,32 @@ and normalized Git blob SHA-1
   `cp1252`; `PYTHONUTF8` and `PYTHONIOENCODING` were unset. The console code
   page was 437, which is recorded separately rather than conflated with the
   Python locale encoding.
-- Direct installed-definition reproduction against handler `a04cf380...`:
-  current locale mode and an otherwise identical verifier with
-  `-X utf8=1` both allowed ASCII and em-dash payloads. Locale mode denied
-  U+0081 (`c2 81`) and U+008D (`c2 8d`) with the generic integrity reason;
-  forced UTF-8 mode allowed both. Each pair used identical payload bytes and
-  payload SHA-256. Runtime SHA-256 before and after remained
+- Direct installed-definition reproduction against handler `a04cf380...`
+  executed the exact installed `commandWindows` and an otherwise identical
+  command with only `-X utf8=1` added. Each row used identical canonical JSON
+  payload bytes in both modes; every process exited 0. `allow` means empty
+  stdout/stderr, and `deny` means the generic runtime-integrity denial:
+
+  | Witness | UTF-8 | Payload bytes | Payload SHA-256 | Locale | UTF-8 |
+  |---|---|---:|---|---|---|
+  | ASCII | `70 6c 61 69 6e` | 99 | `cd510e10422c86fc10ad577ff3cbe55dd37c2a143fb4fc672848a2bb97743f69` | allow | allow |
+  | U+0081 | `c2 81` | 96 | `719d96b8c7c818e315eeab07f7bbae6840eb9853878b74052df491db5e0c3231` | deny | allow |
+  | U+008D | `c2 8d` | 96 | `dc7330c23dd44507905d4101a4dda38193d2404a4849423324bf2bb7387355dc` | deny | allow |
+  | U+008F | `c2 8f` | 96 | `d7dc683515483fe556b196d0a6efffa4301ec7f311d2ec62cd3a504e90d24c74` | deny | allow |
+  | U+0090 | `c2 90` | 96 | `96ef8ddaf9d0f1077f50df41d8639d2def2f99f62112f0052f255807a70c61b3` | deny | allow |
+  | U+009D | `c2 9d` | 96 | `819d266a91ee1b520e90dbce65c7119b24376c6fdd2e988d9ee854cef191b810` | deny | allow |
+  | U+0401 | `d0 81` | 96 | `3d94ad6a575374826065c34e5d1ebd54f75ed0eeb331fe2a0b2769f49e3a86f7` | deny | allow |
+  | U+044D | `d1 8d` | 96 | `ac71e190b29b2580364d04f3963f509c8993397833a7fc786e248f7058e84290` | deny | allow |
+  | U+4E0D | `e4 b8 8d` | 97 | `d15768f98eea1f1d088d28a14fca39b3361d3aded0b0ed165a9ab73612487662` | deny | allow |
+  | U+1F50D | `f0 9f 94 8d` | 98 | `dfe99c08b0d9154c43e44d9e6cc57b2076b3bcf2efa718d1064678c5ced9df00` | deny | allow |
+  | U+1F601 | `f0 9f 98 81` | 98 | `8293a4e0ee5ab2bb0dac97098c706d1f07199dc47ec90891eedfef66a44be2c6` | deny | allow |
+  | em dash | `e2 80 94` | 97 | `544110551e5ec177016d7da5fd92830efd068c18b69d7d75b81bd4e62b863eee` | allow | allow |
+
+  Locale denials had stdout SHA-256
+  `0293c394b87974cfcf244b0c609689c78854c1579d014c76b4c5691dbafce315`;
+  allowed stdout and every stderr were empty
+  (`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+  Runtime SHA-256 before and after remained
   `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`.
 - Static byte flow is explicit: `build_hooks.py` first decodes through
   `sys.stdin.read()`, then feeds
@@ -72,6 +92,10 @@ and normalized Git blob SHA-1
 - `git check-attr text eol -- docs/AI_OPERATOR_GUIDE.md` reports `text: auto`
   and `eol: lf`; `.gitattributes` is committed with `* text=auto eol=lf`.
   No tracked `.gitmodules` file or configured submodule is present.
+- `git config --show-origin --get core.autocrlf` reports exact system origin
+  `C:/Program Files/Git/etc/gitconfig` and value `true`; it is not a key in
+  `common/config`. The worker/control Git environment nulls system and global
+  config, while the committed `eol=lf` attribute remains authoritative.
 - `scripts/check_sync.py` has an explicit 11-entry `PAIRS` list and does not
   include `docs/AI_OPERATOR_GUIDE.md`; the guide is neither a sync mirror nor a
   generated packet artifact. A one-file guide mutation therefore does not
@@ -278,6 +302,11 @@ launcher forever. Immediately before mutation, Codex records the resolved path
 version `3.14.0`, `stdin_encoding: cp1252`, and `utf8_mode: 0` alongside the
 runtime digest. Any change is recorded and forces a fresh claim review if it
 invalidates the note; absence of a change is not generalized beyond this run.
+The same preflight invokes exact current executable
+`C:\Users\Daniel Paez\AppData\Local\OpenAI\Codex\bin\69066b736e1e17a4\codex.exe`
+with argument `--version` and requires exact output
+`codex-cli 0.146.0-alpha.3.1`. A missing, changed, or nonzero result stops
+before mutation.
 
 The only authorized outward action is a deliberate push of the integrated,
 verified documentation commit to remote `origin`, branch
@@ -298,8 +327,11 @@ additional identity is recorded and blocks until reviewed.
 
 The ambient SSH resolution currently reports `StrictHostKeyChecking ask` and
 `UpdateHostKeys yes`, so the push must not inherit those values. The single
-push invocation pins `BatchMode=yes`, `HostName=github.com`, `User=git`,
-`Port=22`, `ProxyCommand=none`, `ProxyJump=none`,
+push invocation uses `-F NUL`, so ambient `Host`, `Match`, `SetEnv`, and
+`LocalCommand` directives are not loaded, and pins `BatchMode=yes`,
+`HostName=github.com`, `User=git`, `Port=22`, `ProxyCommand=none`,
+`ProxyJump=none`, `ControlMaster=no`, `ControlPath=none`,
+`PermitLocalCommand=no`, `RemoteCommand=none`,
 `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`,
 `GlobalKnownHostsFile=NUL`, the exact resolved identity with
 `IdentitiesOnly=yes`, and the exact existing
@@ -368,10 +400,14 @@ program probe recognition, and Windows tokenization remain follow-ups.
 2. Before mutation, Codex records passing `git diff --check`,
    `python scripts/check_sync.py`, and
    `python scripts/sdd.py verify codex-host-mvp`, plus runtime SHA-256
-   `a04cf380...`, the resolved hook interpreter path/version/encoding above,
+   `a04cf380...`, exact Codex CLI version output, the resolved hook interpreter
+   path/version/encoding above, and a same-buffer SHA-256 recheck of committed
+   `sdd-plus/changes/codex-host-mvp/integrated-dogfood-note.txt` against
+   `5bd5e43b...a69cd`. The worker reads that exact committed note copy from its
+   linked worktree. Preflight also records
    `git check-attr text eol -- docs/AI_OPERATOR_GUIDE.md`, the complete Git
    config allow-list result, and the sanitized effective push URL/SSH
-   destination. The exact clean HEAD after Round-2 evidence is recorded as the
+   destination. The exact clean HEAD after plan evidence is recorded as the
    sole worktree `base_commit`.
    Immediately before worktree creation, Codex asserts
    `git rev-parse <base_commit>:docs/AI_OPERATOR_GUIDE.md` equals
@@ -446,8 +482,15 @@ program probe recognition, and Windows tokenization remain follow-ups.
    reported; no recovery or rollback is needed because integration has not
    occurred.
 9. Only after both verifiers and every pre-integration comparison pass does
-   Codex deliberately fast-forward the clean, unchanged Owner branch from the
-   recorded `base_commit` to the exact twice-verified candidate commit. It then
+   Codex invoke the official admitted `process_runner.py integrate` path. That
+   wrapper consumes the integration admission, repeats its preconditions, and
+   runs pinned Git `merge --ff-only --no-edit --no-stat --no-verify
+   <candidate_commit>` with `merge.autoStash=false`; it does not use
+   `update-ref`. Because the changed guide is materialized under committed
+   `eol=lf`, the expected Owner working-tree file after the fast-forward is the
+   same 58,477 LF bytes and raw SHA-256 `c52301c1...` as the candidate
+   worktree. Any stale index/worktree, CRLF rewrite, or other raw-byte mismatch
+   blocks. It then
    requires the actual Owner `HEAD`, normalized Git blob `485b450...`,
    executable fingerprint, packet-evidence fingerprint, insertion bytes, and
    attributes to equal the verified values. The normalized committed blob is
