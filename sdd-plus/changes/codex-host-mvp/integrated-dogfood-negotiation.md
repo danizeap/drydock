@@ -12,12 +12,15 @@
   returned no critique because the configured provider budget was exhausted.
   The earlier convergence does not cover the current guide preimage or the
   hardened clean-candidate, full-suite-proof verifier flow.
-- 2026-07-29 superseding cycle: active as new durable run
+- 2026-07-29 superseding cycle: closed `blocked` as new durable run
   `7156538ebf4a4f0ea4ae283a3bf734bb`. The prior blocked ledger is unchanged.
   This cycle permits at most two peer calls, `$1.50` configured provider
   ceiling per call, and `$3.00` total peer-phase ceiling.
 - Superseding-cycle Round 1: schema-valid and non-converged with four blockers;
-  one and only one plan-peer call remains.
+  provider-reported cost `$0.949309`.
+- Superseding-cycle Round 2: refused before provider spawn because the proposed
+  38,011-byte input would have exceeded the 65,536-byte cumulative
+  `phase.input_bytes` limit. Gate remained unsatisfied; no retry is authorized.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
@@ -217,6 +220,33 @@ Accepted non-blocking calibration:
   representation; attributes are rechecked at integration.
 - The proof record ultimately trusts the local filesystem and control plane.
 - The planning peer had pasted input, not repository or digest access.
+
+## 2026-07-29 superseding cycle — Round 2 terminal result
+
+- Proposed reviewed clean HEAD:
+  `2fa63fa319c43941acdf5399d288e18b1a30bea9`.
+- Proposed reviewed v2 executable fingerprint:
+  `900eec9d8558cf70b439eac18098725bf904edbe28c16761eaa0df4fb9c79954`.
+- Proposed Round-2 review input: 38,011 bytes.
+- Existing plan-peer usage: 28,159 bytes from Round 1.
+- Proposed cumulative input: 66,170 bytes, 634 bytes above the configured
+  65,536-byte `plan_peer.input_bytes` ceiling.
+- Controller result: exit 1, `stage: envelope_exhausted`, exhausted dimension
+  `phase.input_bytes`, `provider_spawned: false`, `critique_skipped: true`,
+  `pre_mutation_critique.gate_satisfied: false`, workflow
+  `return_to_owner`.
+- Round-2 peer verdict, invocation fingerprint, body digest, model observation,
+  token usage, and provider cost: absent because no provider process started.
+  Absence is not convergence or a zero-cost peer verdict.
+- Durable-ledger terminal usage: one provider call, 28,159 input bytes,
+  `$1.50` configured provider reservation, `$0.949309` observed provider cost;
+  requested Opus cost `$0.941282` plus Haiku helper cost `$0.008027`.
+- Durable run `7156538ebf4a4f0ea4ae283a3bf734bb` was closed `blocked`.
+- No smaller-scope retry was attempted. Although the controller listed
+  `smaller_scope` as a route, the Owner required stop after a failed or
+  unavailable gate and prohibited continuation after an unproven result.
+- Mutation process, worker, linked worktree, cross-review, local candidate
+  commit, proof run, verifier, Owner-branch integration, and push: not started.
 
 ## Round 1
 
