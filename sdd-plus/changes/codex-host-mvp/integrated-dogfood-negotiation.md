@@ -433,3 +433,96 @@ channel was closed, so the output does not establish a remote state change. It
 does establish that zero MCP transport was not proven. The amended plan records
 that residual and retains the exact mutation for cross-review; this correction
 does not widen worker scope or outward authority.
+
+## 2026-07-29 one-call recovery authorization
+
+Current-task authorization position and state:
+
+- Owner-authored turn index: 3 in this current task.
+- Raw user-role turn position: 4, counting the app-delivered repository
+  instruction/context message.
+- At the authorization-record checkpoint, no later Owner-authored message has
+  narrowed or revoked this authorization.
+- Evidence-checkpoint push authorized by this turn completed normally:
+  `origin/codex/orchestration-efficiency-hardening` advanced from
+  `d7f0b12c18524ade073fe5e9d07f55e3441ce285` to exact SHA
+  `15f4894fa360567a215bb5ad061d6a06622ef6df`; a live `ls-remote` confirmed
+  that remote SHA and the local branch was clean and `+0/-0`.
+- Prior durable runs `73318eaf444b429d952e0fbe09119056` and
+  `7156538ebf4a4f0ea4ae283a3bf734bb` remain closed `blocked` and unchanged.
+  The new run is independent; neither prior ledger is reopened, restarted, or
+  passed as `previous_run_id`.
+- Recovery run ID: `9a06a99bef8f40569365a6439f27ebb7`, created as
+  an independent run with no `previous_run_id`.
+- Owner-action digest:
+  `243d7407e444fd64eca1a93df2de0b89887223c26d58a85759c5dd8c34d601ba`
+  over the exact 2,744 UTF-8 bytes in the verbatim authorization block.
+- The exact current plan SHA-256 is
+  `d7b033c17e87d678a0dd4a3e43cf0abfba79709fb3d20e417535657f7d3f6e44`.
+- The pre-record baseline v2 executable fingerprint is
+  `05a8e7a578c28923e10e81af087cf9f8cc59cc8e23f389b439f573d5f9bf0104`.
+
+Verbatim authorizing Owner utterance:
+
+```text
+Owner approval granted for all three recovery actions:
+
+1. Push the current clean evidence checkpoint to:
+   origin/codex/orchestration-efficiency-hardening
+
+   Expected local HEAD before push:
+   15f4894fa360567a215bb5ad061d6a06622ef6df
+
+   Before pushing, confirm the branch, clean tree, exact commit, expected remote,
+   and that no later Owner message narrowed this authorization. Use a normal
+   non-force push and confirm the resulting remote SHA.
+
+2. Start one fresh, independently recorded recovery run for the existing
+   codex-host-mvp dogfood objective. The prior blocked runs remain closed and
+   unchanged; record their lineage rather than attempting to reopen or
+   supersede them.
+
+   This recovery permits exactly ONE focused claude-opus-5 peer call:
+   - phase calls: 1
+   - round cap: 1
+   - provider-reported ceiling: $1.50
+   - cumulative phase input ceiling: 65,536 bytes
+   - timeout: 500 seconds
+
+   Do not repeat the previous Round 1. Review the exact current plan plus the
+   four prior blockers and their reconciliations as a focused convergence
+   review. The complete request must fit the ceiling before provider spawn.
+
+   Keep the terminal result outside the executable repository surface until
+   the reviewed gate is consumed. Do not create an evidence commit that changes
+   the reviewed executable fingerprint before worker launch. If evidence must
+   be recorded first, use only a path positively proven to be non-executable by
+   the current v2 fingerprint mechanism; otherwise stop.
+
+   If the result is absent, malformed, mismatched, non-converged, contains any
+   blocker, exceeds an envelope, or otherwise fails the peer gate, close the run
+   BLOCKED and stop. No second call is authorized.
+
+3. Only if that focused review genuinely converges, continue the existing
+   integrated dogfood plan through isolated mutation, semantic cross-review,
+   exact full-suite proof, both verifier runs, integration checks, clean-tree
+   and preimage checks, and remote verification.
+
+   If every required gate passes, authorize one normal non-force push to:
+   origin/codex/codex-host-mvp-checkpoint
+
+This authorization does not permit force push, another destination, repeated
+peer review, weakened verification, merge to another branch, archive, release,
+publication beyond the two named branch pushes, or deployment.
+
+Return:
+- evidence-checkpoint push result and remote SHA;
+- recovery run ID and Owner-action digest;
+- exact reviewed commit and executable fingerprint;
+- peer input bytes, model, cost, verdict, and blockers;
+- worker/worktree result if started;
+- exact proof fingerprints and suite counts;
+- both verifier verdicts;
+- integration commit and final remote SHA if pushed;
+- remaining packet gates.
+```
