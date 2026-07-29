@@ -280,6 +280,7 @@ def _pass_security_phase(
         elapsed_seconds=1.0,
         process_exit_code=0,
         process_output_sha256=hashlib.sha256(b"output").hexdigest(),
+        owner_checkout_unchanged=True,
         workflow_binding_sha256=control.canonical_digest(
             store.read()["admission"]
         ),

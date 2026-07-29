@@ -1260,6 +1260,7 @@ def test_security_review_store_rejects_stale_replayed_and_tampered_evidence(
         elapsed_seconds=1.0,
         process_exit_code=0,
         process_output_sha256=DIGEST_C,
+        owner_checkout_unchanged=True,
         workflow_binding_sha256=DIGEST_C,
     )
     assert store.acceptance(
@@ -1282,6 +1283,18 @@ def test_security_review_store_rejects_stale_replayed_and_tampered_evidence(
         executable_fingerprint=DIGEST_A,
         workflow_binding_sha256=DIGEST_B,
     )["accepted"] is False
+    stale = store.acceptance(
+        record,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+        now=(
+            float(record["recorded_at"])
+            + evidence.MAX_RESULT_AGE_SECONDS
+            + 1
+        ),
+    )
+    assert stale["accepted"] is False
+    assert "stale" in str(stale["reason"])
     assert store.acceptance(
         record,
         candidate_commit="2" * 40,
@@ -1353,6 +1366,7 @@ def test_security_review_nonzero_exit_cannot_be_accepted(
         elapsed_seconds=1.0,
         process_exit_code=1,
         process_output_sha256=DIGEST_C,
+        owner_checkout_unchanged=True,
     )
 
     acceptance = store.acceptance(
@@ -1362,3 +1376,36 @@ def test_security_review_nonzero_exit_cannot_be_accepted(
     )
     assert acceptance["accepted"] is False
     assert acceptance["workflow_outcome"] == "procedural_failure"
+    forged = json.loads(json.dumps(record))
+    forged["process_exit_code"] = 0
+    forged["acceptance"] = evidence.launchguardian_report_acceptance(
+        _launchguardian_report(target),
+        expected_target=target,
+    )
+    assert store.acceptance(
+        forged,
+        candidate_commit="1" * 40,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+
+
+def test_checked_in_launchguardian_report_satisfies_strict_report_contract() -> None:
+    repository = Path(__file__).resolve().parents[3]
+    report_path = (
+        repository
+        / "reports"
+        / "launchguardian"
+        / "launchguardian-report.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert isinstance(report, dict)
+    target = report.get("target")
+    assert isinstance(target, str)
+
+    acceptance = evidence.launchguardian_report_acceptance(
+        report,
+        expected_target=target,
+    )
+
+    assert acceptance["accepted"] is True
+    assert acceptance["launch_status"] == "APPROVED_WITH_DISPOSITIONS"

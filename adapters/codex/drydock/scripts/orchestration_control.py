@@ -1500,15 +1500,21 @@ class WorkflowStore:
                         raise ControlError(
                             "passing security review candidate is not current"
                         )
-                    security = SecurityReviewStore(
-                        self.root
-                    ).accepted_record(
-                        evidence_digest,
-                        executable_fingerprint=candidate,
-                        workflow_binding_sha256=canonical_digest(
-                            admission
-                        ),
-                    )
+                    try:
+                        security = SecurityReviewStore(
+                            self.root
+                        ).accepted_record(
+                            evidence_digest,
+                            executable_fingerprint=candidate,
+                            workflow_binding_sha256=canonical_digest(
+                                admission
+                            ),
+                        )
+                    except (OSError, EvidenceError) as exc:
+                        raise ControlError(
+                            "passing security review could not validate "
+                            f"its evidence store: {exc}"
+                        ) from exc
                     if security.get("accepted") is not True:
                         raise ControlError(
                             "passing security review lacks accepted "

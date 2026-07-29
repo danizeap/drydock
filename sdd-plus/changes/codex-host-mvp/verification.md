@@ -561,10 +561,11 @@ the local LaunchGuardian/scanner toolchain remains trusted.
 Focused deterministic evidence:
 
 - `test_orchestration_control.py`: 27 passed, 1 skipped.
-- `test_orchestration_evidence.py`: 53 passed.
+- `test_orchestration_evidence.py`: 54 passed.
 - `test_process_runner.py`: 75 passed.
 - `test_orchestrator.py`: 55 passed.
-- Combined exact post-bypass-fix run: 210 passed, 1 skipped in 164.71 seconds.
+- Combined exact post-peer-hardening run: 211 passed, 1 skipped in 150.20
+  seconds.
 - `python scripts/sdd.py verify codex-host-mvp`: artifacts verified, 41
   complete, 3 pending; archive remains unavailable without force.
 - `git diff --check`: exit 0; Git emitted only the existing line-ending
@@ -574,5 +575,18 @@ This is implementation evidence, not independent verification. Peer
 cross-review, a separate verifier, a reproducible disposition-capable
 LaunchGuardian installation, integrated dogfood, and the permitted lifecycle
 actions remain pending.
+
+The bounded Opus implementation cross-review run
+`e0d71ae57c8d4b519aad476090ae6a28` reviewed commit `963c285...` and its exact
+v2 executable fingerprint with 61,716 outbound bytes at an observed provider
+cost of `$0.8440355`. It returned no blocking concern but correctly reported
+`insufficient_context` and did not converge because the bounded package omitted
+surrounding phase-order/admission code and real-report satisfiability evidence.
+Its concrete gaps drove three local corrections: the record key now covers the
+complete stored security result, accepted records have a bounded age, and the
+Owner-checkout drift result is explicit rather than hardcoded. A checked-in
+real `APPROVED_WITH_DISPOSITIONS` report now has a regression proving the strict
+shape and aggregate invariants are satisfiable. Round 2 remains required and
+must receive only the requested bounded context plus this exact correction.
 
 No publication, release, archive, or push is authorized by this evidence.

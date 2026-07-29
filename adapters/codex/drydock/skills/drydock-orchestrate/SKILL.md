@@ -181,7 +181,8 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    non-green. Finish the phase using the returned `security_review.record_key`
    as `--evidence-digest`; the controller reloads that keyed record and raw
    report, binds it to the exact consumed admission and prior gates, and
-   refuses a caller-asserted or replayed PASS without accepted evidence. The
+   refuses an expired, caller-asserted, tampered, or replayed PASS without
+   accepted evidence. The
    scanner process is not host-filesystem write-confined; the
    runner rejects detected Owner-checkout drift and treats the local
    LaunchGuardian/scanner toolchain as trusted rather than claiming prevention

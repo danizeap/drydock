@@ -2278,6 +2278,7 @@ def security_review(
                     elapsed_seconds=elapsed,
                     process_exit_code=process.returncode,
                     process_output_sha256=output_sha256,
+                    owner_checkout_unchanged=True,
                     workflow_binding_sha256=(
                         canonical_digest(workflow_admission)
                         if workflow_admission is not None

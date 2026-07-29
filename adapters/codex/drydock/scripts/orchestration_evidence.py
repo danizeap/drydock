@@ -1767,6 +1767,7 @@ class SecurityReviewStore:
         elapsed_seconds: float,
         process_exit_code: int,
         process_output_sha256: str,
+        owner_checkout_unchanged: bool,
         workflow_binding_sha256: str | None = None,
     ) -> dict[str, object]:
         if not SAFE_DIGEST.fullmatch(executable_fingerprint):
@@ -1782,6 +1783,10 @@ class SecurityReviewStore:
             raise EvidenceError("security elapsed time is invalid")
         if type(process_exit_code) is not int:
             raise EvidenceError("security process exit code is invalid")
+        if type(owner_checkout_unchanged) is not bool:
+            raise EvidenceError(
+                "security Owner-checkout drift result is invalid"
+            )
         _require_digest(process_output_sha256, "security process output digest")
         if workflow_binding_sha256 is not None:
             _require_digest(
@@ -1833,14 +1838,14 @@ class SecurityReviewStore:
             **identity,
             "acceptance": acceptance,
             "elapsed_seconds": float(elapsed_seconds),
-            "owner_checkout_unchanged": True,
+            "owner_checkout_unchanged": owner_checkout_unchanged,
             "process_exit_code": process_exit_code,
             "process_output_sha256": process_output_sha256,
             "recorded_at": time.time(),
             "authenticated": False,
             "provenance_attested": False,
         }
-        key = _digest_bytes(_canonical_json(identity))
+        key = _digest_bytes(_canonical_json(record))
         record["record_key"] = key
         _atomic_json(self.record_root / f"{key}.json", record)
         return record
@@ -1851,6 +1856,7 @@ class SecurityReviewStore:
         *,
         candidate_commit: str,
         executable_fingerprint: str,
+        now: float | None = None,
     ) -> dict[str, object]:
         report_digest = record.get("report_sha256")
         process_exit_code = record.get("process_exit_code")
@@ -1908,20 +1914,25 @@ class SecurityReviewStore:
                 "accepted": False,
                 "reason": "security review identity is absent, stale, or malformed",
             }
-        identity = {
-            "candidate_commit": candidate_value,
-            "command_contract": command_contract,
-            "executable_path": executable_path,
-            "executable_sha256": executable_sha256,
-            "executable_surface_sha256": executable_fingerprint,
-            "fingerprint_version": FINGERPRINT_VERSION,
-            "report_sha256": report_digest,
-            "workflow_binding_sha256": workflow_binding,
+        keyed_record = {
+            key: value for key, value in record.items() if key != "record_key"
         }
-        if _digest_bytes(_canonical_json(identity)) != record_key:
+        if _digest_bytes(_canonical_json(keyed_record)) != record_key:
             return {
                 "accepted": False,
                 "reason": "security review record key is mismatched",
+            }
+        clock = time.time() if now is None else now
+        if (
+            not isinstance(clock, (int, float))
+            or isinstance(clock, bool)
+            or not math.isfinite(float(clock))
+            or float(recorded_at) > float(clock) + 2.0
+            or float(clock) - float(recorded_at) > MAX_RESULT_AGE_SECONDS
+        ):
+            return {
+                "accepted": False,
+                "reason": "security review record is stale or future-dated",
             }
         path = self.report_root / f"{report_digest}.json"
         try:

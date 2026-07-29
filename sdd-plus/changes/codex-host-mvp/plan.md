@@ -84,7 +84,8 @@ Data flow:
 7. `workflow-finish` independently reloads the keyed security record and raw
    report from the external state store and refuses `passed` unless their
    consumed admission, objective, plan, mechanism, prior gates, candidate,
-   command, report, and acceptance bindings remain valid.
+   command, observed process result, report, age, and acceptance bindings
+   remain valid.
 8. Independent verification, integration, and optional push remain downstream.
 
 Permissions and trust: LaunchGuardian is pointed at a fresh materialization and

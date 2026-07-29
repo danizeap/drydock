@@ -460,8 +460,10 @@ Before advancing past `security_review`, it SHALL reload the keyed security
 record and raw report from the external state store, revalidate their record
 key, exact consumed admission (including objective, plan, mechanism, and prior
 gates), candidate fingerprint, fixed command contract, report digest,
-structural acceptance, and non-zero-exit rule, and refuse missing, malformed,
-stale, replayed, or non-accepted evidence.
+observed process result, bounded record age, structural acceptance, and
+non-zero-exit rule, and refuse missing, malformed, stale, future-dated,
+replayed, or non-accepted evidence. The record key SHALL cover every stored
+security-result field other than the key itself.
 
 Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS` with valid LGF configuration,
 zero open blocking findings, and every expected scanner (`gitleaks`, `semgrep`,
