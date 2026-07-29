@@ -143,5 +143,10 @@ orchestration-efficiency-hardening
 - [x] Update source skill and operator guidance with the same-user TCB,
   cumulative circuit, token-burn, unknown-cost, and push-unavailable
   disclosures.
+- [x] Make peer review kind and provider effort explicit, allowlisted,
+  phase-bound, durable-identity inputs instead of hidden prompt/CLI choices.
+- [x] Bound every structured review field and array, keep implementation
+  remediation output minimal, and disclose that accepted-output bounds do not
+  measure hidden provider reasoning.
 - [ ] Re-run focused tests, packet verification, implementation cross-review,
   frozen full required suites, and separate verification before dogfood.

@@ -45,6 +45,10 @@ def _peer(tmp_path: Path, **kwargs: object) -> orchestrator.ClaudePeer:
                 orchestrator.DEFAULT_REVIEW_INPUT_BYTES,
             )
         ),
+        review_kind=str(
+            kwargs.get("review_kind", orchestrator.DEFAULT_REVIEW_KIND)
+        ),
+        effort=str(kwargs.get("effort", orchestrator.DEFAULT_PEER_EFFORT)),
         invocation_store=kwargs.get("invocation_store"),
         run_ledger=kwargs.get("run_ledger"),
         candidate_fingerprint=kwargs.get("candidate_fingerprint"),
@@ -132,6 +136,7 @@ def test_peer_call_uses_only_structured_output_tool_and_stdin(
     call = calls[-1]
     argv = call["argv"]
     assert argv[argv.index("--model") + 1] == "claude-opus-5"
+    assert argv[argv.index("--effort") + 1] == "high"
     assert argv[argv.index("--tools") + 1] == "StructuredOutput"
     assert argv[argv.index("--permission-mode") + 1] == "default"
     assert "--safe-mode" in argv
@@ -147,6 +152,62 @@ def test_peer_call_uses_only_structured_output_tool_and_stdin(
     assert "does not interpret or widen Owner authority" not in call["prompt"]
     assert "Do not create or widen those permissions" in call["prompt"]
     assert Path(call["cwd"]) != Path.cwd()
+    assert result["review_configuration"] == {
+        "effort": "high",
+        "kind": "plan",
+        "ledger_phase": "plan_peer",
+        "structured_output_bounded": True,
+    }
+
+
+def test_implementation_review_uses_requested_effort_and_compact_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "claude-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    result = _peer(
+        tmp_path,
+        review_kind="implementation",
+        effort="medium",
+    ).critique(
+        "Review the exact candidate diff and focused proof.",
+        round_number=1,
+        round_cap=1,
+    )
+    assert result["ok"] is True
+    assert result["review_configuration"] == {
+        "effort": "medium",
+        "kind": "implementation",
+        "ledger_phase": "cross_review",
+        "structured_output_bounded": True,
+    }
+    call = [item for item in _log_lines(log) if item["prompt"]][-1]
+    argv = call["argv"]
+    assert argv[argv.index("--effort") + 1] == "medium"
+    assert "Review kind: implementation." in call["prompt"]
+    assert "keep task_decomposition empty" in call["prompt"]
+    assert "smallest remediation tasks" in call["prompt"]
+
+
+@pytest.mark.parametrize(
+    ("argument", "value", "message"),
+    [
+        ("review_kind", "security", "review kind"),
+        ("effort", "unbounded", "effort"),
+    ],
+)
+def test_invalid_review_controls_refuse_before_peer_spawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    argument: str,
+    value: str,
+    message: str,
+) -> None:
+    log = tmp_path / "claude-log.jsonl"
+    monkeypatch.setenv("DRYDOCK_FAKE_CLAUDE_LOG", str(log))
+    with pytest.raises(orchestrator.OrchestratorError, match=message):
+        _peer(tmp_path, **{argument: value})
+    assert not log.exists()
 
 
 def test_official_peer_wrapper_consumes_admission_before_provider_spawn(
@@ -241,6 +302,8 @@ def test_official_peer_wrapper_consumes_admission_before_provider_spawn(
             timeout=int(kwargs["timeout"]),
             budget_usd=float(kwargs["budget_usd"]),
             review_input_bytes=int(kwargs["review_input_bytes"]),
+            review_kind=str(kwargs["review_kind"]),
+            effort=str(kwargs["effort"]),
             invocation_store=kwargs["invocation_store"],
             run_ledger=kwargs["run_ledger"],
             candidate_fingerprint=str(kwargs["candidate_fingerprint"]),
@@ -313,6 +376,54 @@ def test_durable_peer_result_is_recovered_without_second_model_call(
     assert ledger.read()["usage"]["calls"] == 1
 
 
+@pytest.mark.parametrize(
+    ("first_controls", "second_controls"),
+    [
+        (
+            {"review_kind": "plan", "effort": "high"},
+            {"review_kind": "plan", "effort": "medium"},
+        ),
+        (
+            {"review_kind": "plan", "effort": "high"},
+            {"review_kind": "implementation", "effort": "high"},
+        ),
+    ],
+)
+def test_review_kind_and_effort_are_bound_to_invocation_identity(
+    tmp_path: Path,
+    first_controls: dict[str, str],
+    second_controls: dict[str, str],
+) -> None:
+    root = evidence.state_root(tmp_path / "state")
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest="a" * 64,
+        owner_action_digest="b" * 64,
+    )
+    store = evidence.InvocationStore(root)
+    common = {
+        "invocation_store": store,
+        "run_ledger": ledger,
+        "candidate_fingerprint": "c" * 64,
+    }
+    first = _peer(
+        tmp_path,
+        **common,
+        **first_controls,
+    ).critique("An exact review input.", round_number=1, round_cap=1)
+    second = _peer(
+        tmp_path,
+        **common,
+        **second_controls,
+    ).critique("An exact review input.", round_number=1, round_cap=1)
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert (
+        first["invocation"]["fingerprint"]
+        != second["invocation"]["fingerprint"]
+    )
+
+
 def test_phase_envelope_exhaustion_stops_before_second_model_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -345,6 +456,98 @@ def test_phase_envelope_exhaustion_stops_before_second_model_call(
 def test_peer_schema_stays_within_claude_supported_subset() -> None:
     assert "$schema" not in orchestrator.CRITIQUE_SCHEMA
     assert orchestrator.CRITIQUE_SCHEMA["additionalProperties"] is False
+    properties = orchestrator.CRITIQUE_SCHEMA["properties"]
+    assert (
+        properties["overall"]["maxLength"]
+        == orchestrator.MAX_REVIEW_OVERALL_CHARS
+    )
+    for name in (
+        "blocking_concerns",
+        "gaps",
+        "required_context",
+        "risks",
+        "task_decomposition",
+    ):
+        assert properties[name]["maxItems"] == orchestrator.MAX_REVIEW_ITEMS
+    assert (
+        properties["task_decomposition"]["items"]["properties"]["task"][
+            "maxLength"
+        ]
+        == orchestrator.MAX_REVIEW_TASK_CHARS
+    )
+
+
+def test_maximum_structured_review_leaves_terminal_record_headroom() -> None:
+    item = "i" * orchestrator.MAX_REVIEW_ITEM_CHARS
+    task = {
+        "model_tier": "workhorse",
+        "owner": "codex",
+        "rationale": item,
+        "task": "t" * orchestrator.MAX_REVIEW_TASK_CHARS,
+    }
+    critique: dict[str, object] = {
+        "blocking_concerns": [item] * orchestrator.MAX_REVIEW_ITEMS,
+        "converged": False,
+        "context_status": "insufficient_context",
+        "gaps": [item] * orchestrator.MAX_REVIEW_ITEMS,
+        "overall": "o" * orchestrator.MAX_REVIEW_OVERALL_CHARS,
+        "required_context": [item] * orchestrator.MAX_REVIEW_ITEMS,
+        "review_input_sha256": "a" * 64,
+        "risks": [item] * orchestrator.MAX_REVIEW_ITEMS,
+        "task_decomposition": [task] * orchestrator.MAX_REVIEW_ITEMS,
+    }
+    assert orchestrator.validate_critique(critique) == critique
+    encoded = json.dumps(
+        critique, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    assert len(encoded) < evidence.MAX_TERMINAL_BYTES // 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "overall",
+            "x" * (orchestrator.MAX_REVIEW_OVERALL_CHARS + 1),
+            "overall assessment",
+        ),
+        (
+            "blocking_concerns",
+            ["x"] * (orchestrator.MAX_REVIEW_ITEMS + 1),
+            "blocking_concerns",
+        ),
+        (
+            "task_decomposition",
+            [
+                {
+                    "model_tier": "workhorse",
+                    "owner": "codex",
+                    "rationale": "bounded",
+                    "task": "x"
+                    * (orchestrator.MAX_REVIEW_TASK_CHARS + 1),
+                }
+            ],
+            "task decomposition",
+        ),
+    ],
+)
+def test_peer_validation_enforces_structured_output_bounds(
+    field: str, value: object, message: str
+) -> None:
+    critique: dict[str, object] = {
+        "blocking_concerns": [],
+        "converged": True,
+        "context_status": "sufficient",
+        "gaps": [],
+        "overall": "bounded",
+        "required_context": [],
+        "review_input_sha256": "a" * 64,
+        "risks": [],
+        "task_decomposition": [],
+    }
+    critique[field] = value
+    with pytest.raises(orchestrator.OrchestratorError, match=message):
+        orchestrator.validate_critique(critique)
 
 
 def test_converged_flag_with_blockers_is_not_trusted(

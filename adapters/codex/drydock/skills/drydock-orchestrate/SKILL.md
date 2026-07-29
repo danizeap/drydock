@@ -59,12 +59,15 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
 5. Compute the exact candidate with `scripts/orchestrator.py fingerprint`.
    Draft the smallest complete plan and send it on stdin to
    `scripts/orchestrator.py critique` with the run ID, executable-surface
-   fingerprint, objective-property flags, and configured phase input/budget
-   ceilings. Never put plan content or credentials in command-line arguments.
+   fingerprint, `--review-kind plan`, an allowlisted `--effort`,
+   objective-property flags, and configured phase input/budget ceilings.
+   Never put plan content or credentials in command-line arguments.
    The controller refuses an oversized request before any Claude process,
    reserves both phase and run envelopes before the model call, and records
    elapsed time, call count, input bytes, known provider cost, and unknown
-   token/account usage honestly.
+   token/account usage honestly. Review kind and requested effort are part of
+   durable invocation identity and evidence; they are not evidence of observed
+   provider reasoning volume.
 6. Admit every executor phase through `workflow-admit`, pass that exact
    admission to the official executor wrapper so it is atomically consumed
    before provider spawn or side effect, and complete it through
@@ -100,6 +103,8 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    non-converging, names exact additional bounded context, and is a technical
    outcome rather than a procedural failure. Every critique echoes the SHA-256
    of the exact canonical UTF-8 review bytes; a mismatch cannot converge.
+   Structured review fields and arrays have hard accepted-output bounds. A
+   schema violation is malformed and non-converging, never silently truncated.
 8. Equivalent peer calls are single-flight. A live call attaches/reports; a
    fresh eligible terminal body recovers; an interrupted or stale call never
    restarts automatically. Terminal bodies are canonicalized, secret-screened,
@@ -131,7 +136,13 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    one clean isolated candidate commit with a v2 executable fingerprint. The
    worker still cannot stage or commit, and the Owner branch is unchanged.
 13. Treat worker test claims as untrusted. Cross-review the exact isolated
-   candidate commit, then
+   candidate commit with `--review-kind implementation`; use an explicitly
+   allowlisted effort such as `medium` when the bounded implementation review
+   does not need high-effort architecture generation. An implementation
+   verdict requests no task decomposition when it has no blocker and only
+   minimal remediation tasks when it does. This reduces requested
+   reasoning/output pressure without changing sufficient-context, exact-input,
+   zero-blocker, or convergence gates. Then
    run `scripts/process_runner.py verify` against the exact intended tree with
    the active `--packet-root` and the exact `--proof-record` emitted by the
    frozen `full_required_suite` run. Before provider spawn, the parent runner

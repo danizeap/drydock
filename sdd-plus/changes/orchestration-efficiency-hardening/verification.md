@@ -653,5 +653,29 @@ NOT ARCHIVED, RELEASED, INSTALLED, OR READY FOR DOGFOOD.
   emitted. The two-call cap was exhausted, the run was closed `blocked`, and
   no third call was started. These observations show that input partitioning
   alone does not bound high-effort reasoning/output cost.
+- [x] Corrected that observed failure mechanism before another provider call.
+  Peer invocations now accept only explicit review kinds
+  (`plan`/`implementation`) and CLI effort values
+  (`low`/`medium`/`high`/`xhigh`/`max`). Official workflow phases bind
+  `plan_peer` to plan review and `cross_review` to implementation review.
+  Review kind, requested effort, and selected resource-ledger phase enter the
+  durable invocation identity and result evidence.
+- [x] Added hard accepted-output bounds for the overall assessment, every
+  blocker/gap/risk/context item, task text and rationale, and all arrays.
+  Implementation review requests an empty decomposition when no blocker exists
+  and only minimal remediation tasks otherwise. This does not claim to measure
+  or cap hidden provider reasoning, account usage, or every provider-side cost.
+- [x] Focused peer-adapter verification with bytecode and pytest cache writes
+  disabled returned `55 passed in 17.85s`. It proves explicit medium-effort
+  argv routing, review-kind prompts and ledger phases, durable fingerprint
+  separation for both controls, pre-spawn refusal of unsupported controls, and
+  runtime enforcement of structured-output bounds. Its maximum-shape
+  regression keeps the encoded critique below half of the 64 KiB durable
+  terminal-record ceiling, leaving space for result metadata.
+- [x] The combined focused control-plane, peer-wrapper, evidence, and
+  process-runner suite then returned
+  `188 passed, 1 skipped in 137.66s`. The skip remains the unavailable Windows
+  symlink privilege case; the real junction/reparse regression passed and no
+  positive symlink result is inferred.
 - [ ] Independently cross-review and verify the converged implementation before any
   mutation dogfood, integration, push, archive, release, or installation claim.

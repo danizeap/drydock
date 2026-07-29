@@ -284,6 +284,22 @@ its generated boundary, excluding the boundary and surrounding prompt. It
 SHALL declare byte count and SHA-256, and the peer verdict SHALL echo that
 digest. A missing or mismatched echo SHALL make convergence unavailable.
 
+Every peer invocation SHALL carry an allowlisted review kind and provider
+effort. The official `plan_peer` phase SHALL accept only a plan review and the
+official `cross_review` phase SHALL accept only an implementation review.
+Review kind and effort SHALL enter durable invocation identity and result
+evidence so a cached or active call with different controls is not equivalent.
+An unsupported value or phase/kind mismatch SHALL fail before provider spawn.
+
+The structured verdict schema SHALL bound the overall assessment, every
+blocker/gap/risk/context item, task text and rationale, and every array.
+Implementation review SHALL request an empty task decomposition when no
+blocker exists and only minimal remediation tasks when blockers exist. These
+bounds limit accepted structured output; they SHALL NOT be described as a
+measurement or hard ceiling on provider-side reasoning, hidden tokens, or
+total account usage. Requested effort is a provider control and SHALL be
+reported as requested configuration rather than observed reasoning volume.
+
 Authority mismatch, invalid phase order, stale plan identity, and local
 resource-envelope impossibility are controller preflight failures and SHALL
 consume no peer call. A peer may reopen a previously closed technical blocker
@@ -301,6 +317,19 @@ only by naming the changed field or dependency that invalidated its closure.
 - **THEN** it returns `insufficient_context` with that exact bounded request,
   convergence remains false, and the controller does not count the result as a
   procedural transport failure
+
+#### Scenario: Implementation review selects a lower bounded effort
+- **WHEN** the controller admits an implementation cross-review with allowlisted
+  `medium` effort
+- **THEN** the CLI receives that exact effort, the invocation fingerprint and
+  evidence bind it, and all digest, context, blocker, and convergence gates
+  remain unchanged
+
+#### Scenario: Review output attempts to exceed its schema
+- **WHEN** the peer returns more items or text than the structured verdict
+  contract allows
+- **THEN** the result is malformed and non-converging rather than truncated or
+  accepted as partial evidence
 
 ### Requirement: Codex coordination does not depend on Owner relay
 The normal Codex-hosted workflow SHALL use one Owner-facing task. When a

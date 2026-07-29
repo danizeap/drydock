@@ -126,7 +126,13 @@ budget, duplicate-call, invalidation, and interruption cases.
     call. Add `insufficient_context` as a non-converging technical verdict that
     names the exact bounded files, digests, or questions required. Truncation
     forces that verdict; it cannot produce convergence or be relabelled a
-    procedural transport failure.
+    procedural transport failure. Bind an allowlisted review kind and provider
+    effort into invocation identity and evidence. Plan-peer admissions accept
+    only plan review and cross-review admissions accept only implementation
+    review. Bound every structured verdict field and array, request no
+    implementation task decomposition when there is no blocker, and disclose
+    that schema bounds constrain accepted output rather than measuring hidden
+    provider reasoning or account usage.
 14. Add one workflow CLI surface that validates and advances the state machine.
     Each official peer, mutation, cross-review, proof, verifier, integration,
     and push wrapper must atomically validate and consume a short-lived,

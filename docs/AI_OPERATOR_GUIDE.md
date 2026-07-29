@@ -168,6 +168,23 @@ not a process-launch interlock. The mutating runner or pilot must inspect it
 and refuse to start a worker when a required critique has
 `gate_satisfied: false`; the peer controller itself never launches workers.
 
+Peer calls make review type and requested provider effort explicit. Official
+`plan_peer` admissions use `--review-kind plan`; official `cross_review`
+admissions use `--review-kind implementation`. The allowlisted `--effort`
+value and review kind are included in durable invocation identity and result
+evidence, so changing either cannot recover or attach to a differently
+configured call. Implementation cross-review may request `medium` effort when
+the bounded evidence does not require high-effort architecture generation.
+That routing change does not relax the sufficient-context, exact-input-digest,
+zero-blocker, or explicit-convergence gates.
+
+The structured verdict limits every text field and array. Implementation
+review asks for no task decomposition when no blocker exists and only minimal
+remediation tasks otherwise. These are accepted-output bounds, not a claim
+that Drydock measures or caps hidden provider reasoning tokens, total account
+usage, or every provider-side cost. A schema violation is malformed and
+non-converging.
+
 Codex-hosted orchestration now has one objective-level workflow record outside
 the repository. The packet's `plan.md` is the only human-readable active plan.
 A compact structured plan carries an increasing revision and exact predecessor
