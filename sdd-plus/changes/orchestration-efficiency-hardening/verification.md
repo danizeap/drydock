@@ -481,6 +481,17 @@ orchestration-efficiency-hardening
   evidence. The exact schema-valid PASS summary is recorded in
   `codex-final-verifier.json`; the runner declares
   `epistemic_independence: false`.
+- [x] Final post-verdict governance-state checkpoint: exact clean HEAD
+  `4bccd1312c561c02f2eda7bb752fc4586a8319a5` retained v2 executable
+  fingerprint
+  `b0f6cff44dfae8db561149ec9bf0f1b45d2479a570000076baefcc3547c981d6`
+  while the non-self-inclusive packet-evidence-parent fingerprint became
+  `72842e7ce8b8b53947726e539514b81bb7200e135268c82eab8b108897ce4c99`
+  after the final task checkboxes and PASS evidence were committed. Canonical
+  task projection and reuse eligibility remained true, with no tracked
+  bytecode, ignored code-injection path, or invalid packet evidence. This
+  lifecycle-evidence transition does not rewrite the verifier's earlier exact
+  state binding or claim that packet evidence authenticates itself.
 
 ## Documentation Updates
 
