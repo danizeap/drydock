@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from orchestration_evidence import (
+    EvidenceError,
     final_suite_acceptance,
     repository_fingerprints,
 )
@@ -214,6 +215,22 @@ def _proof_record_body(record: Mapping[str, object]) -> tuple[str, str]:
     if len(encoded) > MAX_PROOF_RECORD_BYTES:
         raise RunnerError("proof record exceeds the input byte bound")
     return body, hashlib.sha256(encoded).hexdigest()
+
+
+def _candidate_fingerprints(
+    repo: Path,
+    *,
+    packet_root: str,
+) -> dict[str, object]:
+    try:
+        return repository_fingerprints(
+            repo,
+            packet_root=packet_root,
+        )
+    except EvidenceError as exc:
+        raise RunnerError(
+            f"proof candidate could not be computed: {exc}"
+        ) from exc
 
 
 def _lease_deadline_and_grace(
@@ -1840,7 +1857,7 @@ def verify(
         raise RunnerError(f"timeout must be between 1 and {MAX_TIMEOUT} seconds")
     repo = canonical_repo(repo)
     before = repository_fingerprint(repo)
-    candidate_before = repository_fingerprints(
+    candidate_before = _candidate_fingerprints(
         repo,
         packet_root=packet_root,
     )
@@ -1976,7 +1993,7 @@ def verify(
                 _terminate_process_tree(process)
         assert process is not None
         windows_job_lifetime_contained = os.name == "nt"
-        candidate_after = repository_fingerprints(
+        candidate_after = _candidate_fingerprints(
             repo,
             packet_root=packet_root,
         )

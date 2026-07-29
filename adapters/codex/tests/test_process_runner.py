@@ -83,6 +83,46 @@ def test_proof_record_file_is_bounded_and_duplicate_strict(
         process_runner._read_proof_record(path)
 
 
+def test_verify_cli_returns_structured_error_for_invalid_packet_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = _repository(tmp_path)
+    proof_path = tmp_path / "proof.json"
+    proof_path.write_text(
+        json.dumps(_full_suite_proof(repo)),
+        encoding="utf-8",
+    )
+    log = tmp_path / "verify-log.json"
+    monkeypatch.setenv("DRYDOCK_FAKE_LOG", str(log))
+
+    exit_code = process_runner.main(
+        [
+            "verify",
+            "--repo",
+            str(repo),
+            "--prompt",
+            "do not spawn for an invalid packet root",
+            "--model",
+            "gpt-test",
+            "--packet-root",
+            "../escape",
+            "--proof-record",
+            str(proof_path),
+            "--timeout",
+            "30",
+        ]
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert result["ok"] is False
+    assert result["stage"] == "blocked"
+    assert "canonical repository-relative path" in result["error"]
+    assert not log.exists()
+
+
 def test_process_identity_is_exact_for_current_process() -> None:
     state, identity = process_runner.process_identity_state(os.getpid())
     assert state == "alive"

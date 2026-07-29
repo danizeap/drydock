@@ -284,6 +284,20 @@ orchestration-efficiency-hardening
   `test_orchestrator.py`, and `test_orchestration_evidence.py`, with
   `PYTHONDONTWRITEBYTECODE=1` and pytest cache disabled. No adapter/legacy/parity
   full suite was run.
+- [x] Claude's focused re-review of
+  `fe2ffd004da1a04bc4a43101a726f31f257f0632..3df92236365b51249e38fa5b4ae039ab49489119`
+  reproduced 147 focused passes, packet/diff/schema checks, and returned
+  `converged: true` with no blocking concern. It confirmed both round-ten
+  blockers closed by mechanism. The exact result is recorded as
+  `claude-architecture-review-round-11.json`; it does not authenticate itself,
+  freeze the candidate, or satisfy final verification.
+- [x] The one non-blocking round-eleven required change is remediated:
+  `EvidenceError` from candidate fingerprinting is converted to `RunnerError`,
+  so malformed `--packet-root` input returns structured `{ok:false,
+  stage:"blocked"}` instead of a traceback. A focused CLI regression plus the
+  proof/verifier set passed `21 passed`; it also proves the fake provider log
+  is never created. The complete focused orchestration set then passed
+  `148 passed in 101.99s`; no adapter/legacy/parity full suite was run.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates

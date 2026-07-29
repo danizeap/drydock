@@ -75,8 +75,10 @@ orchestration-efficiency-hardening
   the user-writable record's unauthenticated, insufficient status.
 - [x] Narrow effective-environment claims, credit `inherit="core"`, and record
   a live point-in-time effective-environment probe.
-- [ ] Obtain focused implementation re-review convergence on the verifier
+- [x] Obtain focused implementation re-review convergence on the verifier
   remediation.
+- [x] Convert malformed packet-root evidence errors into the runner's structured
+  blocked result and prove the provider does not start.
 - [ ] Re-freeze the executable candidate and run one replacement full required
   suite on its exact v2 fingerprint.
 - [ ] Obtain final separate verification against the remediated frozen
