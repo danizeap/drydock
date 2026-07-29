@@ -625,4 +625,27 @@ that remain open after termination. The corrected focused run reports 214
 passed and 1 skipped in 143.44 seconds. A new frozen proof, peer review, and
 separate verifier verdict are required; the failed verdict cannot be reused.
 
+The first bounded Claude remediation review
+`786e0794a76349f1915e56d8591b81c4` received 56,906 outbound bytes at
+`$1.41089` observed provider cost and stopped non-converged because its
+one-call packet omitted the exact store-precedence and timeout call-site
+context. Its two stated blockers were reconciled rather than waived: source
+inspection showed the timeout path already measured liveness and checkout
+identity before recording, and the non-zero-exit override already applied only
+to an otherwise accepted report. The follow-up nevertheless made those
+measurements explicit in the stored call, added stage/process
+cross-consistency, normalized empty finding gates, and added blocked-plus-
+nonzero, live-process, checkout-drift, and bidirectional outcome-mismatch
+regressions.
+
+A fresh one-call peer run `211a1449507d4bf79daa600a7d42c17d` reviewed exact
+commit `90aa205219f0defba1ec649d7dd025f31b8c0199` and executable fingerprint
+`84b4df9b564c4418e0d42b75816f4af33d0b3be8c7d2f6e3485843a7cc714ea1`.
+It received the exact source bodies the prior review requested plus the
+targeted test diff. The observed `claude-opus-5` call used 53,943 outbound
+bytes and `$1.087367`, returned `context_status: sufficient`,
+`converged: true`, and zero blocking concerns. Its schema-valid summary is
+`claude-architecture-review-round-2.json`. This closes peer cross-review only;
+a fresh full-suite proof and separate verifier remain required.
+
 No publication, release, archive, or push is authorized by this evidence.

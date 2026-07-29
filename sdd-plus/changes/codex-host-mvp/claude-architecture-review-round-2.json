@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": true,
+  "overall": "Both concerns from the insufficient-context remediation review are closed by candidate 90aa205219f0defba1ec649d7dd025f31b8c0199. The timeout path measures exact process liveness and recomputes Owner-checkout identity before writing candidate-preserving procedural evidence; the store then revalidates the started-process shape and stage consistency. A blocking report with a non-zero process exit remains technical because the non-zero-exit procedural override applies only to an otherwise accepted report, and write-time and replay-time acceptance must remain identical. Outcome mismatch tests cover procedural evidence presented as passed or technical, and aggregate, empty-gate, stage-consistency, liveness, and checkout-drift regressions remain fail closed. The review does not establish release readiness, authentication, host write confinement, or publication/install.",
+  "blocking_concerns": [],
+  "gaps": [
+    "The supplied bounded packet did not include the complete stage predicate, though write-time and replay-time contradiction tests covered the reviewed timeout case.",
+    "The report-acceptance body was outside this second bounded packet; the review relied on the earlier aggregate review plus the stated real-report regression.",
+    "The security-review exception tail was truncated, so boundary-unsafe suppression of procedural records was evidenced by the focused drift and liveness regression assertions.",
+    "Procedural records bind the executable fingerprint and workflow admission but only format-check the stored candidate commit.",
+    "The liveness regression used the conservative string present while the real function returns alive, absent, or uncertain; both non-absent values fail closed.",
+    "The one skipped focused test and full platform matrix were outside the bounded peer evidence."
+  ],
+  "risks": [
+    "Hosts without a usable process identity source can degrade liveness to uncertain and block every security review.",
+    "Scanner stdout and stderr remain buffered without an explicit byte ceiling, so a hostile or excessively chatty scanner can consume local memory.",
+    "A boundary-unsafe ending consumes the admission but deliberately writes no candidate-preserving evidence, requiring operator recovery.",
+    "Replay revalidates report and command self-consistency after the temporary proof root is gone; same-user state remains cooperative identity rather than authentication.",
+    "If process identity construction ever returned null instead of raising, the main path would fail with an unstructured exception rather than a false accept."
+  ],
+  "required_changes": []
+}
