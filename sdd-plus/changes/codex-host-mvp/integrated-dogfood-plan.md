@@ -17,23 +17,24 @@ The note is frozen before mutation. The worker must copy it verbatim without
 paraphrasing, reflowing, or editing adjacent prose. `.gitattributes` pins
 `docs/AI_OPERATOR_GUIDE.md` to LF even though the Owner's `core.autocrlf` is
 true. The comparison basis is the committed LF blob content with no BOM.
-The frozen note is 1,255 ASCII bytes with one terminal LF, no CR, and SHA-256
-`950be9d72a83dbe662737f855621cb5a02fde4231a70b09f56673373e7991e65`.
+The frozen note is 1,847 ASCII bytes across 25 hard-wrapped lines, with a
+maximum line length of 77, one terminal LF, no CR, and SHA-256
+`5bd5e43b85a0cdf1e28923cb36e96d5adc2660d2ca085dc218a65074b91a69cd`.
 
 The exact splice is pre-registered against committed guide preimage blob
-`cba390733d524eeaea518b8b7372ad7d06d9f7bb` (48,968 LF-only bytes, raw
-SHA-256 `0321b034d8e9b3b7939560f0c75ff4d056ad2b5dcd7d03ecea8f482d2ffa1dff`).
+`26d659a4e654a02ec9be5cb96f0ddcc750cb6235` (56,629 LF-only bytes, raw
+SHA-256 `a9323e8af7d5b951dd00f48034aa568434bc2c46e234f3fd2912e1d6cd5467fc`).
 The unique `Readiness may call` anchor begins at byte offset 12,413 and is
 already preceded by `0a 0a`. Immediately before that anchor, the worker inserts
-the 1,255 frozen note bytes followed by one additional `0a`; the 1,256-byte
+the 1,847 frozen note bytes followed by one additional `0a`; the 1,848-byte
 insertion therefore has SHA-256
-`7c9e5c45e0de3fb0e4cd71ab0dd020f9af1e721d96c887952a807d25104f349e`.
+`322ef737828046fa7d704b221b9cc2f7419a359a19e8e81bc64b724796677396`.
 The note's terminal `0a` plus the added `0a` form the blank line after it; the
 existing two `0a` bytes form the blank line before it. The expected
-post-mutation linked-worktree file is 50,224 LF-only bytes with raw SHA-256
-`70ec25349799865c9596ea413156f53f20a2937e3690573d2737996f158ae29c`
+post-mutation linked-worktree file is 58,477 LF-only bytes with raw SHA-256
+`c52301c17ef6babe57fbaa9d71f0828587ccc83cb1b828b5fa9d26551d55ce3b`
 and normalized Git blob SHA-1
-`0093b7d1602e5e1b9ffbb3947d34d128eb87f74e`.
+`485b450af9729bbfed8d3bef1a136384bb3cb47d`.
 
 ## Evidence basis
 
@@ -76,14 +77,14 @@ and normalized Git blob SHA-1
   generated packet artifact. A one-file guide mutation therefore does not
   conflict with the sync gate.
 - The Owner checkout's clean on-disk guide preimage is a mixed-EOL
-  representation (49,217 bytes, raw SHA-256
-  `23276c3e9e71ccc31da76b038479fe1fe2640a5e6f121d8df62e0a05453e22c7`)
+  representation (56,878 bytes, raw SHA-256
+  `8304f1a1f16c7b42245a7456073b5410acc8fb161ff24f7ae6a3078602b1adf7`)
   of the same normalized blob. Worker acceptance uses the LF-only linked
   worktree commitment above. Integration acceptance separately requires the
   exact inserted block and the expected normalized blob; it does not
   misdescribe pre-existing working-tree EOL representation as mutation drift.
-- The prior frozen preimage `31b5995c...a7f` is stale because later reviewed
-  orchestration-efficiency commits appended 99 lines after the unchanged
+- The prior rebased preimage `cba39073...7bb` is stale because later reviewed
+  orchestration-efficiency hardening changed the guide after the unchanged
   insertion anchor. The note remains absent, the unique anchor remains at byte
   offset 12,413, and the current preimage/postimage values above were
   recomputed from exact committed blob bytes. No worker may start until a fresh
@@ -96,10 +97,9 @@ and normalized Git blob SHA-1
 - The stable anchor is deliberately splice-driven. Its location is not the
   ideal narrative home for the limitation, but changing the already frozen
   bytes or anchor would invalidate the registered splice and consume another
-  review cycle. The one-long-line form is also deliberate: it is the frozen
-  artifact, not transport reflow. Packet evidence records both dispositions
-  and leaves any later relocation or hard-wrapping to a separately governed
-  follow-up.
+  review cycle. The hard wrapping is the peer-corrected frozen artifact, not
+  transport reflow. Packet evidence records that disposition and leaves any
+  later relocation to a separately governed follow-up.
 - The host/version tuple is point-in-time evidence even though the frozen
   paragraph carries no calendar date. It is bound here to this packet, the
   final `base_commit`, and the pre-mutation interpreter/runtime recheck; it is
@@ -157,6 +157,15 @@ cross-review peer. The mutation runs through
 `adapters/codex/drydock/scripts/process_runner.py mutate` in its dedicated
 worktree. The worker result is a non-green handoff until deliberate
 cross-review and a separate `process_runner.py verify` verdict.
+
+The current recovery uses one compact `claude-opus-5` planning critique with
+`review_kind=plan`, `effort=medium`, a 500-second timeout, a $1.50
+provider-reported ceiling, and no automatic second round. A schema-valid
+non-converged result, transport failure, model mismatch, malformed output, or
+budget refusal stops before mutation. The post-mutation peer call is separate:
+one compact exact-diff critique with `review_kind=implementation`,
+`effort=medium`, the same per-call timeout and ceiling, and no automatic retry.
+These are independent required gates, not two rounds of the same phase.
 
 The runner requests empty MCP servers, disabled web search and network-enabled
 features, ignored repository rules, disabled plugin/app/browser/computer-use
@@ -366,26 +375,26 @@ program probe recognition, and Windows tokenization remain follow-ups.
    sole worktree `base_commit`.
    Immediately before worktree creation, Codex asserts
    `git rev-parse <base_commit>:docs/AI_OPERATOR_GUIDE.md` equals
-   `cba390733d524eeaea518b8b7372ad7d06d9f7bb`, recomputes the unique
+   `26d659a4e654a02ec9be5cb96f0ddcc750cb6235`, recomputes the unique
    `Readiness may call` anchor at byte offset 12,413, and independently
-   re-derives the registered 50,224-byte postimage and both hashes. Any
+   re-derives the registered 58,477-byte postimage and both hashes. Any
    mismatch aborts to a fresh plan round; values are never recomputed into a
    new mid-run contract.
 3. The mutation runner reports the Owner checkout and Git control fingerprints
    unchanged, its lease released, `merged: false`, and exactly the allowed
    documentation file changed.
 4. Codex inspects the full diff against this plan, compares both the raw
-   linked-worktree file SHA-256 against `70ec2534...` and the normalized Git blob
+   linked-worktree file SHA-256 against `c52301c1...` and the normalized Git blob
    produced by `git hash-object --path docs/AI_OPERATOR_GUIDE.md` against
-   `0093b7d...`, and confirms no claim exceeds the reproduced mechanism. Any
+   `485b450...`, and confirms no claim exceeds the reproduced mechanism. Any
    mismatch aborts rather than being waived as line-ending noise.
 5. Claude cross-reviews the exact diff as untrusted data, receiving the
    inserted note text plus both adjacent paragraphs, and reports no semantic,
    placement, or claim-calibration blocker. The peer is not asked to attest
    transport bytes or recompute a digest. Codex alone extracts the exact note
    byte sequence placed in the cross-review input, records its byte count and
-   SHA-256, and requires equality with the frozen 1,255-byte artifact and
-   `950be9d7...91e65`; a transport delta is a blocker, not a peer waiver. A
+   SHA-256, and requires equality with the frozen 1,847-byte artifact and
+   `5bd5e43b...a69cd`; a transport delta is a blocker, not a peer waiver. A
    content rejection stops the run, freezes no replacement in-place, and
    returns to plan review with a newly hashed note; neither the worker nor
    controller edits the rejected text opportunistically.
@@ -406,7 +415,7 @@ program probe recognition, and Windows tokenization remain follow-ups.
    not relabelled as absent.
 8. Before moving the Owner branch, Codex creates a second fresh, clean,
    detached materialization of the exact reviewed isolated commit and verifies
-   there that the 1,256-byte insertion, normalized Git blob, executable
+   there that the 1,848-byte insertion, normalized Git blob, executable
    fingerprint, packet-evidence fingerprint, and
    `git check-attr text eol -- docs/AI_OPERATOR_GUIDE.md` equal the first
    verified worktree values. A second separate read-only verifier then runs
@@ -439,7 +448,7 @@ program probe recognition, and Windows tokenization remain follow-ups.
 9. Only after both verifiers and every pre-integration comparison pass does
    Codex deliberately fast-forward the clean, unchanged Owner branch from the
    recorded `base_commit` to the exact twice-verified candidate commit. It then
-   requires the actual Owner `HEAD`, normalized Git blob `0093b7d...`,
+   requires the actual Owner `HEAD`, normalized Git blob `485b450...`,
    executable fingerprint, packet-evidence fingerprint, insertion bytes, and
    attributes to equal the verified values. The normalized committed blob is
    authoritative. Raw on-disk EOL representation and digest are recorded; a
@@ -457,7 +466,7 @@ program probe recognition, and Windows tokenization remain follow-ups.
     local filesystem. Any host-reported inbound worker payload is retained; if
     none is reported, inbound activity remains unknown rather than absent.
     Regardless of source, an inbound influence that changes output is bounded
-    by the exact 50,224-byte postimage gate. It keeps release, archive, merge,
+    by the exact 58,477-byte postimage gate. It keeps release, archive, merge,
     publication, deployment, and personal plugin changes unauthorized except
     for the single deliberate documentation integration and branch push named
     above.
@@ -473,7 +482,7 @@ Owner; no destructive reset or automatic rollback is authorized.
 
 The planning and cross-review peers receive this content for semantic review,
 not only its digest. Codex separately byte-binds the transported middle
-paragraph to the 1,255-byte frozen note; the first and third paragraphs are the
+paragraph to the 1,847-byte frozen note; the first and third paragraphs are the
 unique adjacent committed guide context. The peer does not attest transport
 bytes or repository digests.
 
@@ -483,7 +492,31 @@ PreToolUse activity record. The older SessionStart record remains only the
 packet-fingerprint baseline and is not presented as current model/permission
 context.
 
-Known tested-host limitation (Codex CLI `0.146.0-alpha.3.1`, Windows 11 Pro `10.0.26200` build `26200`, Python `3.14.0`, locale encoding `cp1252`): the current `py -3 -I -S` inline verifier reads hook stdin through the interpreter's locale-decoded text stream before re-encoding it as UTF-8 for the verified runtime. Direct installed-definition probes accepted ASCII and an em-dash payload in both current locale mode and forced UTF-8 mode; U+0081 (`c2 81`) and U+008D (`c2 8d`) were denied with the generic runtime-integrity message only in locale mode and were allowed with the otherwise identical `-X utf8=1` verifier. Static byte-flow inspection confirms the accepted em-dash bytes are transformed by the cp1252 decode and UTF-8 re-encode before policy evaluation. The current policy patterns are ASCII and no decision flip was reproduced, which is not proof that every non-ASCII decision is unaffected; any future non-ASCII policy pattern would be evaluated against transformed text until this is fixed. The undefined-byte cases failed closed and created no false green, but the generic message did not establish an integrity failure. Explicit UTF-8 byte decoding and separate decode/parse versus integrity failure reasons remain tracked follow-ups.
+Known tested-host limitation (Codex CLI `0.146.0-alpha.3.1`, Windows 11
+Pro `10.0.26200` build `26200`, Python `3.14.0`, locale encoding
+`cp1252`): the current `py -3 -I -S` inline verifier reads hook stdin
+through the interpreter's locale-decoded text stream before re-encoding it
+as UTF-8 for the verified runtime. On this host, cp1252 cannot decode input
+bytes `81`, `8d`, `8f`, `90`, or `9d`; any UTF-8 payload containing one of
+those bytes fails before the verified runtime evaluates policy and is denied
+under the generic runtime-integrity message. Matched installed-definition
+probes denied witnesses for all five bytes only in locale mode and allowed
+them with the otherwise identical `-X utf8=1` verifier. The same A/B result
+held for ordinary UTF-8 examples from Cyrillic (U+0401, bytes `d0 81`, and
+U+044D, bytes `d1 8d`), CJK (U+4E0D, bytes `e4 b8 8d`), and emoji (U+1F50D,
+bytes `f0 9f 94 8d`, and U+1F601, bytes `f0 9f 98 81`). These witnesses show
+that the availability failure is not limited to obscure control codepoints;
+they do not establish that every non-ASCII payload is denied. ASCII and an
+em-dash payload were allowed in both modes, but static byte-flow inspection
+confirms the accepted em-dash bytes are transformed by the cp1252 decode and
+UTF-8 re-encode before policy evaluation. The current policy patterns are
+ASCII and no decision flip was reproduced, which is not proof that every
+non-ASCII decision is unaffected; any future non-ASCII policy pattern would
+be evaluated against transformed text until this is fixed. The undefined-byte
+cases failed closed and created no false green, but the displayed integrity
+reason did not establish an integrity failure: the observed cause was payload
+decoding. Explicit UTF-8 byte decoding and separate decode/parse versus
+integrity failure reasons remain tracked follow-ups.
 
 Readiness may call `claude auth status --json`, which spends no model quota.
 `auth_ready` proves only authentication; `operational_ready` requires a

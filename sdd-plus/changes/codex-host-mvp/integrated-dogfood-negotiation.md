@@ -25,6 +25,51 @@
 - Worktree created: no.
 - Integration or push performed from this plan: no.
 
+## 2026-07-29 current bounded recovery
+
+The Owner's latest utterance is exactly `ok go`. In the immediately preceding
+task context, that accepts both named non-force operations: the now-completed
+push of the clean `codex/orchestration-efficiency-hardening` evidence
+checkpoint and the eventual push of the integrated, twice-verified dogfood
+commit to `origin/codex/codex-host-mvp-checkpoint`. No later Owner utterance
+has narrowed or revoked that authority at this checkpoint. The first remote is
+now confirmed at
+`b2afdef39dfdbebe5f4fa359bfe611df35af22f8`; the dogfood remote remains at
+`ae9735511fade16780f78435213f5047a32e3900`. This evidence describes the
+current task context; it is not authenticated by the repository.
+
+The current recovery does not reopen or reinterpret any closed run. It uses
+the existing dogfood plan, one fresh compact plan peer call, one isolated
+mutation, one compact exact-diff cross-review, frozen full proof, two separate
+read-only verifier invocations, deliberate integration, and the single
+authorized non-force dogfood push. Each peer call uses exact
+`claude-opus-5`, explicit review kind, `effort=medium`, a 500-second timeout,
+and a $1.50 provider-reported ceiling. There is no automatic second planning
+round or retry.
+
+Local checkpoint `79fdee6d409d244de6fd4f7f4f8f0f92a9705f06` preserved a
+completed exact-diff Opus cross-review that had not reached the main branch.
+That review accepted the one-file insertion, byte pins, Git-control drift
+evidence, and narrowed MCP claims, while correctly blocking the old note's
+understated locale blast radius and requesting an explicit relation between
+the original safe-config check and `GitControlBoundary`. The current plan
+preserves both fixes: it adopts the checkpoint's 1,847-byte hard-wrapped note
+covering all five cp1252-undefined bytes plus ordinary Cyrillic/CJK/emoji
+witnesses, and it states the inspected-config superset/allow-list mechanism.
+The checkpoint itself is not treated as current convergence because the guide
+preimage and proof contract later changed.
+
+The current committed guide preimage is exact blob
+`26d659a4e654a02ec9be5cb96f0ddcc750cb6235`, 56,629 LF bytes, SHA-256
+`a9323e8af7d5b951dd00f48034aa568434bc2c46e234f3fd2912e1d6cd5467fc`.
+The unique anchor remains at byte 12,413. The corrected note is 1,847 bytes,
+SHA-256
+`5bd5e43b85a0cdf1e28923cb36e96d5adc2660d2ca085dc218a65074b91a69cd`;
+the registered postimage is 58,477 bytes, raw SHA-256
+`c52301c17ef6babe57fbaa9d71f0828587ccc83cb1b828b5fa9d26551d55ce3b`,
+normalized blob `485b450af9729bbfed8d3bef1a136384bb3cb47d`. A fresh
+plan critique must accept these current commitments before any worker starts.
+
 ## 2026-07-29 execution rebase — Round 1
 
 - Run ID: `73318eaf444b429d952e0fbe09119056`.
