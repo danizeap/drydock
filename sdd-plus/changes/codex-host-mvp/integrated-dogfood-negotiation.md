@@ -8,9 +8,10 @@
 - Initial cycle result: not converged at the cap.
 - Fresh Owner-authorized cycle result: converged in Round 2 with no blocking
   concern.
-- 2026-07-29 execution rebase: pending fresh critique. The earlier convergence
-  does not cover the current guide preimage or the hardened clean-candidate,
-  full-suite-proof verifier flow.
+- 2026-07-29 execution rebase: BLOCKED. Round 1 was non-converged; Round 2
+  returned no critique because the configured provider budget was exhausted.
+  The earlier convergence does not cover the current guide preimage or the
+  hardened clean-candidate, full-suite-proof verifier flow.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
@@ -55,6 +56,30 @@ Reconciliation:
   partial/unconfirmable-push behavior; enumerative ignored-injection wording;
   point-in-time hook interpreter identity; and verifier #2 as freshness
   binding rather than independent corroboration.
+
+## 2026-07-29 execution rebase — Round 2 transport result
+
+- Reviewed clean HEAD:
+  `50960cc0f853daac824d42fa3fd058831b5c0466`.
+- Reviewed v2 executable fingerprint:
+  `d4efc96fb8d3ad2c90c1028faabd8404a5623464dfc08a37c70bd41f96bc6d96`.
+- Configured call ceiling: `$0.50`, the only remaining amount inside the
+  two-call `$2.00` phase envelope.
+- Elapsed call time: 205.04 seconds.
+- Outbound input: the cumulative phase total became 47,801 bytes.
+- Provider result: exit 1, `error_max_budget_usd`.
+- Controller classification: `structured_budget_ceiling`.
+- Critique/schema verdict: absent. No blocker closure, convergence, model
+  judgment, or content review is inferred.
+- Observed cumulative phase provider cost: `$1.322007`; configured cumulative
+  provider reservation: `$2.00`.
+- Gate: `pre_mutation_critique.gate_satisfied: false`,
+  `peer_convergence: not_established`, workflow action `return_to_owner`.
+- Durable run `73318eaf444b429d952e0fbe09119056` was closed with status
+  `blocked`.
+- Mutation process started: no.
+- Worktree created: no.
+- Commit/integration/push from this dogfood plan: no.
 
 ## Round 1
 
