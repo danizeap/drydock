@@ -109,7 +109,16 @@ def test_git_object_batch_pins_canonical_root_and_strips_hostile_git_env(
     parent = tmp_path / "proof root with spaces"
     parent.mkdir()
     repo = _repo(parent)
-    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "poison"))
+    hostile = {
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(tmp_path / "alternate"),
+        "GIT_COMMON_DIR": str(tmp_path / "common"),
+        "GIT_DIR": str(tmp_path / "git-dir"),
+        "GIT_INDEX_FILE": str(tmp_path / "index"),
+        "GIT_OBJECT_DIRECTORY": str(tmp_path / "objects"),
+        "GIT_WORK_TREE": str(tmp_path / "work-tree"),
+    }
+    for key, value in hostile.items():
+        monkeypatch.setenv(key, value)
     observed: list[dict[str, object]] = []
     original = evidence.subprocess.run
 
@@ -127,11 +136,10 @@ def test_git_object_batch_pins_canonical_root_and_strips_hostile_git_env(
         return original(arguments, *args, **kwargs)
 
     monkeypatch.setattr(evidence.subprocess, "run", capture)
-    report = evidence.repository_fingerprints(
+    evidence.repository_fingerprints(
         repo,
         packet_root="sdd-plus/changes/change",
     )
-    assert report["reuse_eligible"] is True
     assert len(observed) == 1
 
     invocation = observed[0]
@@ -146,7 +154,17 @@ def test_git_object_batch_pins_canonical_root_and_strips_hostile_git_env(
     assert invocation["cwd"] == repo.resolve()
     environment = invocation["env"]
     assert isinstance(environment, dict)
-    assert "GIT_OBJECT_DIRECTORY" not in environment
+    expected_git_environment = {
+        "GIT_ATTR_NOSYSTEM",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_OPTIONAL_LOCKS",
+        "GIT_TERMINAL_PROMPT",
+    }
+    assert {
+        key for key in environment if key.upper().startswith("GIT_")
+    } == expected_git_environment
     assert environment["GIT_CONFIG_GLOBAL"] == os.devnull
     assert environment["GIT_CONFIG_SYSTEM"] == os.devnull
     assert environment["GIT_CONFIG_NOSYSTEM"] == "1"

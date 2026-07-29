@@ -383,6 +383,21 @@ orchestration-efficiency-hardening
   object read without `dubious ownership`. It reported `clean: false` because
   this remediation was still uncommitted, so the probe is mechanism evidence,
   not a candidate freeze or reusable full-suite proof.
+- [x] Bounded Opus 5 implementation review of exact supplied diff
+  `5ee31b05d121b74920c996a20907544c87a70dfa..385cb405c6c2fa6dbf610a02241b5e4886f439bf`
+  converged with no blocker. The one-round call used 13,587 outbound bytes,
+  cost $0.464283 against a $1 ceiling, and observed the requested
+  `claude-opus-5` model plus the CLI's Haiku helper. Because the peer received
+  a text diff rather than repository tools, it explicitly did not authenticate
+  HEAD or range exclusivity. Repository-side checks confirmed the exact HEAD,
+  five-file range, both proof-identity Git subprocess call sites, and the
+  unchanged `env=_git_environment()` keyword. The peer's nonblocking test
+  findings were implemented before freeze: the batch regression now poisons
+  the related object/worktree Git-variable family, asserts the exact pinned
+  `GIT_*` key set, drops the unrelated reuse-eligibility assertion, and the
+  argv helper no longer repeats path resolution. Focused results remained
+  `2 passed, 39 deselected` and `84 passed`. These post-review executable/test
+  changes still require a narrow follow-up peer check.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates

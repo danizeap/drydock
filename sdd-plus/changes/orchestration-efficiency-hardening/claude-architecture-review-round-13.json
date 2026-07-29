@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "peer_review_summary",
+  "converged": true,
+  "overall": "The remediation is correct and minimal for what it claims. Centralizing argv in `_git_arguments` and passing `cwd=resolved_repo` to the `cat-file --batch` reader closes a real hole: previously the batch child got neither the command-scoped `safe.directory` nor a resolved cwd, so under a foreign-SID sandbox Git's ownership check could reject the object read while the `rev-parse`-only regression stayed green. `-c safe.directory=` is command-scope protected configuration, so it is a valid trust channel even with `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=os.devnull`; the fix mechanism is sound. Nothing in the supplied diff touches ls-tree parsing, mode/type/blob fingerprint construction, task projection, archive equality, proof admission, or fail-closed paths; it is argv/cwd plumbing only. The new test would genuinely fail against the prior implementation on the argv assertion, exercises the real subprocess, pins a single batch invocation, and uses a space-bearing parent directory. Packet documentation is honest: the Result still declares BLOCKED, tasks add rather than close the peer-review/re-freeze/final-verification items, and the read-only probe is explicitly labeled mechanism evidence with `clean:false` rather than a freeze or reusable proof. I record no blocker. I reviewed a supplied exact text diff rather than the repository, so I cannot independently confirm HEAD or range exclusivity; neither this review nor the probe advances the candidate toward PASS.",
+  "blocking_concerns": [],
+  "gaps": [
+    "Range and HEAD exclusivity are unverifiable from the supplied diff. The claim that the range contains only the final-verifier remediation and its packet evidence requires repository-side confirmation.",
+    "The supplied diff did not show the unchanged `env=` keyword on the `cat-file --batch` subprocess call. The passing regression indirectly indicates that the scrubbed environment remained attached, but repository-side inspection is still required.",
+    "The diff proves two Git subprocess call sites but does not rule out another proof-identity Git spawn elsewhere. A repository-wide search is required before recording that every such subprocess is covered.",
+    "The regression poisoned only `GIT_OBJECT_DIRECTORY` and asserted selected output keys. Closely related object and worktree variables, including `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, and `GIT_COMMON_DIR`, were not explicitly exercised.",
+    "The regression asserts the argv mechanism rather than reproducing foreign ownership. The native-Windows sandbox probe is point-in-time effect evidence and is correctly not described as a portable test guarantee."
+  ],
+  "risks": [
+    "`safe.directory` must match the discovered repository worktree path. A caller that supplies a subdirectory or an unusual linked-worktree/submodule layout may require separate analysis.",
+    "Windows path normalization can differ for junctions, UNC paths, short names, drive-letter case, or device-prefixed paths. The live probe covers one concrete canonical path only.",
+    "The first centralization revision resolved the path again inside `_git_arguments`; a TOCTOU deletion could surface an unwrapped path-resolution error instead of the normal evidence error.",
+    "Monkeypatching the shared `subprocess.run` attribute is transparent and restored by pytest, but the capture signature remains coupled to argv-positional and cwd-keyword call style.",
+    "The original assertion that `reuse_eligible` is true coupled a Git-trust argv regression to unrelated reuse semantics.",
+    "The prior full-suite proof is correctly declared unusable, so a fresh freeze, full suite, and final verdict remain mandatory."
+  ],
+  "required_changes": [
+    "Before freeze, confirm the exact HEAD/range and perform a repository-wide proof-identity Git-spawn sweep, including the unchanged `env=` keyword.",
+    "Harden the batch regression by poisoning the related hostile Git-variable family and asserting the exact pinned Git-key set rather than selected keys.",
+    "Remove the redundant path resolution introduced inside `_git_arguments`, preserve structured fail-closed resolution errors, and drop the unrelated reuse-eligibility assertion."
+  ]
+}

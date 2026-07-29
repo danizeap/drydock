@@ -823,8 +823,14 @@ def _git_executable() -> str:
     return executable
 
 
-def _git_arguments(repo: Path, arguments: Sequence[str]) -> list[str]:
-    resolved_repo = repo.resolve(strict=True)
+def _resolved_git_path(repo: Path) -> Path:
+    try:
+        return repo.resolve(strict=True)
+    except OSError as exc:
+        raise EvidenceError(f"Git repository path could not be resolved: {exc}") from exc
+
+
+def _git_arguments(resolved_repo: Path, arguments: Sequence[str]) -> list[str]:
     return [
         _git_executable(),
         "-c",
@@ -834,7 +840,7 @@ def _git_arguments(repo: Path, arguments: Sequence[str]) -> list[str]:
 
 
 def _git(repo: Path, arguments: Sequence[str]) -> bytes:
-    resolved_repo = repo.resolve(strict=True)
+    resolved_repo = _resolved_git_path(repo)
     try:
         result = subprocess.run(
             _git_arguments(resolved_repo, arguments),
@@ -874,7 +880,7 @@ class GitTreeEntry:
 
 
 def _git_tree_entries(repo: Path, commit: str = "HEAD") -> list[GitTreeEntry]:
-    resolved_repo = repo.resolve(strict=True)
+    resolved_repo = _resolved_git_path(repo)
     raw = _git(resolved_repo, ["ls-tree", "-r", "-z", "--full-tree", commit])
     metadata: list[tuple[bytes, str, str, str]] = []
     for record in raw.split(b"\0"):
