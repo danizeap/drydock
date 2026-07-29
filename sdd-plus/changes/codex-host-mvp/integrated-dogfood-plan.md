@@ -93,6 +93,17 @@ and normalized Git blob SHA-1
   `Readiness may call` occurs once. The worker instruction identifies the
   unique following anchor; the complete preceding and following paragraphs are
   included verbatim below for peer content review.
+- The stable anchor is deliberately splice-driven. Its location is not the
+  ideal narrative home for the limitation, but changing the already frozen
+  bytes or anchor would invalidate the registered splice and consume another
+  review cycle. The one-long-line form is also deliberate: it is the frozen
+  artifact, not transport reflow. Packet evidence records both dispositions
+  and leaves any later relocation or hard-wrapping to a separately governed
+  follow-up.
+- The host/version tuple is point-in-time evidence even though the frozen
+  paragraph carries no calendar date. It is bound here to this packet, the
+  final `base_commit`, and the pre-mutation interpreter/runtime recheck; it is
+  not a perpetual statement about later Codex, Windows, or Python versions.
 
 ## Existing runner safeguards relevant to the peer concern
 
@@ -194,11 +205,27 @@ repository: Git rejects `config --worktree` when multiple worktrees exist and
 `extensions.worktreeConfig` is not enabled. Before verification, Codex instead
 revalidates the linked `.git` pointer, requires the captured Git-control
 fingerprint to equal the value recorded before worker launch, and directly
-parses each existing local/worktree config file named by `GitControlBoundary`
-with `git config --file <exact-path> --no-includes --name-only --list`. Any
-`include.*`, `includeIf.*`, `filter.*.(clean|smudge|process)`,
+parses every local/worktree config file named by `GitControlBoundary` with
+`git config --file <exact-path> --no-includes --null --list`. This is an
+allow-list, not a deny-list. `common/config` must contain exactly the
+pre-recorded key/value multiset whose permitted keys are
+`core.repositoryformatversion`, `core.filemode`, `core.bare`,
+`core.logallrefupdates`, `core.symlinks`, `core.ignorecase`,
+`remote.origin.url`, `remote.origin.fetch`, and the pre-existing
+`branch.<exact-recorded-name>.(remote|merge)` entries for `main`,
+`codex/codex-host-mvp-checkpoint`, `codex/peer-unavailable-governance`,
+`codex/adaptive-delegation-ledger`,
+`codex/orchestration-efficiency-hardening`, and
+`codex/claude-usage-signal-round1`. `common/config.worktree`,
+`owner/config.worktree`, and `worker/config.worktree` must remain absent. Any
+unexpected key, value, duplicate, file, or absence is a mismatch and aborts.
+This structurally excludes, among everything else, `include.*`,
+`includeIf.*`, `filter.*.(clean|smudge|process)`,
 `url.*.(insteadOf|pushInsteadOf)`, `credential.helper`, `core.hooksPath`,
-`core.fsmonitor`, `diff.*.textconv`, or `alias.*` key aborts.
+`core.fsmonitor`, `core.sshCommand`, `core.gitProxy`, `diff.external`,
+`diff.*.textconv`, `http.proxy`, `http.*.proxy`, `protocol.*.allow`,
+`remote.*.pushurl`, `remote.*.receivepack`, `remote.*.uploadpack`, and
+`alias.*`.
 That preserves the pre-launch safe-config result without claiming an unusable
 post-creation helper call. The current verifier also refuses a dirty or
 unproven candidate before provider discovery. After cross-review, the Codex
@@ -226,6 +253,9 @@ and may not execute the recorded command. Parent-side proof admission binds
 the exact schema-v2 record to the freshly recomputed v2 executable fingerprint
 before provider discovery; a missing, malformed, stale, intermediate, failed,
 timed-out, nonzero, or fingerprint-mismatched record refuses verification.
+The remaining proof trust base is the integrity of the local filesystem and
+the control-plane processes reading it. The record does not defend against an
+actor able to forge both repository bytes and the local proof artifact.
 
 The control-plane interpreter above is the current absolute Python 3.11.9
 executable and is distinct from the hook's tested `py -3 -I -S` Python 3.14.0
@@ -249,26 +279,47 @@ unauthorized.
 
 The expected configured push URL is the literal
 `git@github-personal:danizeap/drydock.git`; the current SSH resolution must
-report host `github.com`, user `git`, and port `22`. Before mutation and again
-immediately before push, Codex resolves the push URL in an environment that
-scrubs inherited `GIT_*` and nulls global/system Git config. Every directly
-parsed local/worktree config aborts on `include.*`, `includeIf.*`,
-`filter.*.(clean|smudge|process)`, `url.*.insteadOf`,
-`url.*.pushInsteadOf`, `credential.helper`, `core.hooksPath`,
-`core.fsmonitor`, `diff.*.textconv`, or `alias.*`. The control-plane commit and
-push pin `core.hooksPath` to an empty exact directory,
-`core.fsmonitor=false`, `diff.external=`, and `credential.helper=`, and use
-`--no-verify`; the push URL must still equal the registered literal. The
-runner's own extraction keeps its existing stronger pinned Git wrapper.
+report host `github.com`, user `git`, and port `22`, with `ProxyCommand` and
+`ProxyJump` absent. Before mutation and again immediately before push, Codex
+resolves the push URL in an environment that scrubs inherited `GIT_*`, nulls
+global/system Git config, and applies the exact config allow-list above. The
+current resolved identity file is
+`C:\Users\Daniel Paez\.ssh\id_ed25519_personal`; a changed, missing, or
+additional identity is recorded and blocks until reviewed.
+
+The ambient SSH resolution currently reports `StrictHostKeyChecking ask` and
+`UpdateHostKeys yes`, so the push must not inherit those values. The single
+push invocation pins `BatchMode=yes`, `HostName=github.com`, `User=git`,
+`Port=22`, `ProxyCommand=none`, `ProxyJump=none`,
+`StrictHostKeyChecking=yes`, `UpdateHostKeys=no`,
+`GlobalKnownHostsFile=NUL`, the exact resolved identity with
+`IdentitiesOnly=yes`, and the exact existing
+`C:\Users\Daniel Paez\.ssh\known_hosts` as `UserKnownHostsFile`. Before the
+push, Codex records that file's digest and its exact `github.com` fingerprints;
+the current baseline is ED25519
+`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`, RSA
+`SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s`, and ECDSA
+`SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM`. Verbose SSH output from
+the same push must identify the server host-key fingerprint actually accepted
+and it must equal one of that exact recorded set. If the push reports success
+but this fingerprint is absent or different, the run stops without retry or
+ref rewrite and reports the outward result as unproven.
+
+The control-plane commit and push also pin `core.hooksPath` to an empty exact
+directory, `core.fsmonitor=false`, `diff.external=`, and
+`credential.helper=`, and use `--no-verify`; the push URL must still equal the
+registered literal. The runner's own extraction keeps its existing stronger
+pinned Git wrapper.
 
 The repository is publicly readable at `https://github.com/danizeap/drydock`.
 At current remote checkpoint
 `ae9735511fade16780f78435213f5047a32e3900`, the exact remote branch already
 contains `claude-final-readiness-review-result.md`,
 `integrated-dogfood-negotiation.md`, and `decision-log.md`, and the last file
-contains the locale-decoding finding. Those facts are rechecked immediately
-before push; a mismatch or unconfirmable visibility stops before the outward
-action.
+contains the locale-decoding finding and the exact tested-host environment
+tuple that the new guide paragraph repeats. Those facts are rechecked
+immediately before push; a mismatch or unconfirmable visibility stops before
+the outward action.
 
 The finding is already present on the same remote branch in
 `claude-final-readiness-review-result.md`,
@@ -281,11 +332,16 @@ non-force server update is the atomic protection against a concurrent remote
 advance.
 
 Push authority comes from the Owner's out-of-band request in this Codex task,
-not from this plan: the requested hosted flow explicitly ends
-"verifier -> push -> back to me", and the Owner then repeatedly directed Codex
-to continue this bounded run. Packet evidence records that chat authorization
-as a push precondition. If it cannot be tied to the current task at execution
-time, the run stops at the local commit.
+not from this plan. Before the push command is constructed, packet evidence
+must contain the verbatim authorizing utterance, both its Owner-authored and
+raw user-role turn positions in the current task, its exact remote/branch, and
+an assertion that no later Owner turn narrowed or revoked it. The current
+artifact is in `integrated-dogfood-negotiation.md` under
+`Current-task push authorization artifact`. If any later Owner turn exists,
+Codex must compare it before constructing the command; ambiguity or a narrowing
+instruction stops at the local commit. Updating this evidence after proof
+changes the candidate and therefore requires fresh exact-candidate proof and
+verification rather than a stale push.
 
 If push reports success but the remote SHA cannot be confirmed or differs, the
 run does not retry, force, delete, or rewrite any ref. It stops and returns to
@@ -304,8 +360,10 @@ program probe recognition, and Windows tokenization remain follow-ups.
    `python scripts/check_sync.py`, and
    `python scripts/sdd.py verify codex-host-mvp`, plus runtime SHA-256
    `a04cf380...`, the resolved hook interpreter path/version/encoding above,
-   and the sanitized effective push URL/SSH destination. The exact clean HEAD
-   after Round-2 evidence is recorded as the sole worktree `base_commit`.
+   `git check-attr text eol -- docs/AI_OPERATOR_GUIDE.md`, the complete Git
+   config allow-list result, and the sanitized effective push URL/SSH
+   destination. The exact clean HEAD after Round-2 evidence is recorded as the
+   sole worktree `base_commit`.
    Immediately before worktree creation, Codex asserts
    `git rev-parse <base_commit>:docs/AI_OPERATOR_GUIDE.md` equals
    `cba390733d524eeaea518b8b7372ad7d06d9f7bb`, recomputes the unique
@@ -322,10 +380,15 @@ program probe recognition, and Windows tokenization remain follow-ups.
    `0093b7d...`, and confirms no claim exceeds the reproduced mechanism. Any
    mismatch aborts rather than being waived as line-ending noise.
 5. Claude cross-reviews the exact diff as untrusted data, receiving the
-   complete verbatim 1,255-byte note plus both adjacent paragraphs, and reports
-   no blocker. A content rejection stops the run, freezes no replacement
-   in-place, and returns to plan review with a newly hashed note; neither the
-   worker nor controller edits the rejected text opportunistically.
+   inserted note text plus both adjacent paragraphs, and reports no semantic,
+   placement, or claim-calibration blocker. The peer is not asked to attest
+   transport bytes or recompute a digest. Codex alone extracts the exact note
+   byte sequence placed in the cross-review input, records its byte count and
+   SHA-256, and requires equality with the frozen 1,255-byte artifact and
+   `950be9d7...91e65`; a transport delta is a blocker, not a peer waiver. A
+   content rejection stops the run, freezes no replacement in-place, and
+   returns to plan review with a newly hashed note; neither the worker nor
+   controller edits the rejected text opportunistically.
 6. The control plane commits only the reviewed one-file diff on the isolated
    branch, then `proof-run --scope full_required_suite` runs the required
    legacy, Codex-adapter, root/scaffold, bundle, hook, release-version, and
@@ -341,47 +404,63 @@ program probe recognition, and Windows tokenization remain follow-ups.
    The unusable post-creation `_assert_safe_local_git_configuration()` call is
    not reported as a passing check, and ordinary ignored bytecode caches are
    not relabelled as absent.
-8. Codex deliberately fast-forwards the Owner branch only to the exact reviewed
-   and separately verified isolated commit, then verifies that the 1,256-byte
-   insertion, normalized Git blob, executable fingerprint, and packet-evidence
-   fingerprint equal the verified worktree values. The Owner checkout's
-   expected on-disk guide becomes exactly 50,224 LF-only bytes after the
-   fast-forward; the prior mixed-EOL 49,217-byte representation and its 249 CR
-   bytes are not misreported as content loss. A second separate read-only
-   verifier runs against the same clean integrated commit and accepted proof
-   record before any push. It adds freshness/anti-replay binding to the
-   integrated Owner HEAD, not a second independent judgment or corroborating
-   vote. Verifier #2 uses the same separate ephemeral `read-only` sandbox,
-   disabled features, absolute Python 3.11.9 interpreter, `-B`, packet root,
-   proof record, and timeout as verifier #1, with this exact target shape:
+8. Before moving the Owner branch, Codex creates a second fresh, clean,
+   detached materialization of the exact reviewed isolated commit and verifies
+   there that the 1,256-byte insertion, normalized Git blob, executable
+   fingerprint, packet-evidence fingerprint, and
+   `git check-attr text eol -- docs/AI_OPERATOR_GUIDE.md` equal the first
+   verified worktree values. A second separate read-only verifier then runs
+   against that exact fresh materialization and accepted proof record. It adds
+   a second freshness/anti-replay binding to the exact candidate commit, not an
+   independent judgment or corroborating vote. Verifier #2 uses the same
+   separate ephemeral `read-only` sandbox, disabled features, absolute Python
+   3.11.9 interpreter, `-B`, packet root, proof record, and timeout as verifier
+   #1, with this exact target shape:
 
    ```powershell
    $env:PYTHONDONTWRITEBYTECODE = '1'
-   Get-Content -Raw <post-integration-verification-request> |
+   Get-Content -Raw <second-verification-request> |
      & 'C:\Users\Daniel Paez\AppData\Local\Programs\Python\Python311\python.exe' `
        -B adapters/codex/drydock/scripts/process_runner.py verify `
-       --repo 'C:\Users\Daniel Paez\drydock' `
+       --repo <second-fresh-exact-candidate-materialization> `
        --model gpt-5.6-sol `
        --packet-root sdd-plus/changes/codex-host-mvp `
        --proof-record <exact-full-required-suite-proof-record> `
        --timeout 600
    ```
 
-   Immediately before and after verifier #2, the Owner checkout must be clean,
-   its actual `HEAD` must equal the local integration commit, ignored
-   code-injection paths must be absent, and both repository fingerprints must
-   be unchanged.
-9. Codex reruns `git diff --check`, `python scripts/check_sync.py`,
-   `python scripts/sdd.py verify codex-host-mvp`, and the runtime digest check
-   on the integrated commit. Only then does it push the named branch.
+   Immediately before and after verifier #2, that materialization must be
+   clean at the exact candidate commit, ignored code-injection paths must be
+   absent, and both repository fingerprints must be unchanged. A verifier
+   non-PASS or comparison failure leaves the Owner branch at the recorded base
+   commit and stops with the isolated commit, branch, and worktree paths
+   reported; no recovery or rollback is needed because integration has not
+   occurred.
+9. Only after both verifiers and every pre-integration comparison pass does
+   Codex deliberately fast-forward the clean, unchanged Owner branch from the
+   recorded `base_commit` to the exact twice-verified candidate commit. It then
+   requires the actual Owner `HEAD`, normalized Git blob `0093b7d...`,
+   executable fingerprint, packet-evidence fingerprint, insertion bytes, and
+   attributes to equal the verified values. The normalized committed blob is
+   authoritative. Raw on-disk EOL representation and digest are recorded; a
+   raw EOL-only delta is not misreported as content drift, but any normalized
+   blob mismatch blocks. Codex then reruns `git diff --check`,
+   `python scripts/check_sync.py`, `python scripts/sdd.py verify
+   codex-host-mvp`, and the runtime digest check on the integrated commit. Only
+   then may it construct and execute the named push.
 10. Packet evidence records every boundary, that the planning peer received
-   pasted excerpts rather than repository access, that the hostile-pointer
-   regression uses a fake worker and bounded mutation shapes, and that the
-   Codex verifier reports `epistemic_independence: false`. It also records that
-   personal Codex configuration is trusted residual state, not recursively
-   fingerprinted by this run. It keeps release, archive, merge, publication,
-   deployment, and personal plugin changes unauthorized except for the single
-   deliberate documentation integration and branch push named above.
+    pasted excerpts rather than repository access, that the hostile-pointer
+    regression uses a fake worker and bounded mutation shapes, and that the
+    Codex verifier reports `epistemic_independence: false`. It also records that
+    personal Codex configuration is trusted residual state, not recursively
+    fingerprinted by this run, and that the proof gate ultimately trusts the
+    local filesystem. Any host-reported inbound worker payload is retained; if
+    none is reported, inbound activity remains unknown rather than absent.
+    Regardless of source, an inbound influence that changes output is bounded
+    by the exact 50,224-byte postimage gate. It keeps release, archive, merge,
+    publication, deployment, and personal plugin changes unauthorized except
+    for the single deliberate documentation integration and branch push named
+    above.
 
 Any mismatch, extra tracked/untracked file, blocked ignored injection path,
 peer blocker, verifier non-PASS, failed gate, digest drift, remote-tip drift,
@@ -392,9 +471,11 @@ Owner; no destructive reset or automatic rollback is authorized.
 
 ## Peer-visible frozen content
 
-The planning and cross-review peers receive this exact content, not only its
-digest. The middle paragraph is the 1,255-byte frozen note; the first and third
-paragraphs are the unique adjacent committed guide context.
+The planning and cross-review peers receive this content for semantic review,
+not only its digest. Codex separately byte-binds the transported middle
+paragraph to the 1,255-byte frozen note; the first and third paragraphs are the
+unique adjacent committed guide context. The peer does not attest transport
+bytes or repository digests.
 
 ```text
 The current `model` and `permission_mode` evidence comes from the fresh

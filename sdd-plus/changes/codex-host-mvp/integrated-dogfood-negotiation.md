@@ -16,6 +16,8 @@
   `7156538ebf4a4f0ea4ae283a3bf734bb`. The prior blocked ledger is unchanged.
   This cycle permits at most two peer calls, `$1.50` configured provider
   ceiling per call, and `$3.00` total peer-phase ceiling.
+- Superseding-cycle Round 1: schema-valid and non-converged with four blockers;
+  one and only one plan-peer call remains.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.
@@ -112,6 +114,109 @@ superseded"}` and created no run. The closed ledger remains unchanged. The
 fresh cycle therefore uses an independent new run ID, while this packet records
 the predecessor relationship; it does not restart, reopen, supersede in-place,
 or reinterpret the blocked run.
+
+## Current-task push authorization artifact
+
+Transcript position:
+
+- Owner-authored turn index: 2 in this current task, immediately after the
+  initial Owner continuation request.
+- Raw user-role turn position: 3, counting the app-delivered repository
+  instruction/context message between the two Owner-authored requests.
+- Exact authorized destination: remote `origin`, branch
+  `codex/codex-host-mvp-checkpoint`.
+- At this Round-2 plan-evidence checkpoint, no later Owner-authored turn has
+  narrowed or revoked this authorization. Immediately before any push command
+  is constructed, Codex must recheck all later turns. Ambiguity, narrowing, or
+  revocation stops at the local commit; an evidence update after proof makes
+  that proof stale and requires fresh exact-candidate proof and verification.
+
+Verbatim authorizing Owner utterance:
+
+```text
+Owner approval granted for both requested actions:
+
+1. Start one fresh superseding dogfood peer run for the existing
+   codex-host-mvp objective. The ceiling is $1.50 provider-reported cost per
+   call and $3.00 total for the peer phase. Record this explicit Owner
+   authorization and create a new durable run; do not restart or reinterpret
+   the previously closed blocked run.
+
+2. If and only if plan convergence, isolated mutation, cross-review, exact
+   candidate proof, separate verification, integration checks, clean-tree
+   checks, remote/preimage checks, and every non-force packet gate pass,
+   push the verified result to:
+   origin/codex/codex-host-mvp-checkpoint
+
+This authorization applies once to this exact dogfood objective. It does not
+authorize force push, merge to another branch, archive, release, publish,
+deployment, weakened verification, a third peer round beyond the configured
+fresh-cycle cap, or continuation after an unknown/failed gate.
+
+If the fresh peer cycle does not converge, or any later stage is unavailable,
+failed, stale, malformed, mismatched, or unproven, stop and report BLOCKED.
+Return exact run IDs, costs, commits, fingerprints, verifier verdict, push
+result, remote SHA, and remaining packet gates.
+```
+
+## 2026-07-29 superseding cycle — Round 1
+
+- Durable run ID: `7156538ebf4a4f0ea4ae283a3bf734bb`.
+- Reviewed clean HEAD:
+  `173ea1bbd456877e3a93040814e4b52d5424db8b`.
+- Reviewed v2 executable fingerprint:
+  `f781a63252478e8a4314a67d98e44d1abaa59de4db59039fcb45f1804cd2c962`.
+- Packet-evidence SHA-256:
+  `52a5951857b876d17dcf833438451a631a7b40899c34045d4fd85adcf28f027e`.
+- Invocation fingerprint:
+  `d00d2c535720d1e10bdd462cdeaeb08f47eacfb0aa32b3c7ba4545d0aa416132`;
+  persisted body SHA-256:
+  `a351a8d5fb0aefc4c4f6d6e22ea1fef382e7bcb07a91cf9281852290e792cc32`.
+- Result: schema-valid, requested `claude-opus-5` observed,
+  `converged: false`, four blocking concerns,
+  `pre_mutation_critique.gate_satisfied: false`.
+- Outbound input: 28,159 bytes.
+- Elapsed peer call: 317.435951 seconds.
+- Provider-reported cost: `$0.949309` against the configured `$1.50` call
+  ceiling. The provider also reported a Haiku helper inside that same cost.
+- Fresh-cycle peer-phase usage after Round 1: one call and `$0.949309`; one
+  call and `$2.050691` observed-cost headroom remain inside the two-call,
+  `$3.00` phase limits, while the second call retains its own `$1.50` ceiling.
+- The exact LF byte segment supplied for the frozen note was independently
+  extracted from the raw plan input: 1,255 bytes, 0 CR, 1 LF, SHA-256
+  `950be9d72a83dbe662737f855621cb5a02fde4231a70b09f56673373e7991e65`,
+  byte-equal to `integrated-dogfood-note.txt`. This is Codex transport binding,
+  not a peer byte attestation.
+
+Round-1 blocker reconciliation:
+
+1. Push authority is now a reviewable current-task artifact above: verbatim
+   utterance, both transcript positions, exact destination, and no-later-
+   narrowing assertion. It is rechecked before command construction.
+2. Git controls now use an exact key/value allow-list for every
+   `GitControlBoundary` config path. Push SSH is pinned fail-closed away from
+   ambient `ask`/`UpdateHostKeys yes`, requires no proxy/jump, records the
+   resolved identity/known-host set, and requires the actual accepted server
+   fingerprint from the same push.
+3. Verifier #2 and all candidate/integration byte comparisons now run on a
+   second fresh exact-commit materialization before the Owner branch moves. A
+   failure leaves the Owner branch at the recorded base.
+4. Cross-review is explicitly semantic. Codex alone hashes the exact note
+   bytes transported and blocks on inequality; the peer does not attest
+   transport bytes.
+
+Accepted non-blocking calibration:
+
+- The splice-driven placement and one-long-line shape are deliberate
+  frozen-artifact tradeoffs; relocation/reflow requires a separate later
+  packet.
+- The host tuple is point-in-time and bound to the packet/base/runtime recheck.
+- Any reported inbound worker payload is retained; absent reporting remains
+  unknown, while the exact postimage bounds output influence.
+- Normalized committed blob bytes are authoritative across Owner-checkout EOL
+  representation; attributes are rechecked at integration.
+- The proof record ultimately trusts the local filesystem and control plane.
+- The planning peer had pasted input, not repository or digest access.
 
 ## Round 1
 
