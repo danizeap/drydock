@@ -342,28 +342,33 @@ orchestration-efficiency-hardening
   Counts come from the durable 3,401-byte suite summary (SHA-256
   `292470fa45cf3f9415d7d14b21a671e930ac152c9841af8d76e507395352a071`),
   and proof acceptance from the separately read persisted record.
+- [x] Post-proof governance-state checkpoint: exact clean HEAD
+  `42b8571286e35ab45749de8e92fdb59b1cf9930b` retained v2 executable
+  fingerprint
+  `23d7b23c99aee8e3de5c79e7a2eeb2428113671f6c7b1ebd0af460dec6fe1abf`
+  while the non-self-inclusive packet-evidence-parent fingerprint became
+  `907e9720b73316d70d8ceddb24523542fc417170e3a7f64491156d5d51b158ff`
+  after the replacement-suite task was checked complete. The active packet
+  task projection remained canonical, reuse eligibility remained true, and no
+  tracked bytecode, ignored code-injection path, or invalid packet evidence
+  was present. This is the expected separation between stable executable
+  identity and changed governance evidence.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
 
 - [x] Operator guidance updated.
-- [ ] Project context updated if the durable defaults change.
+- [x] Project context update not required; this packet did not change the
+  project purpose, stack, or durable Owner-level defaults.
 - [x] Delta spec written before runtime code.
 
 ## Result
 
-ROUND-TEN VERIFIER-REMEDIATION REVIEW IS NON-CONVERGED. THE TWO BLOCKERS ARE
-IMPLEMENTED LOCALLY BUT HAVE NOT RECEIVED RE-REVIEW: FINAL-PROOF ADMISSION IS
-NOW A PARENT-RUNNER PRE-SPAWN GATE, AND EFFECTIVE CHILD-ENVIRONMENT CLAIMS ARE
-LIMITED TO REQUESTED CONFIGURATION PLUS POINT-IN-TIME LIVE EVIDENCE. THE LIVE
-PROBE ALSO PROVED CODEX APPENDS A SECOND EQUIVALENT `safe.directory`, SO THE
-RESULT REPORTS REQUESTED RATHER THAN ACHIEVED ENVIRONMENT. THE PRIOR
-FULL-REQUIRED-SUITE PROOF DOES NOT BIND THESE EXECUTABLE CHANGES. NO CURRENT
-CANDIDATE IS FROZEN, NO REPLACEMENT FULL SUITE HAS RUN, AND SEPARATE
-VERIFICATION REMAINS BLOCKED UNTIL RE-REVIEW CONVERGES. The implementation
-does not claim fixed-root mutation containment:
-after the measured runner failures above, the pilot edited the scoped Owner
-checkout directly. Remaining disclosed risks include stacked unsynced deltas,
+REMEDIATION PEER REVIEW HAS CONVERGED AND THE REPLACEMENT FULL REQUIRED SUITE
+PASSED AGAINST THE FROZEN V2 EXECUTABLE FINGERPRINT. FINAL SEPARATE
+VERIFICATION IS STILL PENDING, SO THIS PACKET IS NOT YET VERIFIED OR
+ARCHIVE-READY. The implementation does not claim fixed-root mutation
+containment. Remaining disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
 state is user-writable rather than attested, proof-root test behavior may differ
