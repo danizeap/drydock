@@ -425,6 +425,32 @@ orchestration-efficiency-hardening
   ignored code-injection path, or invalid packet evidence was present. The
   earlier proof for executable fingerprint `23d7b23c...1abf` is not reusable;
   a new full-required-suite run remains pending.
+- [x] One new `full_required_suite` run executed from fresh committed-tree
+  materialization at exact clean proof HEAD
+  `974d51ed376e23095b05a5b16504e040680f8d74`. Its v2 executable fingerprint
+  was
+  `b0f6cff44dfae8db561149ec9bf0f1b45d2479a570000076baefcc3547c981d6`,
+  and the controller persisted schema-v2 proof record
+  `9f61e8fc3cd897b91f1c3230e190222b663c86f437468f4d5d35f52d4df0bc91.json`.
+  Exact results were: legacy `548 passed, 6 skipped in 44.30s`; Codex adapter
+  `316 passed, 2 skipped in 130.86s`; root/scaffold sync `11` pairs identical;
+  scaffold bundle matched source; hook runtime and definition matched source;
+  all release-version locations agreed at `0.12.1` with a changelog entry; and
+  packet verification reported `41 complete, 3 pending`. Every step returned
+  zero. The proof record reports `terminal_status: passed`, exit code `0`,
+  `timed_out: false`, 181.359 seconds elapsed, environment digest
+  `e61fe339080aa5bb6c0cc3db60fbbc07d850184fc99c4e1136f78530ebb5eb22`,
+  and output digest
+  `213c997080da544c43af14f458448a3fce762c2662ea1a8d5961c3cf67818053`.
+  The durable 3,401-byte suite summary has SHA-256
+  `532f2db4c6fd0493f6a774bd26202505f718d132fbf268e28e9537d384c27026`;
+  appending the wrapper's native-Windows CRLF produces the proof record's exact
+  output digest. The 2,567-byte proof record itself has SHA-256
+  `d274f6760d5aa8ebcdef95df5ad08c9469d705ca141a399943f140931fec58e8`.
+  Local `final_suite_acceptance` returned accepted for the current clean
+  candidate while retaining `authenticated: false` and
+  `provenance_attested: false`. Counts come from the separately read durable
+  summary, not from process exit alone.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -440,10 +466,13 @@ FINAL SEPARATE VERIFICATION REMAINS BLOCKED BY THE RECORDED FAIL VERDICT.
 THE REPRODUCED INTERNAL `git cat-file --batch` TRUST DEFECT IS REMEDIATED
 WITH FOCUSED TESTS, DIRECT READ-ONLY-SANDBOX EVIDENCE, AND TWO-ROUND OPUS 5
 PEER CONVERGENCE. THE NEW CANDIDATE IS FROZEN; ITS FULL-REQUIRED-SUITE PROOF
-AND FINAL VERDICT ARE STILL PENDING. THE PREVIOUS FULL-SUITE RECORD CANNOT
-VERIFY THIS EXECUTABLE REVISION. THIS PACKET IS NOT VERIFIED OR ARCHIVE-READY,
-AND NO PASS IS INFERRED. The implementation does not claim fixed-root mutation
-containment. Remaining disclosed risks include stacked unsynced deltas,
+PASSED ON THE FIRST RUN. A NEW FINAL SEPARATE VERDICT IS STILL PENDING. THE
+PREVIOUS FULL-SUITE RECORD DOES NOT VERIFY THIS EXECUTABLE REVISION; ONLY THE
+NEW EXACT-FINGERPRINT RECORD IS ADMISSIBLE, AND IT REMAINS USER-WRITABLE,
+UNAUTHENTICATED, AND INSUFFICIENT BY ITSELF. THIS PACKET IS NOT VERIFIED OR
+ARCHIVE-READY, AND NO PASS IS INFERRED. The implementation does not claim
+fixed-root mutation containment. Remaining disclosed risks include stacked
+unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
 state is user-writable rather than attested, proof-root test behavior may differ

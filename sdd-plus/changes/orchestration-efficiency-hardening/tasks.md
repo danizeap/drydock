@@ -86,7 +86,7 @@ orchestration-efficiency-hardening
   state.
 - [x] Obtain focused peer cross-review of the final-verifier Git-helper
   remediation.
-- [ ] Re-freeze the new executable fingerprint and run a new replacement full
+- [x] Re-freeze the new executable fingerprint and run a new replacement full
   required suite; the proof for the prior fingerprint is not reusable.
 - [ ] Obtain final separate verification against the remediated frozen
   candidate.
