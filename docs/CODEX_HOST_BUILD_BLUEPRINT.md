@@ -206,12 +206,23 @@ effect.
   verifier denied an external proof-store read. Host-read behavior is therefore
   point-in-time platform evidence, never a stable confinement or reachability
   claim.
-- Replaces Owner shell-environment overrides with an exact process-local Git
-  map: command-scope `safe.directory` for only the canonical delegated root,
-  null global/system configuration, no system attributes, optional locks, or
-  prompts, and a canonical ceiling. Internal Git helpers independently pass
-  command-scoped `safe.directory` because they strip inherited `GIT_*`.
-  Nothing writes Owner or global Git configuration.
+- Supplies an exact command-scoped Git map plus
+  `shell_environment_policy.inherit="core"`: command-scope `safe.directory`
+  for only the canonical delegated root, null global/system configuration, no
+  system attributes, optional locks, or prompts, and one canonical ceiling.
+  The map pins named values; Codex's `core` inheritance profile is the requested
+  mechanism excluding unlisted parent variables. Repository tests prove argv
+  shape, while replace-versus-merge semantics, `core` membership, and effective
+  child values require point-in-time live evidence. Internal Git helpers
+  independently pass command-scoped `safe.directory` because they strip
+  inherited `GIT_*`. Nothing writes Owner or global Git configuration.
+  On native Windows with Codex CLI 0.146.0-alpha.3.1, a live probe excluded a
+  simulated lower-priority Owner sentinel plus poisoned parent `GIT_*` and
+  unrelated values. Codex retained the requested values but appended a second
+  equivalent native-path `safe.directory`, producing effective
+  `GIT_CONFIG_COUNT=2`; result metadata consequently calls the map requested,
+  not achieved. The probe is point-in-time and did not use a real Owner config
+  file as its lower-precedence layer.
 - Binds the verdict to HEAD plus a working-tree fingerprint in three places:
   the prompt, exact schema constants echoed by the verifier, and an
   independently recomputed post-run fingerprint. Nested verdict fields and
@@ -223,8 +234,12 @@ effect.
 - Returns BLOCKED if isolation or fingerprinting cannot be established.
 - Establishes process, context, and permission isolation only. A same-family
   Codex process is not claimed as an independent epistemic vantage.
-- Audits the exact-fingerprint full-suite proof rather than duplicating pytest
-  inside a boundary that correctly has no writable temporary directory.
+- Recomputes v2 identity and refuses provider spawn or PASS unless the bounded
+  full-suite record is structurally accepted for the exact fingerprint, then
+  supplies that same record to the verifier instead of duplicating pytest
+  inside a boundary that correctly has no writable temporary directory. The
+  record remains user-writable, unauthenticated, and insufficient for PASS; its
+  structural admission does not attest execution provenance.
 
 ### Mutation runner
 

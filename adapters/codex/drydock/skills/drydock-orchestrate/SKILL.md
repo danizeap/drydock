@@ -68,10 +68,16 @@ semantics, while the explicit one-tool allowlist is the authority boundary.
    browser, and computer-use surfaces. A zero-exit worker with no diff is
    `no_changes`, never success.
 9. Treat worker test claims as untrusted. Cross-review the staged work, then
-   run `scripts/process_runner.py verify` against the exact intended tree. A
-   missing, timed-out, malformed, or stale verdict is BLOCKED, never PASS.
-   Read-only proves no write capability on the tested host; `-C` supplies task
-   context but is not a proven read-confinement boundary.
+   run `scripts/process_runner.py verify` against the exact intended tree with
+   the active `--packet-root` and the exact `--proof-record` emitted by the
+   frozen `full_required_suite` run. Before provider spawn, the parent runner
+   recomputes v2 identity and refuses a v1, intermediate, failed, timed-out,
+   non-zero-exit, malformed, dirty-candidate, or fingerprint-mismatched record.
+   The record is user-writable and unauthenticated: it is required but
+   insufficient for PASS and does not attest execution provenance. A missing,
+   timed-out, malformed, or stale verdict is BLOCKED, never PASS. Read-only
+   proves no write capability on the tested host; `-C` supplies task context
+   but is not a proven read-confinement boundary.
 10. Use `scripts/orchestrator.py proof-run` for candidate-bound proof. It
    materializes a fresh root from the exact clean commit, refuses tracked
    bytecode and ignored Python/pytest injection paths, and disables bytecode

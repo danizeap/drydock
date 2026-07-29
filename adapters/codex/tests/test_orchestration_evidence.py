@@ -802,9 +802,11 @@ def test_fresh_proof_root_and_final_suite_binding(tmp_path: Path) -> None:
     ]
     full = {
         **result,
+        "schema_version": 2,
         "fingerprint_version": evidence.FINGERPRINT_VERSION,
         "scope": "full_required_suite",
         "executable_surface_sha256": fingerprint,
+        "authenticated": False,
     }
     assert evidence.final_suite_acceptance(
         full, executable_fingerprint=fingerprint

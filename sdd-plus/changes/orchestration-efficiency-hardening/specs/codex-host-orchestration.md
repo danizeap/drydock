@@ -280,19 +280,28 @@ other archive/tree divergence SHALL fail proof materialization.
   projection and the complete target task file remains executable
 
 ### Requirement: Separate Codex processes receive a pinned Git context
-The process runner SHALL replace inherited `shell_environment_policy.set`
-values with an exact process-local map for every delegated root. The map SHALL
-set command-scope Git configuration count/key/value fields that mark only the
-canonical delegated root as `safe.directory`; null global and system Git
-configuration; disable system attributes, optional locks, and terminal
-prompts; and set a canonical Git ceiling. The runner SHALL NOT mutate Owner,
-global, system, or repository Git configuration to establish trust. Its own
-Git helpers and the proof-identity Git helpers SHALL independently pass the
-canonical current root as command-scoped `safe.directory`, because those
-helpers deliberately remove inherited `GIT_*` variables. The injected shell
-defaults make cooperative verifier commands usable; they SHALL NOT be
-described as tamper-resistant against model-authored code that deliberately
-replaces its own process environment.
+The process runner SHALL supply an exact command-scoped
+`shell_environment_policy.set` map for every delegated root. The supplied map
+SHALL set Git configuration count/key/value fields that mark only the canonical
+delegated root as `safe.directory`; null global and system Git configuration;
+disable system attributes, optional locks, and terminal prompts; and set one
+canonical Git ceiling. The runner SHALL also pin
+`shell_environment_policy.inherit="core"` as the Codex-defined mechanism that
+excludes unlisted inherited environment variables; the explicit `set` map
+alone SHALL NOT be described as sanitizing every possible `GIT_*` variable.
+Repository tests establish the requested command-line configuration shape, not
+Codex's replace-versus-merge semantics or the membership of `core`; those
+remain point-in-time platform properties requiring a live effective-environment
+probe.
+
+The runner SHALL NOT mutate Owner, global, system, or repository Git
+configuration to establish trust. Its own Git helpers and the proof-identity
+Git helpers SHALL independently pass the canonical current root as
+command-scoped `safe.directory`, because those helpers deliberately remove
+inherited `GIT_*` variables. The injected shell defaults make cooperative
+verifier commands usable; they SHALL NOT be described as tamper-resistant
+against model-authored code that deliberately replaces its own process
+environment.
 
 #### Scenario: Sandbox identity differs from repository owner
 - **WHEN** a read-only Codex process runs Git under a sandbox SID different
@@ -305,9 +314,11 @@ replaces its own process environment.
 - **WHEN** Owner configuration contains unrelated
   `shell_environment_policy.set` values or the parent environment contains
   hostile `GIT_*` variables
-- **THEN** the delegated process receives only the runner's exact Git map, and
-  internal helpers replace inherited Git state with their own pinned
-  command-scoped configuration
+- **THEN** the runner supplies its exact root-bound map and `inherit="core"` as
+  command-scoped overrides, while internal helpers independently replace
+  inherited Git state with pinned command-scoped configuration
+- **AND** whether the effective delegated environment retains an unlisted
+  Owner value is reported from a live probe rather than inferred from argv
 
 ### Requirement: Test execution follows a targeted-to-full ladder
 During mutation, the controller SHALL prefer the smallest checks that cover the
@@ -342,9 +353,22 @@ completion marker or the user-writable evidence digest.
 - **WHEN** the final full required suite already passed on the exact frozen
   executable fingerprint and the separate verifier has no writable temporary
   directory
-- **THEN** the verifier validates the exact proof record, implementation,
-  specification, state binding, and read-only checks without rerunning
-  write-requiring test commands inside its permission boundary
+- **THEN** the parent runner recomputes the v2 candidate identity and refuses
+  to spawn the provider or accept PASS unless `final_suite_acceptance` accepts
+  a schema-v2, full-required-suite, passed, non-timeout, exit-zero record for
+  that exact executable fingerprint
+- **AND** the same bounded record is supplied to the verifier for review of the
+  implementation, specification, state binding, and read-only checks without
+  rerunning write-requiring test commands inside its permission boundary
+- **AND** the result labels the record user-writable, unauthenticated, and
+  required but insufficient for PASS; it does not claim that structural
+  admission attests execution provenance or replaces the separate verifier
+
+#### Scenario: Final proof is absent, stale, or structurally invalid
+- **WHEN** the final verifier receives a v1, intermediate, failed, timed-out,
+  non-zero-exit, malformed, or executable-fingerprint-mismatched proof record
+- **THEN** the parent runner refuses it before provider spawn and no verifier
+  verdict can be accepted
 
 #### Scenario: A packet change can affect governed behavior
 - **WHEN** a spec, plan, task contract, agent instruction, skill, configuration,

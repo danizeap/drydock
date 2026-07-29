@@ -68,7 +68,15 @@ orchestration-efficiency-hardening
 - [x] Add focused regression coverage for direct-child configuration,
   internal-helper configuration, hostile inherited Git state, and paths with
   spaces.
-- [ ] Obtain focused implementation cross-review of the verifier remediation.
+- [x] Obtain focused implementation cross-review of the verifier remediation;
+  round ten was non-converged on instruction-only proof admission and an
+  unproven Codex environment-merge claim.
+- [x] Enforce exact final-proof admission before provider spawn while preserving
+  the user-writable record's unauthenticated, insufficient status.
+- [x] Narrow effective-environment claims, credit `inherit="core"`, and record
+  a live point-in-time effective-environment probe.
+- [ ] Obtain focused implementation re-review convergence on the verifier
+  remediation.
 - [ ] Re-freeze the executable candidate and run one replacement full required
   suite on its exact v2 fingerprint.
 - [ ] Obtain final separate verification against the remediated frozen

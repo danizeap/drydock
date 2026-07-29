@@ -1531,18 +1531,37 @@ class ProofStore:
 def final_suite_acceptance(
     record: Mapping[str, object], *, executable_fingerprint: str
 ) -> dict[str, object]:
+    command = record.get("command")
+    exit_code = record.get("exit_code")
     accepted = (
+        type(record.get("schema_version")) is int
+        and record.get("schema_version") == 2
+        and
         record.get("fingerprint_version") == FINGERPRINT_VERSION
         and
         record.get("scope") == "full_required_suite"
         and record.get("terminal_status") == "passed"
         and record.get("executable_surface_sha256") == executable_fingerprint
+        and isinstance(command, list)
+        and bool(command)
+        and all(isinstance(item, str) and item for item in command)
+        and isinstance(record.get("environment_sha256"), str)
+        and bool(SAFE_DIGEST.fullmatch(str(record["environment_sha256"])))
+        and isinstance(record.get("output_sha256"), str)
+        and bool(SAFE_DIGEST.fullmatch(str(record["output_sha256"])))
+        and type(exit_code) is int
+        and exit_code == 0
+        and record.get("timed_out") is False
+        and record.get("authenticated") is False
     )
     return {
         "accepted": accepted,
+        "authenticated": False,
+        "provenance_attested": False,
         "reason": (
-            "full required suite passed on the exact executable fingerprint"
+            "user-writable full-suite record is structurally accepted for the "
+            "exact executable fingerprint; execution provenance is not attested"
             if accepted
-            else "final exact-fingerprint full-suite proof is absent"
+            else "an exact structurally valid full-suite record is absent"
         ),
     }

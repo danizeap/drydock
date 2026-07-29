@@ -247,6 +247,43 @@ orchestration-efficiency-hardening
   matched all 473 paths and mode/bytes. No missing structured verdict or
   partial positive check is interpreted as PASS. The verifier runner must make
   its fixed read-only Git context usable before another paid attempt.
+- [x] Claude's focused review of
+  `b9e9da77e68f330c44b998e88b645b5b5251b6f0..fe2ffd004da1a04bc4a43101a726f31f257f0632`
+  reproduced 132 focused passes, packet verification, diff cleanliness, and
+  all nine prior peer-evidence schema validations. It returned non-converged
+  on two claim/mechanism gaps: proof review was instruction-only, and the
+  subprocess-environment text asserted unproven Codex merge behavior. The
+  exact review is recorded as `claude-architecture-review-round-10.json`; no
+  candidate freeze or PASS is inferred.
+- [x] A native-Windows effective-environment probe ran against
+  `codex-cli 0.146.0-alpha.3.1` with a simulated lower-priority Owner `set`
+  table and, in the final run, parent `GIT_DIR`, `GIT_OBJECT_DIRECTORY`, and
+  `DRYDOCK_PARENT_UNLISTED` poison. All simulated Owner/parent poison was absent
+  from the tool child, and every requested runner value was present. Codex also
+  appended `GIT_CONFIG_KEY_1=safe.directory` with the equivalent native
+  Windows root and changed effective `GIT_CONFIG_COUNT` from requested `1` to
+  `2`. The two detailed 530-byte results were identical at SHA-256
+  `9b1fd50eed61c8e58bc1c58f8f1a9e9401b06c5129369a64e6ea8c1e79e83a9c`.
+  The evidence proves only this build and lower-priority CLI layering, not an
+  actual Owner config file or another Codex version. One intervening PowerShell
+  wrapper attempt failed before `thread.started` because PowerShell 5.1 removed
+  TOML double quotes and Codex rejected `shell_environment_policy.set` as a
+  string rather than a map; the corrected wrapper used TOML literal strings.
+  No result is inferred from the failed wrapper.
+- [x] The verifier parent now recomputes v2 candidate identity and treats
+  `final_suite_acceptance` as a pre-spawn gate. The first targeted regression
+  run exposed five valid-fixture refusals because the Windows test repository
+  inherited Owner `core.autocrlf` during setup while proof Git deliberately
+  nulled global config. The fixture now pins local `core.autocrlf=false`; the
+  corrected targeted run passed 17 tests, including eleven invalid proof
+  shapes and a dirty candidate refused before provider spawn. This is focused
+  implementation evidence only; re-review and a replacement frozen full suite
+  remain pending.
+- [x] The complete focused orchestration set passed after the remediation:
+  `147 passed in 99.86s` for `test_process_runner.py`,
+  `test_orchestrator.py`, and `test_orchestration_evidence.py`, with
+  `PYTHONDONTWRITEBYTECODE=1` and pytest cache disabled. No adapter/legacy/parity
+  full suite was run.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -257,19 +294,16 @@ orchestration-efficiency-hardening
 
 ## Result
 
-V2 PROOF-IDENTITY ARCHITECTURE CONVERGED; THE PRE-FREEZE STRUCTURAL
-SERIALIZATION FINDING IS REMEDIATED, IMPLEMENTATION CROSS-REVIEW CONVERGED,
-AND THE FINAL FULL REQUIRED SUITE PASSED ON THE EXACT FROZEN EXECUTABLE
-CANDIDATE
-`b2bff34466e5bde7457e5b3446e087d584bee2388ea98561330344d1d8287b6f`
-AT COMMIT `4caa98812e5774c48bdd78451abaf43d0a5a4c10`; SEPARATE VERIFICATION
-IS BLOCKED ON READ-ONLY EVIDENCE REACHABILITY AND TEMPORARY-FILE
-AVAILABILITY; THE LATEST IN-BAND-EVIDENCE ATTEMPT ALSO EXPOSED AN UNPINNED
-`safe.directory` REQUIREMENT FOR GIT UNDER THE SANDBOX SID AND TIMED OUT
-WITHOUT A VERDICT. NO IMPLEMENTATION FAILURE IS OBSERVED, BUT THE VERIFIER
-RUNNER MUST BE REMEDIATED BEFORE ANOTHER ATTEMPT. The
-implementation does not claim
-fixed-root mutation containment:
+ROUND-TEN VERIFIER-REMEDIATION REVIEW IS NON-CONVERGED. THE TWO BLOCKERS ARE
+IMPLEMENTED LOCALLY BUT HAVE NOT RECEIVED RE-REVIEW: FINAL-PROOF ADMISSION IS
+NOW A PARENT-RUNNER PRE-SPAWN GATE, AND EFFECTIVE CHILD-ENVIRONMENT CLAIMS ARE
+LIMITED TO REQUESTED CONFIGURATION PLUS POINT-IN-TIME LIVE EVIDENCE. THE LIVE
+PROBE ALSO PROVED CODEX APPENDS A SECOND EQUIVALENT `safe.directory`, SO THE
+RESULT REPORTS REQUESTED RATHER THAN ACHIEVED ENVIRONMENT. THE PRIOR
+FULL-REQUIRED-SUITE PROOF DOES NOT BIND THESE EXECUTABLE CHANGES. NO CURRENT
+CANDIDATE IS FROZEN, NO REPLACEMENT FULL SUITE HAS RUN, AND SEPARATE
+VERIFICATION REMAINS BLOCKED UNTIL RE-REVIEW CONVERGES. The implementation
+does not claim fixed-root mutation containment:
 after the measured runner failures above, the pilot edited the scoped Owner
 checkout directly. Remaining disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or

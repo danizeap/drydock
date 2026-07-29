@@ -232,14 +232,33 @@ a separate Codex process, and neither may merge, commit, push, or deploy on its
 own authority. On Codex CLI 0.146.0-alpha.3.1, repository trust requires loading
 Owner config; the runner therefore reports that TCB and fixes disabled
 integration/network/rules/root-expansion/hook features on the command line.
-It also replaces inherited subprocess overrides with an exact Git environment
-for the delegated root and passes command-scoped `safe.directory` inside its
-own Git helpers; this avoids Windows sandbox-SID `dubious ownership` without
-writing global or Owner Git configuration. These are cooperative process
-defaults, not a claim that model-authored code cannot replace its own
-environment. A read-only verifier audits the exact-fingerprint full-suite
-record and does not duplicate pytest inside a boundary with no writable
-temporary directory.
+It supplies an exact root-bound Git map plus
+`shell_environment_policy.inherit="core"` as command-scoped subprocess
+configuration and passes command-scoped `safe.directory` inside its own Git
+helpers; this avoids Windows sandbox-SID `dubious ownership` without writing
+global or Owner Git configuration. The explicit map pins named values, while
+the Codex-defined `core` inheritance profile is what excludes unlisted parent
+variables. Repository tests prove argv shape; replace-versus-merge semantics,
+the contents of `core`, and the effective child environment remain
+point-in-time live-probe evidence. These are cooperative process defaults, not
+a claim that model-authored code cannot replace its own environment.
+On Codex CLI 0.146.0-alpha.3.1, a native-Windows live probe layered a simulated
+lower-priority Owner table beneath the runner override and poisoned the parent
+with `GIT_DIR`, `GIT_OBJECT_DIRECTORY`, and an unrelated variable. None reached
+the tool child. The requested entries did, but Codex appended a second
+equivalent `safe.directory` entry using the native Windows path and changed
+effective `GIT_CONFIG_COUNT` from `1` to `2`. Runner metadata therefore reports
+`requested_shell_environment`, never an exact achieved-environment claim. This
+probe does not establish behavior for another Codex build or prove that a real
+Owner config file is merged identically to a lower-priority CLI override.
+
+A read-only verifier does not duplicate pytest inside a boundary with no
+writable temporary directory. Before provider spawn, the parent runner
+recomputes the v2 candidate identity and refuses any v1, intermediate, failed,
+timed-out, non-zero-exit, malformed, or fingerprint-mismatched full-suite
+record. It embeds the same accepted record for verifier review. That record is
+user-writable and unauthenticated: admission is required but insufficient for
+PASS and does not attest execution provenance.
 Provider, authentication/base-URL, model-instruction, and unpinned
 notification or telemetry settings remain explicit Owner-config trust
 dependencies. Post-worker review validates the worktree Git control link,
