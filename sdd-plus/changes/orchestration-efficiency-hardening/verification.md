@@ -353,6 +353,23 @@ orchestration-efficiency-hardening
   tracked bytecode, ignored code-injection path, or invalid packet evidence
   was present. This is the expected separation between stable executable
   identity and changed governance evidence.
+- [x] Final separate-verifier attempt at exact clean HEAD
+  `09bdee5d75c337ee9996127294ed5e389a0588d6` returned a schema-valid
+  model verdict of `FAIL`; the packet records it fail-closed as `BLOCKED`.
+  The parent runner returned `ok: false`, `stage: complete`, exit code `0`,
+  `timed_out: false`, and `parse_error: null`. Proof admission was accepted,
+  the before/after HEAD and working-tree fingerprint
+  `95cbb426f0fb03f9b5a399ca93b696d33fe15d60aa3e2be61d4b6b6ceedd31a5`
+  matched, and both `tree_unchanged` and `candidate_unchanged` were true.
+  Positive inspection reproduced both requested packet fingerprints, but the
+  verifier also reproduced a real sandbox-SID failure: the internal
+  `git cat-file --batch` call in `_git_tree_entries` omitted the
+  command-scoped `safe.directory` override while its environment removed
+  inherited Git configuration. The corresponding regression covered `_git`
+  but not this internal subprocess. The verifier additionally noted that the
+  exact suite-count summary body is not committed, so it did not independently
+  infer the recorded counts. The exact gate result is preserved in
+  `codex-final-verifier.json`; no PASS or final verification is inferred.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
@@ -364,11 +381,13 @@ orchestration-efficiency-hardening
 
 ## Result
 
-REMEDIATION PEER REVIEW HAS CONVERGED AND THE REPLACEMENT FULL REQUIRED SUITE
-PASSED AGAINST THE FROZEN V2 EXECUTABLE FINGERPRINT. FINAL SEPARATE
-VERIFICATION IS STILL PENDING, SO THIS PACKET IS NOT YET VERIFIED OR
-ARCHIVE-READY. The implementation does not claim fixed-root mutation
-containment. Remaining disclosed risks include stacked unsynced deltas,
+FINAL SEPARATE VERIFICATION IS BLOCKED BY A REPRODUCED INTERNAL GIT-TRUST
+DEFECT: THE PROOF-IDENTITY `git cat-file --batch` HELPER OMITS THE
+COMMAND-SCOPED `safe.directory` USED BY THE OTHER GIT HELPER. THE PREVIOUS
+REPLACEMENT FULL-SUITE RECORD CANNOT VERIFY A FUTURE EXECUTABLE FIX. THIS
+PACKET IS NOT VERIFIED OR ARCHIVE-READY, AND NO PASS IS INFERRED. The
+implementation does not claim fixed-root mutation containment. Remaining
+disclosed risks include stacked unsynced deltas,
 pre-mutation objective classification remains a judgment, oversized or
 secret-bearing terminal output can require a new Owner-approved call, evidence
 state is user-writable rather than attested, proof-root test behavior may differ
