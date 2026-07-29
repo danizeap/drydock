@@ -451,6 +451,15 @@ orchestration-efficiency-hardening
   candidate while retaining `authenticated: false` and
   `provenance_attested: false`. Counts come from the separately read durable
   summary, not from process exit alone.
+- [x] Post-proof governance-state checkpoint: exact clean HEAD
+  `9b921ed198fe3e8302ce3c0410d12dd647d31742` retained v2 executable
+  fingerprint
+  `b0f6cff44dfae8db561149ec9bf0f1b45d2479a570000076baefcc3547c981d6`
+  while the non-self-inclusive packet-evidence-parent fingerprint became
+  `855d176c137aa5774f94387c295bc223d6fcfd007cc348cbabd6f4c7c2888918`
+  after the new full-suite task was checked complete. Canonical task
+  projection and reuse eligibility remained true, with no tracked bytecode,
+  ignored code-injection path, or invalid packet evidence.
 - [ ] Independent review of the frozen implementation.
 
 ## Documentation Updates
