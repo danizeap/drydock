@@ -94,7 +94,7 @@ codex-host-mvp
   candidate paths; disclose unsigned plugin-data evidence and in-window replay.
 - [x] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
-- [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
+- [x] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
   agreement, isolated mutation, cross-review, separate verification, and push.
   Component-level runner, verifier, readiness, and live-hook probes do not
   complete this task by themselves.
