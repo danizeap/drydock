@@ -587,9 +587,10 @@ THE SECOND OPUS 5 ARCHITECTURE ROUND CONVERGED AND THE CONVERGED
 CONTROL-PLANE CORRECTIONS ARE NOW IMPLEMENTED LOCALLY. THE COMBINED FOCUSED
 CONTROLLER, PEER-WRAPPER, EVIDENCE, AND PROCESS-RUNNER SUITE PASSED. THE
 IMPLEMENTATION RECEIVED A CONVERGED BOUNDED OPUS 5 CROSS-REVIEW WITH NO
-BLOCKERS. FROZEN FULL REQUIRED SUITES AND SEPARATE VERIFICATION HAVE NOT YET
-RUN, SO THE PACKET REMAINS OPEN AND IS NOT ARCHIVED, RELEASED, INSTALLED, OR
-READY FOR DOGFOOD.
+BLOCKERS. THE FROZEN FULL REQUIRED SUITES PASSED AND THE SEPARATE READ-ONLY
+VERIFIER RETURNED PASS ON THE EXACT EXECUTABLE FINGERPRINT. THE PACKET IS
+VERIFIED BUT HAS NOT BEEN SYNCED, ARCHIVED, PUSHED, RELEASED, INSTALLED, OR
+USED FOR NEW DOGFOOD.
 
 ## Control-Plane Architecture Peer Evidence
 
@@ -698,6 +699,47 @@ READY FOR DOGFOOD.
   `cross_review`, so the peer's conditional `KeyError` concern is not reachable
   through this CLI surface. No absence of coverage for the remaining gaps is
   treated as a positive result.
-- [ ] Freeze the unchanged executable fingerprint, run the full required
-  suites, and obtain separate verification before any mutation dogfood,
-  integration, push, archive, release, or installation claim.
+- [x] The evidence-only review checkpoint briefly changed executable identity
+  because its first task-status edit changed task wording. That edit was
+  restored byte-for-byte to the reviewed `tasks.md` in commit
+  `3b0e0bb9a22a5d8f85969f73ceff56de346d3ec8`. Clean v2 identity then returned
+  exactly to reviewed executable fingerprint
+  `55d7812b3b71f843c9170994a6e2eb2a82afe70d62ffd06783a1b832db0324f4`;
+  packet-evidence fingerprint was
+  `91d1b0cb51ba0864b5aad51595367c9f89a8d8ed4d89573a697180c68c302f57`.
+  The transient mismatch was detected rather than treated as evidence-only.
+- [x] One frozen `full_required_suite` proof ran from a fresh materialization
+  of exact commit `3b0e0bb9...` and the reviewed executable fingerprint. Exact
+  results: legacy `548 passed, 6 skipped in 51.23s`; Codex adapter
+  `354 passed, 3 skipped in 173.81s`; all 11 root/scaffold pairs identical;
+  scaffold bundle matched source; hook runtime and definition matched source;
+  all release-version locations agreed at `0.12.1` with a changelog entry; and
+  packet verification reported `67 complete, 1 pending`. Every step returned
+  zero. The schema-v2 proof record
+  `30aaf4474d5cd47710b967aa5238960e72cfbda0fc5cfd79a772b912044e2afc.json`
+  reports `terminal_status=passed`, exit code zero, `timed_out=false`,
+  234.203 seconds, environment digest
+  `d87cc1ffd9cd471855fe9a5cf0fd8f0db9b45cc628299ddba6871b9193212aac`,
+  and output digest
+  `6569483a7da8424811620c7aca37ee8cd465614e90569193dc19b6415d2ef105`.
+  The 2,565-byte proof record SHA-256 is
+  `df095f4e59709f70e29d35d06dd7b96929338fefbf3fa7b4027c7020568857f7`;
+  the 3,401-byte external summary SHA-256 is
+  `8c8858436add5187da698d97b98720e7366a07610e1a0d5cc97a530ad01e97a6`.
+  Both remain user-writable, unauthenticated evidence, not attestation.
+- [x] The separate `gpt-5.6-sol` verifier ran in an ephemeral read-only process
+  and returned `PASS` with exit code zero, no timeout, no parse error, accepted
+  proof admission, and identical before/after HEAD, working-tree fingerprint,
+  v2 executable fingerprint, and packet-evidence fingerprint. It positively
+  checked the requested source, contract, focused-test, task-identity,
+  disclosure, and full-suite-record invariants. The verdict is recorded in
+  `codex-final-verifier.json`; its three findings are minor/note, not blockers.
+- [x] Final-verifier efficiency is not solved. The verifier took about 533.9
+  wall-clock seconds and reported 2,902,355 input tokens, of which 2,757,888
+  were cached, plus 21,456 output tokens and 12,776 reasoning-output tokens.
+  This PASS proves the candidate; it does not make that cost/latency acceptable
+  as Drydock's long-term default. No replacement verifier call ran.
+- [x] Post-verdict packet verification returned `68 complete, 0 pending` and
+  reported only the unsynced living-spec gate. All 15 Claude review summaries
+  plus `codex-final-verifier.json` validate under the packet's
+  Draft 2020-12 schema. `git diff --check` reported no whitespace error.

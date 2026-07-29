@@ -148,5 +148,5 @@ orchestration-efficiency-hardening
 - [x] Bound every structured review field and array, keep implementation
   remediation output minimal, and disclose that accepted-output bounds do not
   measure hidden provider reasoning.
-- [ ] Re-run focused tests, packet verification, implementation cross-review,
+- [x] Re-run focused tests, packet verification, implementation cross-review,
   frozen full required suites, and separate verification before dogfood.

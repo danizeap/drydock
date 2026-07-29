@@ -2,13 +2,16 @@
   "schema_version": 1,
   "evidence_kind": "codex_final_verifier",
   "verdict": "PASS",
-  "overall": "PASS. The prior sandbox-SID blocker is positively closed, the requested invariants agree across implementation, tests, specs, documentation, and packet evidence, and the bound repository state remained unchanged. This establishes process, context, permission, and state-binding separation, not epistemic independence. The admitted suite record remains required but unauthenticated, provenance-unattested, user-writable, and insufficient by itself. The parent runner bound the verdict to HEAD f307a7a60c3aaabf17890ab453b2e517064f4f91 and working-tree fingerprint 6b9e8c8ab56f5783184be6c0270d007f1cb7b117549a631135ff9cb1cfb1bfd4; it returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true.",
+  "overall": "PASS. The frozen candidate is state-bound, fail-closed on the requested controls, consistent with its delta contract, and backed by the required exact-v2-fingerprint suite record plus independent read-only source and focused-test audit. Remaining gaps are explicitly non-blocking and are not strengthened into unsupported claims. The parent runner bound the verdict to HEAD 3b0e0bb9a22a5d8f85969f73ceff56de346d3ec8 and working-tree fingerprint 8e392b80c061872f43f9061247628d06077e3e078ceab2e55abcdf0c35e9e625; it returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true.",
   "blockers": [],
   "gaps": [
-    "Host-file reads were denied, so the claimed 3,401-byte suite-summary size, SHA-256, CRLF-derived output digest, and per-step suite counts were not independently cross-checked by the verifier. No count confirmation is inferred from that review; the parent exact-fingerprint proof-admission gate remains the required mechanical control."
+    "Only high and medium effort are exercised against the fake CLI. Support for low, xhigh, and max remains unproven and is not inferred.",
+    "Official phase/kind mismatch and unofficial implementation-kind cross_review ledger drawdown are positively fail-closed in source but lack dedicated focused regressions.",
+    "No positive terminal-headroom claim applies to maximum multibyte output or the complete stored result body."
   ],
   "risks": [
-    "The admitted full-suite record and external summary remain user-writable, unauthenticated, provenance-unattested evidence; structural admission is necessary but not sufficient by itself.",
-    "The verifier establishes separate process, context, permission, state-binding, and Windows descendant-lifetime boundaries, but uses the same model family and declares epistemic_independence false."
+    "The admitted full-suite record remains user-writable, unauthenticated, provenance-unattested evidence; structural admission is necessary but not sufficient by itself.",
+    "The verifier establishes separate process, context, read-only permission, state-binding, and Windows descendant-lifetime boundaries, but uses the same model family and declares epistemic_independence false.",
+    "The verifier consumed a very large mostly cached context and took about 8.9 minutes, so final-verifier efficiency remains an operational weakness even though this verdict passed."
   ]
 }
