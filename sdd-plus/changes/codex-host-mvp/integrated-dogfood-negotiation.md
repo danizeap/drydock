@@ -8,6 +8,9 @@
 - Initial cycle result: not converged at the cap.
 - Fresh Owner-authorized cycle result: converged in Round 2 with no blocking
   concern.
+- 2026-07-29 execution rebase: pending fresh critique. The earlier convergence
+  does not cover the current guide preimage or the hardened clean-candidate,
+  full-suite-proof verifier flow.
 - Mutation process started: no.
 - Worktree created: no.
 - Integration or push performed from this plan: no.

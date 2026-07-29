@@ -21,8 +21,8 @@ The frozen note is 1,255 ASCII bytes with one terminal LF, no CR, and SHA-256
 `950be9d72a83dbe662737f855621cb5a02fde4231a70b09f56673373e7991e65`.
 
 The exact splice is pre-registered against committed guide preimage blob
-`31b5995c44cc260904e6f2a2f861355c0538ea7f` (42,284 LF-only bytes, raw
-SHA-256 `608712760ed1ca2aa7fc3b2a0df24da2e464ecc1c05c885b7efd88a38b79ac12`).
+`cba390733d524eeaea518b8b7372ad7d06d9f7bb` (48,968 LF-only bytes, raw
+SHA-256 `0321b034d8e9b3b7939560f0c75ff4d056ad2b5dcd7d03ecea8f482d2ffa1dff`).
 The unique `Readiness may call` anchor begins at byte offset 12,413 and is
 already preceded by `0a 0a`. Immediately before that anchor, the worker inserts
 the 1,255 frozen note bytes followed by one additional `0a`; the 1,256-byte
@@ -30,10 +30,10 @@ insertion therefore has SHA-256
 `7c9e5c45e0de3fb0e4cd71ab0dd020f9af1e721d96c887952a807d25104f349e`.
 The note's terminal `0a` plus the added `0a` form the blank line after it; the
 existing two `0a` bytes form the blank line before it. The expected
-post-mutation linked-worktree file is 43,540 LF-only bytes with raw SHA-256
-`52444a046b87ea1354250f5c72a3ae1a3654c198262a3f6d1ad4546648ec5cf4`
+post-mutation linked-worktree file is 50,224 LF-only bytes with raw SHA-256
+`70ec25349799865c9596ea413156f53f20a2937e3690573d2737996f158ae29c`
 and normalized Git blob SHA-1
-`5b47ca2302e5bb66312a07ebe8f43b0dca2c820c`.
+`0093b7d1602e5e1b9ffbb3947d34d128eb87f74e`.
 
 ## Evidence basis
 
@@ -76,12 +76,18 @@ and normalized Git blob SHA-1
   generated packet artifact. A one-file guide mutation therefore does not
   conflict with the sync gate.
 - The Owner checkout's clean on-disk guide preimage is a mixed-EOL
-  representation (42,534 bytes, raw SHA-256
-  `5b877ee7132f7c6db0a9f419808dace623c511c0552597d359b38a9c6fb7853f`)
+  representation (49,217 bytes, raw SHA-256
+  `23276c3e9e71ccc31da76b038479fe1fe2640a5e6f121d8df62e0a05453e22c7`)
   of the same normalized blob. Worker acceptance uses the LF-only linked
   worktree commitment above. Integration acceptance separately requires the
   exact inserted block and the expected normalized blob; it does not
   misdescribe pre-existing working-tree EOL representation as mutation drift.
+- The prior frozen preimage `31b5995c...a7f` is stale because later reviewed
+  orchestration-efficiency commits appended 99 lines after the unchanged
+  insertion anchor. The note remains absent, the unique anchor remains at byte
+  offset 12,413, and the current preimage/postimage values above were
+  recomputed from exact committed blob bytes. No worker may start until a fresh
+  peer critique accepts this rebased plan.
 
 ## Existing runner safeguards relevant to the peer concern
 
@@ -155,8 +161,11 @@ model independently observed those values. The runner recomputes the same
 fingerprint after the verifier exits and rejects drift. Tracked, untracked,
 and diff bytes enter that fingerprint, and the linked-worktree probe above
 proves sensitivity to an added scratch byte on the exact repository shape used
-here. Ignored artifacts are separately required absent immediately before and
-after verification because they are not part of that fingerprint.
+here. The current v2 proof preflight separately blocks tracked bytecode and
+ignored `conftest.py`, `sitecustomize.py`, `usercustomize.py`, and `*.pth`
+injection paths. Ordinary ignored bytecode caches are disclosed but do not
+block because the full required suite runs from a fresh exact-commit
+materialization with bytecode writes disabled.
 
 `verify()` does not itself call `_assert_safe_local_git_configuration()`.
 `mutate()` called that precheck immediately before creating the linked
@@ -169,16 +178,32 @@ parses each existing local/worktree config file named by `GitControlBoundary`
 with `git config --file <exact-path> --no-includes --name-only --list`. Any
 `include.*`, `includeIf.*`, or `filter.*.(clean|smudge|process)` key aborts.
 That preserves the pre-launch safe-config result without claiming an unusable
-post-creation helper call. The first verifier is invoked against the retained
-mutation worktree, never the Owner checkout, with the exact shape:
+post-creation helper call. The current verifier also refuses a dirty or
+unproven candidate before provider discovery. After cross-review, the Codex
+control plane therefore commits only the exact reviewed documentation diff on
+the isolated branch, runs one `full_required_suite` proof from a fresh
+materialization of that exact commit, and invokes the first verifier against
+the now-clean retained worktree, never the Owner checkout, with the exact
+shape:
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE = '1'
 Get-Content -Raw <verification-request> |
   & 'C:\Users\Daniel Paez\AppData\Local\Programs\Python\Python311\python.exe' `
     -B adapters/codex/drydock/scripts/process_runner.py verify `
-    --repo <exact-mutation-worktree> --model gpt-5.6-sol --timeout 600
+    --repo <exact-mutation-worktree> `
+    --model gpt-5.6-sol `
+    --packet-root sdd-plus/changes/codex-host-mvp `
+    --proof-record <exact-full-required-suite-proof-record> `
+    --timeout 600
 ```
+
+The proof record is user-writable identity evidence, not authenticated
+provenance or independent attestation. The verifier must audit the candidate
+and may not execute the recorded command. Parent-side proof admission binds
+the exact schema-v2 record to the freshly recomputed v2 executable fingerprint
+before provider discovery; a missing, malformed, stale, intermediate, failed,
+timed-out, nonzero, or fingerprint-mismatched record refuses verification.
 
 The control-plane interpreter above is the current absolute Python 3.11.9
 executable and is distinct from the hook's tested `py -3 -I -S` Python 3.14.0
@@ -226,26 +251,35 @@ program probe recognition, and Windows tokenization remain follow-ups.
    unchanged, its lease released, `merged: false`, and exactly the allowed
    documentation file changed.
 4. Codex inspects the full diff against this plan, compares both the raw
-   linked-worktree file SHA-256 against `52444a...` and the normalized Git blob
+   linked-worktree file SHA-256 against `70ec2534...` and the normalized Git blob
    produced by `git hash-object --path docs/AI_OPERATOR_GUIDE.md` against
-   `5b47ca...`, and confirms no claim exceeds the reproduced mechanism. Any
+   `0093b7d...`, and confirms no claim exceeds the reproduced mechanism. Any
    mismatch aborts rather than being waived as line-ending noise.
 5. Claude cross-reviews the exact diff as untrusted data and reports no blocker.
-6. A separate read-only verifier returns PASS with freshness/anti-replay state
-   binding to the exact retained mutation worktree. Immediately before and
-   after it, Codex requires no ignored artifacts, no `.git` pointer or
-   Git-control drift, no unsafe key in the directly parsed config files, and no
-   worktree-fingerprint mismatch. The unusable post-creation
-   `_assert_safe_local_git_configuration()` call is not reported as a passing
-   check.
-7. Codex deliberately integrates only the reviewed documentation diff, verifies
-   that the exact 1,256-byte insertion and normalized Git blob equal the
-   verified worktree versions, records the Owner checkout's raw representation
-   separately, commits locally, and then runs a second separate read-only
-   verifier against the clean integrated commit before any push. Verifier #2
-   uses the same separate ephemeral `read-only` sandbox, disabled features,
-   freshness/anti-replay state binding, absolute Python 3.11.9 interpreter,
-   `-B`, and timeout as verifier #1, with this exact target shape:
+6. The control plane commits only the reviewed one-file diff on the isolated
+   branch, then `proof-run --scope full_required_suite` runs the required
+   legacy, Codex-adapter, root/scaffold, bundle, hook, release-version, and
+   packet-verification checks from a fresh materialization of that exact
+   commit. Every step must return zero and the resulting schema-v2 proof record
+   must be accepted for the exact current executable fingerprint without being
+   described as authenticated or provenance-attested.
+7. A separate read-only verifier returns PASS against that clean isolated
+   commit with the accepted proof record and freshness/anti-replay state
+   binding. Immediately before and after it, Codex requires no ignored
+   code-injection path, no `.git` pointer or Git-control drift, no unsafe key
+   in the directly parsed config files, and no candidate-fingerprint mismatch.
+   The unusable post-creation `_assert_safe_local_git_configuration()` call is
+   not reported as a passing check, and ordinary ignored bytecode caches are
+   not relabelled as absent.
+8. Codex deliberately fast-forwards the Owner branch only to the exact reviewed
+   and separately verified isolated commit, then verifies that the 1,256-byte
+   insertion, normalized Git blob, executable fingerprint, and packet-evidence
+   fingerprint equal the verified worktree values. A second separate read-only
+   verifier runs against the same clean integrated commit and accepted proof
+   record before any push. Verifier #2 uses the same separate ephemeral
+   `read-only` sandbox, disabled features, absolute Python 3.11.9 interpreter,
+   `-B`, packet root, proof record, and timeout as verifier #1, with this exact
+   target shape:
 
    ```powershell
    $env:PYTHONDONTWRITEBYTECODE = '1'
@@ -253,16 +287,20 @@ program probe recognition, and Windows tokenization remain follow-ups.
      & 'C:\Users\Daniel Paez\AppData\Local\Programs\Python\Python311\python.exe' `
        -B adapters/codex/drydock/scripts/process_runner.py verify `
        --repo 'C:\Users\Daniel Paez\drydock' `
-       --model gpt-5.6-sol --timeout 600
+       --model gpt-5.6-sol `
+       --packet-root sdd-plus/changes/codex-host-mvp `
+       --proof-record <exact-full-required-suite-proof-record> `
+       --timeout 600
    ```
 
    Immediately before and after verifier #2, the Owner checkout must be clean,
-   its actual `HEAD` must equal the local integration commit, ignored artifacts
-   must be absent, and the repository fingerprint must be unchanged.
-8. Codex reruns `git diff --check`, `python scripts/check_sync.py`,
+   its actual `HEAD` must equal the local integration commit, ignored
+   code-injection paths must be absent, and both repository fingerprints must
+   be unchanged.
+9. Codex reruns `git diff --check`, `python scripts/check_sync.py`,
    `python scripts/sdd.py verify codex-host-mvp`, and the runtime digest check
    on the integrated commit. Only then does it push the named branch.
-9. Packet evidence records every boundary, that the planning peer received
+10. Packet evidence records every boundary, that the planning peer received
    pasted excerpts rather than repository access, that the hostile-pointer
    regression uses a fake worker and bounded mutation shapes, and that the
    Codex verifier reports `epistemic_independence: false`. It also records that
