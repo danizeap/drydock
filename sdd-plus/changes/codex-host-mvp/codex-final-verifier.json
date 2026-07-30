@@ -2,14 +2,15 @@
   "schema_version": 1,
   "evidence_kind": "codex_final_verifier",
   "verdict": "PASS",
-  "overall": "PASS. The separate read-only Codex verifier positively matched candidate HEAD 3e5b8e1dcb2a2367e8d4a4424088e4ffc2ddec4a and working-tree fingerprint 0119519836be6c44d11695341b7086ae60a3eab9c57e6ca2138b7dcc5afe3d28. It confirmed the exact one-path diff and task blob, the explicit Codex-only phase omission and retained default peer route, every non-peer safety gate, the proof-root and security-review implementation, and the structurally accepted full-suite record for executable fingerprint 698ce260c71c0a6570c01e35f04f4328d589d9395c75a4ac6ccd26f982c4ea35. The parent runner returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true. This is separate process, context, permission, and state-bound review; it is not cross-model agreement or epistemic independence.",
+  "overall": "PASS. The separate read-only Codex verifier positively matched candidate HEAD c7f63d345a1cd79930bdc4d94096068d13f21f57, working-tree fingerprint 0fab5cc0a5013d754abd114c28e722a28a2ed4937cb4f99d9bf46f79b005a6d7, and executable fingerprint 7478488909ea69324e277220ecc831c396f2c192df237fbcba8484ad5d8c4665. It confirmed one raw-byte strict UTF-8 reader, all six bounded orchestration stdin routes, their Windows-locale and rejection regressions, exact delta/living requirements, the accepted exact-candidate full-suite record 6c479c65d0f0a3f9af7dfb91363b349a3f063ee3a1778405e1cac660b1cee066, and accepted LaunchGuardian record 0f745f2e6e69552c0338f0975f2f310d152c28d3c9051cfd5004ce7e35d6f1f0. The parent runner returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true. This is separate process, context, permission, and state-bound review; it is not cross-model agreement or epistemic independence.",
   "blockers": [],
   "gaps": [
-    "The admitted full-suite record is user-writable, unauthenticated, and does not attest execution provenance; it was required but insufficient for PASS.",
-    "One internal read-only Windows JSON probe failed on an invalid escape. The verifier recovered using other bounded positive checks and emitted a schema-valid state-bound PASS; the failed probe is not counted as evidence."
+    "The admitted full-suite and LaunchGuardian records are user-writable and unauthenticated; neither attests execution provenance. They were required supporting evidence, not independent attestation.",
+    "One internal read-only PowerShell reconstruction probe failed with a parser error. The verifier completed every listed acceptance check through other bounded positive inspection; the failed command is visible in stderr and contributed no PASS evidence.",
+    "A prior out-of-tree proof record, 293216ca54ce2e13be01da39c8d79aba1c45949e7987c625688c67b9e5b1c479, failed because PowerShell split a multiline Python command. It is distinct from the accepted record and contributed no PASS evidence."
   ],
   "risks": [
     "The verifier used the same model family and explicitly reported epistemic_independence false.",
-    "The verifier consumed 3585209 input tokens, including 3416320 cached tokens, produced 22018 output tokens, and took about 462.3 seconds; verifier efficiency remains an operational weakness."
+    "The verifier consumed 1698860 input tokens, including 1584896 cached tokens, produced 25264 output tokens, and took about 405.4 seconds; verifier efficiency remains an operational weakness."
   ]
 }
