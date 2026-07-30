@@ -705,3 +705,44 @@ zero. A new clean commit, full proof, and separate verifier verdict are still
 required. The earlier Claude convergence is stale for this changed executable
 fingerprint, and no cross-model gate will be claimed until a fresh peer review
 can run.
+
+The separate verifier on the resulting clean commit
+`a959819270b7de1018424c255efc5b225be9fa04`, executable fingerprint
+`ac910167afd455b92d47dae1abc3b28f22be58b8c72015f4c21a86252f928db6`,
+and accepted full-suite record
+`a08e29a20b79e6436e13a3bcded428ba51eac324e6bfc04a5023525e56a9cd64`
+confirmed that the every-state count defect was closed. It preserved exact
+HEAD, working-tree, and candidate identity, but returned `BLOCKED` on one new
+cross-field bypass: the report parser allowed an otherwise valid finding to
+adopt an allowed non-open status without the exact disposition evidence the
+pinned LaunchGuardian producer requires. Its read-only probe made a Critical
+Semgrep row `not_applicable` without a disposition and obtained green
+structural acceptance; it also converted the strict unavailable row into a
+candidate-preserving procedural result. The verifier separately recorded the
+already-known stale Claude review and installed schema-0.1.0 package as
+non-code remaining gates.
+
+The local remediation now validates `rule_id` and disposition fields, requires
+unique exact Semgrep disposition configuration with meaningful reason,
+evidence, reviewer, and non-future ISO date, rejects Critical dispositions,
+and limits `needs_review` to LaunchGuardian's named unused-disposition policy
+row. It also enforces the strict unavailable row's exact title, category,
+source, severity, open status, blocking flag, empty rule, and absent
+disposition; rejects unknown scanner states; and recomputes launch and LGF
+status. Focused regressions cover both verifier probes. This is remediation
+evidence only: a new frozen proof and separate verdict are required, and the
+cross-model gate remains pending while Claude usage is unavailable.
+
+The 2026-07-30 source-contract audit compared this remediation directly with
+LaunchGuardian 0.2.0 commit
+`c754062dc1c35dce06cfc6f7946909287f1ce1fc`. It removed the invented
+`execution_failed` availability state, requires disposed Semgrep findings to
+retain the producer's severity-derived blocking flag, and requires every
+configured-but-unused disposition to retain the producer's explicit
+`needs_review` evidence. Negative regressions cover the invented state,
+blocking-flag reclassification, and omitted unused-disposition record. The
+authoritative LaunchGuardian subset returned 7 passed; the Drydock evidence
+suite returned 60 passed; the complete four-file focused orchestration suite
+returned 223 passed and 1 skipped in 149.38 seconds. `git diff --check`
+returned exit 0. No provider, verifier, full adapter/legacy/parity suite,
+commit, or push was used to obtain this evidence.

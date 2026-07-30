@@ -492,15 +492,24 @@ invented, or otherwise contradictory aggregates. Finding sources SHALL be
 limited to the five expected scanners plus LaunchGuardian's `config`,
 `config_discovery`, and `launch_policy` producers; finding status SHALL be one
 of `open`, `fixed`, `accepted`, `false_positive`, `not_applicable`, or
-`needs_review`. The per-scanner check SHALL cover every availability state
-using the pinned report producer's semantics: `ran` counts scanner finding
-rows, `unavailable` binds exactly one synthetic `scanner_unavailable` row while
-its detected count remains zero, failed execution binds no scanner rows and
-zero counts, and `disabled` binds the scanner's named
-`config/scanner_disabled` row. Unknown non-running states SHALL NOT carry
-scanner findings or non-zero counts. Process timeout cleanup and the final
-stdout/stderr drain SHALL remain bounded even when descendant pipe handles
-remain open.
+`needs_review`. The parser SHALL additionally enforce the pinned 0.2.0
+producer's narrower cross-field semantics: ordinary findings are `open`,
+`needs_review` is limited to the named unused-disposition policy finding, and
+`not_applicable` requires a non-Critical Semgrep finding whose exact rule and
+review metadata match a valid, unique configured disposition. Unsupported
+status reclassification, a disposition/status mismatch, a Critical
+disposition, or placeholder/future-dated review evidence SHALL be malformed.
+The parser SHALL recompute launch status and LGF validation status from the
+validated findings, scanner states, dispositions, and LGF result.
+
+The per-scanner check SHALL cover every availability state using the pinned
+report producer's semantics: `ran` counts scanner finding rows,
+`unavailable` binds the external scanner's exact strict-mode
+`scanner_unavailable` row while its detected count remains zero, failed
+execution binds no scanner rows and zero counts, and `disabled` binds the
+scanner's named `config/scanner_disabled` row. Unknown scanner states SHALL be
+malformed. Process timeout cleanup and the final stdout/stderr drain SHALL
+remain bounded even when descendant pipe handles remain open.
 Missing LaunchGuardian, timeout, non-zero exit, malformed or oversized report,
 wrong candidate, invalid LGF, skipped or incomplete validation, a missing,
 disabled, unavailable, or failed scanner, another launch status, or any open

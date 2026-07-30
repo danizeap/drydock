@@ -46,6 +46,7 @@ def _launchguardian_report(
     counts_by_scanner: dict[str, int] = {}
     counts_by_status: dict[str, int] = {}
     counts_by_gate: dict[str, int] = {}
+    configured_dispositions: list[dict[str, str]] = []
     if scanner_state == "unavailable":
         findings.append(
             {
@@ -56,6 +57,8 @@ def _launchguardian_report(
                 "status": "open",
                 "related_gate": "Gate 3",
                 "blocks_launch": True,
+                "rule_id": "",
+                "disposition": None,
             }
         )
     elif scanner_state == "disabled":
@@ -68,6 +71,32 @@ def _launchguardian_report(
                 "status": "open",
                 "related_gate": "Gate 3",
                 "blocks_launch": True,
+                "rule_id": "",
+                "disposition": None,
+            }
+        )
+    if launch_status == "APPROVED_WITH_DISPOSITIONS":
+        disposition = {
+            "source": "semgrep",
+            "rule_id": "test.semgrep.rule",
+            "status": "not_applicable",
+            "reason": "The exact test rule is outside the supported runtime.",
+            "evidence": "The test fixture binds this exact reviewed rule.",
+            "approved_by": "Drydock test owner",
+            "approved_on": "2026-07-25",
+        }
+        configured_dispositions.append(disposition)
+        findings.append(
+            {
+                "title": "Semgrep disposed finding",
+                "category": "code_security",
+                "source": "semgrep",
+                "severity": "high",
+                "status": "not_applicable",
+                "related_gate": "Gate 3",
+                "blocks_launch": True,
+                "rule_id": "test.semgrep.rule",
+                "disposition": disposition,
             }
         )
     if blocked:
@@ -79,6 +108,8 @@ def _launchguardian_report(
             "status": "open",
             "related_gate": "Gate 3",
             "blocks_launch": True,
+            "rule_id": "test.semgrep.blocker",
+            "disposition": None,
         }
         findings.append(finding)
     blocking_findings = [
@@ -140,7 +171,9 @@ def _launchguardian_report(
         "counts_by_status": counts_by_status,
         "counts_by_gate": counts_by_gate,
         "blocking_findings": blocking_findings,
-        "launchguardian_config": {},
+        "launchguardian_config": {
+            "finding_dispositions": configured_dispositions,
+        },
         "blocked": bool(blocking_findings),
         "findings": findings,
     }
@@ -1207,10 +1240,8 @@ def test_launchguardian_accepts_only_complete_candidate_bound_reports(
     ("scanner_state", "launch_status", "expected_outcome"),
     [
         ("disabled", "BLOCKED", "technical_blocker"),
-        ("unavailable", "INCOMPLETE", "technical_blocker"),
-        ("execution_failed", "INCOMPLETE", "procedural_failure"),
+        ("unavailable", "BLOCKED", "technical_blocker"),
         ("failed", "INCOMPLETE", "procedural_failure"),
-        ("skipped", "INCOMPLETE", "procedural_failure"),
     ],
 )
 def test_launchguardian_incomplete_scanner_state_never_passes(
@@ -1234,6 +1265,25 @@ def test_launchguardian_incomplete_scanner_state_never_passes(
 
     assert acceptance["accepted"] is False
     assert acceptance["workflow_outcome"] == expected_outcome
+
+
+@pytest.mark.parametrize("scanner_state", ["skipped", "execution_failed"])
+def test_launchguardian_unknown_scanner_state_is_malformed(
+    tmp_path: Path, scanner_state: str,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(
+        target,
+        launch_status="INCOMPLETE",
+        scanner_state=scanner_state,
+    )
+
+    with pytest.raises(evidence.EvidenceError, match="availability state"):
+        evidence.launchguardian_report_acceptance(
+            report,
+            expected_target=target,
+        )
 
 
 def test_launchguardian_policy_blocker_is_technical_and_target_is_exact(
@@ -1263,7 +1313,7 @@ def test_launchguardian_policy_blocker_is_technical_and_target_is_exact(
         blocked=True,
     )
     invalid_lgf["lgf_config_valid"] = False
-    invalid_lgf["lgf_validation_status"] = "invalid"
+    invalid_lgf["lgf_validation_status"] = "blocked"
     invalid_lgf["blocked"] = True
     invalid = evidence.launchguardian_report_acceptance(
         invalid_lgf,
@@ -1304,6 +1354,79 @@ def test_launchguardian_report_rejects_schema_drift_and_duplicate_json(
         )
 
 
+def test_launchguardian_dispositions_and_launch_status_are_cross_checked(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+
+    missing_config_record = _launchguardian_report(
+        target,
+        launch_status="APPROVED_WITH_DISPOSITIONS",
+    )
+    missing_config_record["launchguardian_config"][
+        "finding_dispositions"
+    ] = []
+    with pytest.raises(evidence.EvidenceError, match="disposition"):
+        evidence.launchguardian_report_acceptance(
+            missing_config_record,
+            expected_target=target,
+        )
+
+    future_review = _launchguardian_report(
+        target,
+        launch_status="APPROVED_WITH_DISPOSITIONS",
+    )
+    future_review["launchguardian_config"]["finding_dispositions"][0][
+        "approved_on"
+    ] = "2999-01-01"
+    future_review["findings"][0]["disposition"]["approved_on"] = "2999-01-01"
+    with pytest.raises(evidence.EvidenceError, match="configuration"):
+        evidence.launchguardian_report_acceptance(
+            future_review,
+            expected_target=target,
+        )
+
+    reclassified_disposition = _launchguardian_report(
+        target,
+        launch_status="APPROVED_WITH_DISPOSITIONS",
+    )
+    reclassified_disposition["findings"][0]["blocks_launch"] = False
+    with pytest.raises(evidence.EvidenceError, match="disposition"):
+        evidence.launchguardian_report_acceptance(
+            reclassified_disposition,
+            expected_target=target,
+        )
+
+    omitted_unused_review = _launchguardian_report(target)
+    omitted_unused_review["launchguardian_config"][
+        "finding_dispositions"
+    ] = [
+        {
+            "source": "semgrep",
+            "rule_id": "test.semgrep.unused",
+            "status": "not_applicable",
+            "reason": "The exact test rule is outside the supported runtime.",
+            "evidence": "The test fixture binds this exact reviewed rule.",
+            "approved_by": "Drydock test owner",
+            "approved_on": "2026-07-25",
+        }
+    ]
+    with pytest.raises(evidence.EvidenceError, match="unused disposition"):
+        evidence.launchguardian_report_acceptance(
+            omitted_unused_review,
+            expected_target=target,
+        )
+
+    contradictory_status = _launchguardian_report(target)
+    contradictory_status["launch_status"] = "APPROVED_WITH_DISPOSITIONS"
+    with pytest.raises(evidence.EvidenceError, match="launch or LGF status"):
+        evidence.launchguardian_report_acceptance(
+            contradictory_status,
+            expected_target=target,
+        )
+
+
 def test_launchguardian_report_recomputes_every_finding_aggregate(
     tmp_path: Path,
 ) -> None:
@@ -1318,6 +1441,8 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
         "status": "open",
         "related_gate": "Gate 3",
         "blocks_launch": False,
+        "rule_id": "test.semgrep.medium",
+        "disposition": None,
     }
     report["findings"] = [finding]
     report["scanner_counts"]["semgrep"] = 1
@@ -1377,6 +1502,43 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
             expected_target=target,
         )
 
+    critical_without_disposition = json.loads(json.dumps(report))
+    critical_without_disposition["findings"][0]["severity"] = "critical"
+    critical_without_disposition["findings"][0]["status"] = "not_applicable"
+    critical_without_disposition["counts_by_severity"] = {
+        severity: int(severity == "critical")
+        for severity in evidence.EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+    }
+    critical_without_disposition["counts_by_status"] = {
+        "not_applicable": 1
+    }
+    critical_without_disposition["blocking_findings"] = []
+    critical_without_disposition["scanner_blocking_counts"]["semgrep"] = 0
+    critical_without_disposition["blocked"] = False
+    with pytest.raises(evidence.EvidenceError, match="disposition"):
+        evidence.launchguardian_report_acceptance(
+            critical_without_disposition,
+            expected_target=target,
+        )
+
+    unavailable_reclassified = _launchguardian_report(
+        target,
+        launch_status="BLOCKED",
+        scanner_state="unavailable",
+    )
+    unavailable_reclassified["findings"][0]["status"] = "not_applicable"
+    unavailable_reclassified["findings"][0]["blocks_launch"] = False
+    unavailable_reclassified["blocking_findings"] = []
+    unavailable_reclassified["scanner_blocking_counts"]["semgrep"] = 0
+    unavailable_reclassified["counts_by_status"] = {"not_applicable": 1}
+    unavailable_reclassified["blocked"] = False
+    unavailable_reclassified["launch_status"] = "INCOMPLETE"
+    with pytest.raises(evidence.EvidenceError, match="disposition"):
+        evidence.launchguardian_report_acceptance(
+            unavailable_reclassified,
+            expected_target=target,
+        )
+
 
 
 @pytest.mark.parametrize(
@@ -1384,9 +1546,7 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
     [
         ("disabled", "BLOCKED"),
         ("unavailable", "INCOMPLETE"),
-        ("execution_failed", "INCOMPLETE"),
         ("failed", "INCOMPLETE"),
-        ("skipped", "INCOMPLETE"),
     ],
 )
 def test_launchguardian_rejects_nonran_scanner_count_contradictions(

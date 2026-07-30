@@ -200,6 +200,8 @@ def _security_evidence_digest(
             "status": "open",
             "related_gate": "Gate 3",
             "blocks_launch": True,
+            "rule_id": "test.semgrep.blocker",
+            "disposition": None,
         }
         findings.append(finding)
         blocking_findings.append(finding)
@@ -234,7 +236,7 @@ def _security_evidence_digest(
         "counts_by_status": counts_by_status,
         "counts_by_gate": counts_by_gate,
         "blocking_findings": blocking_findings,
-        "launchguardian_config": {},
+        "launchguardian_config": {"finding_dispositions": []},
         "blocked": blocked,
         "findings": findings,
     }

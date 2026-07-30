@@ -187,7 +187,11 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    every availability state against LaunchGuardian 0.2.0 producer semantics:
    unavailable contributes one synthetic finding but zero detected results,
    failed contributes no finding and zero counts, and disabled binds its named
-   `config/scanner_disabled` finding.
+   `config/scanner_disabled` finding. Unknown scanner states are malformed.
+   Launch and LGF status are recomputed. A non-open finding is accepted only
+   for the pinned producer's exact unused-disposition `needs_review` row or a
+   non-Critical Semgrep `not_applicable` finding bound to a unique configured
+   exact-rule disposition with meaningful, non-future review metadata.
    Finish every security outcome using the returned
    `security_review.record_key` as `--evidence-digest`; the controller reloads
    that keyed result and refuses a caller-supplied classification that differs

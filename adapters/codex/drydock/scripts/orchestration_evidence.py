@@ -20,6 +20,7 @@ import time
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Iterable, Iterator, Mapping, Sequence
 
@@ -99,6 +100,33 @@ EXPECTED_LAUNCHGUARDIAN_FINDING_STATUSES = frozenset(
 )
 ACCEPTED_LAUNCHGUARDIAN_STATUSES = frozenset(
     {"APPROVED", "APPROVED_WITH_DISPOSITIONS"}
+)
+LAUNCHGUARDIAN_DISPOSITION_FIELDS = frozenset(
+    {
+        "source",
+        "rule_id",
+        "status",
+        "reason",
+        "evidence",
+        "approved_by",
+        "approved_on",
+    }
+)
+LAUNCHGUARDIAN_EXTERNAL_SCANNERS = frozenset(
+    {"gitleaks", "semgrep", "trivy"}
+)
+LAUNCHGUARDIAN_REVIEW_PLACEHOLDERS = frozenset(
+    {
+        "-",
+        "?",
+        "n/a",
+        "na",
+        "none",
+        "not applicable",
+        "tbd",
+        "todo",
+        "unknown",
+    }
 )
 LAUNCHGUARDIAN_REPORT_FIELDS = frozenset(
     {
@@ -1712,7 +1740,9 @@ def launchguardian_report_acceptance(
     required_finding_fields = {
         "blocks_launch": bool,
         "category": str,
+        "disposition": (dict, type(None)),
         "related_gate": str,
+        "rule_id": str,
         "severity": str,
         "source": str,
         "status": str,
@@ -1721,7 +1751,14 @@ def launchguardian_report_acceptance(
     if any(
         any(
             field not in finding
-            or type(finding[field]) is not expected_type
+            or (
+                not isinstance(expected_type, tuple)
+                and type(finding[field]) is not expected_type
+            )
+            or (
+                isinstance(expected_type, tuple)
+                and type(finding[field]) not in expected_type
+            )
             for field, expected_type in required_finding_fields.items()
         )
         for finding in findings
@@ -1743,6 +1780,136 @@ def launchguardian_report_acceptance(
     ):
         raise EvidenceError(
             "LaunchGuardian finding source, severity, or status is invalid"
+        )
+    config = report["launchguardian_config"]
+    configured_dispositions = config.get("finding_dispositions")
+    if not isinstance(configured_dispositions, list):
+        raise EvidenceError(
+            "LaunchGuardian disposition configuration is malformed"
+        )
+
+    def valid_review_text(value: object) -> bool:
+        return (
+            isinstance(value, str)
+            and bool(value.strip())
+            and value.strip().lower()
+            not in LAUNCHGUARDIAN_REVIEW_PLACEHOLDERS
+        )
+
+    def valid_approval_date(value: object) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return False
+        return parsed.isoformat() == value and parsed <= date.today()
+
+    def valid_disposition(value: object) -> bool:
+        return (
+            isinstance(value, dict)
+            and set(value) == LAUNCHGUARDIAN_DISPOSITION_FIELDS
+            and value.get("source") == "semgrep"
+            and isinstance(value.get("rule_id"), str)
+            and bool(str(value["rule_id"]).strip())
+            and not any(
+                character in str(value["rule_id"])
+                for character in "*?[]"
+            )
+            and value.get("status") == "not_applicable"
+            and valid_review_text(value.get("reason"))
+            and valid_review_text(value.get("evidence"))
+            and valid_review_text(value.get("approved_by"))
+            and valid_approval_date(value.get("approved_on"))
+        )
+
+    if any(not valid_disposition(item) for item in configured_dispositions):
+        raise EvidenceError(
+            "LaunchGuardian disposition configuration is malformed"
+        )
+    disposition_keys = [
+        (str(item["source"]), str(item["rule_id"]))
+        for item in configured_dispositions
+    ]
+    if len(disposition_keys) != len(set(disposition_keys)):
+        raise EvidenceError(
+            "LaunchGuardian disposition configuration has duplicate keys"
+        )
+    configured_disposition_keys = set(disposition_keys)
+    applied_disposition_keys: set[tuple[str, str]] = set()
+    for finding in findings:
+        status = str(finding["status"])
+        disposition = finding["disposition"]
+        if status == "not_applicable":
+            if (
+                finding["source"] != "semgrep"
+                or finding["severity"] == "critical"
+                or not valid_disposition(disposition)
+                or disposition not in configured_dispositions
+                or disposition["source"] != finding["source"]
+                or disposition["rule_id"] != finding["rule_id"]
+                or disposition["status"] != status
+                or finding["blocks_launch"]
+                is not (finding["severity"] == "high")
+            ):
+                raise EvidenceError(
+                    "LaunchGuardian finding disposition is invalid"
+                )
+            applied_disposition_keys.add(
+                (str(finding["source"]), str(finding["rule_id"]))
+            )
+        elif disposition is not None:
+            raise EvidenceError(
+                "LaunchGuardian finding disposition contradicts its status"
+            )
+        elif status == "needs_review":
+            if (
+                finding["source"] != "config"
+                or finding["category"] != "config_policy"
+                or finding["title"]
+                != "Configured finding disposition was not used"
+                or finding["severity"] != "info"
+                or finding["blocks_launch"] is not False
+                or finding["rule_id"] != ""
+            ):
+                raise EvidenceError(
+                    "LaunchGuardian needs-review finding is invalid"
+                )
+        elif status != "open":
+            raise EvidenceError(
+                "LaunchGuardian finding status is not produced by schema 0.2.0"
+            )
+        if finding["severity"] == "critical" and (
+            status != "open"
+            or finding["blocks_launch"] is not True
+            or disposition is not None
+        ):
+            raise EvidenceError(
+                "LaunchGuardian Critical finding semantics are invalid"
+            )
+    unused_disposition_descriptions = Counter(
+        "No current finding matched the exact disposition key "
+        f"{source}:{rule_id}."
+        for source, rule_id in (
+            configured_disposition_keys - applied_disposition_keys
+        )
+    )
+    needs_review_findings = [
+        finding for finding in findings if finding["status"] == "needs_review"
+    ]
+    if (
+        any(
+            not isinstance(finding.get("description"), str)
+            for finding in needs_review_findings
+        )
+        or Counter(
+            str(finding["description"])
+            for finding in needs_review_findings
+        )
+        != unused_disposition_descriptions
+    ):
+        raise EvidenceError(
+            "LaunchGuardian unused disposition evidence is invalid"
         )
     open_blockers = [
         finding
@@ -1792,14 +1959,18 @@ def launchguardian_report_acceptance(
     unavailable = sorted(
         name
         for name, value in scanner_states.items()
-        if value in {"unavailable", "execution_failed", "failed"}
+        if value in {"unavailable", "failed"}
     )
     unexpected = sorted(
         name
         for name, value in scanner_states.items()
         if value
-        not in {"ran", "disabled", "unavailable", "execution_failed", "failed"}
+        not in {"ran", "disabled", "unavailable", "failed"}
     )
+    if unexpected:
+        raise EvidenceError(
+            "LaunchGuardian scanner availability state is invalid"
+        )
     for name, state in scanner_states.items():
         scanner_findings = [
             finding for finding in findings if finding["source"] == name
@@ -1817,11 +1988,19 @@ def launchguardian_report_acceptance(
             expected_scanner_count = len(scanner_findings)
         elif state == "unavailable":
             producer_shape_valid = (
-                len(scanner_findings) == 1
+                name in LAUNCHGUARDIAN_EXTERNAL_SCANNERS
+                and len(scanner_findings) == 1
                 and scanner_findings[0]["category"] == "scanner_unavailable"
+                and scanner_findings[0]["title"]
+                == f"{name.replace('_', ' ').title()} scanner unavailable"
+                and scanner_findings[0]["severity"] == "medium"
+                and scanner_findings[0]["status"] == "open"
+                and scanner_findings[0]["blocks_launch"] is True
+                and scanner_findings[0]["rule_id"] == ""
+                and scanner_findings[0]["disposition"] is None
             )
             expected_scanner_count = 0
-        elif state in {"execution_failed", "failed"}:
+        elif state == "failed":
             producer_shape_valid = not scanner_findings
             expected_scanner_count = 0
             expected_blocking_count = 0
@@ -1837,7 +2016,17 @@ def launchguardian_report_acceptance(
                 and finding["title"] == disabled_title
             ]
             producer_shape_valid = (
-                not scanner_findings and len(disabled_findings) == 1
+                not scanner_findings
+                and len(disabled_findings) == 1
+                and disabled_findings[0]["status"] == "open"
+                and disabled_findings[0]["rule_id"] == ""
+                and disabled_findings[0]["disposition"] is None
+                and disabled_findings[0]["severity"]
+                == (
+                    "high"
+                    if disabled_findings[0]["blocks_launch"] is True
+                    else "info"
+                )
             )
             expected_scanner_count = 0
             expected_blocking_count = sum(
@@ -1859,6 +2048,25 @@ def launchguardian_report_acceptance(
                 "LaunchGuardian scanner counts contradict its findings"
             )
     launch_status = report.get("launch_status")
+    expected_lgf_validation_status = (
+        "valid" if report["lgf_config_valid"] is True else "blocked"
+    )
+    expected_launch_status = (
+        "BLOCKED"
+        if open_blockers
+        else "INCOMPLETE"
+        if any(state != "ran" for state in scanner_states.values())
+        else "APPROVED_WITH_DISPOSITIONS"
+        if any(finding["disposition"] is not None for finding in findings)
+        else "APPROVED"
+    )
+    if (
+        report["lgf_validation_status"] != expected_lgf_validation_status
+        or launch_status != expected_launch_status
+    ):
+        raise EvidenceError(
+            "LaunchGuardian launch or LGF status contradicts its evidence"
+        )
     technical_blocker = (
         report.get("lgf_config_valid") is not True
         or report.get("lgf_validation_status") != "valid"
