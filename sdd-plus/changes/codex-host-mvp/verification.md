@@ -871,3 +871,24 @@ preserved above as failure evidence; they are not relabelled as passing.
   `d882f58a32b172a814f86987bad1c780e6c036eeb177a6f796e2fd96c70acbea`.
   No Claude call, new packet, spec sync, archive, personal-plugin mutation, or
   push occurred.
+
+## 2026-07-30 fresh-task Unicode live proof and candidate reset
+
+- [x] Fresh-task readiness bound session
+  `019fb2d0-0243-7a93-9dcc-4772c17c272a` to
+  `current_revision_observed` at runtime
+  `a04cf380e435e4a39640d10886fcf82d0176233ee6b974854bb03cc158c9bc4b`.
+- [x] The exact Unicode `apply_patch` create of
+  `.drydock-unicode-hook-probe-019fb2c1.txt` succeeded, its `apply_patch`
+  deletion succeeded, the final literal `Test-Path` returned `False`, and no
+  runtime-integrity denial appeared.
+- [x] This is a narrow tested-path claim only. It does not establish universal
+  interception or active enforcement; readiness remained
+  `ready_for_enforcement: false`.
+- [x] Candidate disclosure — commit
+  `2f8f18cfea2ca63f7dd94655421c302a5ee06d2a` plus this spec/evidence sync
+  changes the final candidate from the candidate used by the earlier full
+  proof. The previous full proof, LaunchGuardian result, and verifier verdict
+  remain historical evidence and cannot satisfy final archive acceptance for
+  this new candidate. Fresh candidate-bound full proof, LaunchGuardian review,
+  and separate verification remain required.
