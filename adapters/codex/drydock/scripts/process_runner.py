@@ -440,12 +440,40 @@ def _run_git(
 
 def _assert_safe_local_git_configuration(repo: Path) -> None:
     unsafe: set[str] = set()
-    scopes = ["--local"]
+    try:
+        git_control = repo / ".git"
+        metadata = os.stat(git_control, follow_symlinks=False)
+    except OSError as exc:
+        raise RunnerError(
+            f"local Git control path is unavailable: {exc}"
+        ) from exc
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    if (
+        git_control.is_symlink()
+        or attributes
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    ):
+        raise RunnerError("local Git control path is a symlink or reparse point")
+    if stat.S_ISDIR(metadata.st_mode):
+        git_dir = git_control.resolve(strict=True)
+    elif stat.S_ISREG(metadata.st_mode):
+        git_dir, _ = _resolve_git_link(repo)
+    else:
+        raise RunnerError("local Git control path has an unsupported type")
+    common_pointer = git_dir / "commondir"
+    common_dir = (
+        _common_dir_from_worktree_admin(git_dir)
+        if common_pointer.exists()
+        else git_dir
+    )
+    local_config_path = common_dir / "config"
+    scopes: list[list[str]] = [["--file", str(local_config_path)]]
     worktree_config = _run_git(
         repo,
         [
             "config",
-            "--local",
+            "--file",
+            str(local_config_path),
             "--no-includes",
             "--type=bool",
             "--get",
@@ -458,13 +486,35 @@ def _assert_safe_local_git_configuration(repo: Path) -> None:
         and worktree_config.stdout.decode("ascii", "replace").strip()
         == "true"
     ):
-        scopes.append("--worktree")
+        worktree_path = git_dir / "config.worktree"
+        try:
+            metadata = os.stat(worktree_path, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise RunnerError(
+                f"worktree Git config could not be inspected: {exc}"
+            ) from exc
+        else:
+            attributes = getattr(metadata, "st_file_attributes", 0)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or worktree_path.is_symlink()
+                or attributes
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                or metadata.st_nlink != 1
+            ):
+                raise RunnerError(
+                    "worktree Git config is not a regular, single-link, "
+                    "non-reparse file"
+                )
+            scopes.append(["--file", str(worktree_path)])
     for scope in scopes:
         result = _run_git(
             repo,
             [
                 "config",
-                scope,
+                *scope,
                 "--no-includes",
                 "--name-only",
                 "--list",

@@ -109,3 +109,20 @@ fast-forward integration. The implementing pilot's own diff inspection is
 evidence, not independent review. Push remains a separate normal non-force
 Owner-authorized action after the integrated commit and remote baseline are
 rechecked.
+
+### First preflight result and required remediation
+
+The first mutation admission was issued but not consumed. The runner stopped
+before worktree creation and before any Codex worker or provider process
+because this repository has `extensions.worktreeConfig=true` while the
+optional `.git/config.worktree` file is absent. Git 2.54 returned exit 128 for
+`git config --worktree --no-includes --name-only --list`.
+
+The runner must not create Git metadata or weaken the unsafe-key check.
+Instead, when worktree config is enabled it resolves the exact current
+worktree Git directory, treats a missing `config.worktree` as an empty scope,
+and, when present, requires a regular, single-link, non-symlink/non-reparse
+file before parsing that exact file with includes disabled. Focused tests must
+cover both the safe absent case and refusal of unsafe keys in the present
+file. Because this changes the admitted runner mechanism, the issued admission
+and workflow are not reused.

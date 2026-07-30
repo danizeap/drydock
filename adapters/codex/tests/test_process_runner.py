@@ -1348,6 +1348,35 @@ def test_mutation_refuses_executable_or_included_local_git_config_before_spawn(
     assert _git(repo, "worktree", "list", "--porcelain").count("worktree ") == 1
 
 
+def test_enabled_worktree_config_may_be_absent_but_present_file_is_checked(
+    tmp_path: Path,
+) -> None:
+    repo = _repository(tmp_path)
+    _git(repo, "config", "extensions.worktreeConfig", "true")
+    worktree_config = repo / ".git" / "config.worktree"
+
+    assert not worktree_config.exists()
+    process_runner._assert_safe_local_git_configuration(repo)
+
+    worktree_config.mkdir()
+    with pytest.raises(
+        process_runner.RunnerError,
+        match="regular, single-link, non-reparse",
+    ):
+        process_runner._assert_safe_local_git_configuration(repo)
+    worktree_config.rmdir()
+
+    worktree_config.write_text(
+        "[include]\n\tpath = ../unfingerprinted-config\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        process_runner.RunnerError,
+        match="local Git config includes or external filter",
+    ):
+        process_runner._assert_safe_local_git_configuration(repo)
+
+
 def test_lease_is_exclusive_and_releases_exact_record(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     worktree.mkdir()

@@ -266,6 +266,14 @@ dependency.
   filter or includes config outside the fingerprinted control surface
 - **THEN** mutation refuses before creating the worktree or spawning the worker
 
+#### Scenario: Optional worktree config is enabled but absent
+- **WHEN** `extensions.worktreeConfig` is true and the exact current-worktree
+  `config.worktree` file does not exist
+- **THEN** the runner treats that optional scope as empty rather than a Git
+  command failure, while an existing file is accepted only as a regular,
+  single-link, non-reparse file whose exact keys still pass the include and
+  external-filter checks
+
 #### Scenario: Worker leaves a background descendant
 - **WHEN** the direct worker exits while a descendant remains alive
 - **THEN** the runner terminates the complete process boundary before

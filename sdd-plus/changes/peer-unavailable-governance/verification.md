@@ -46,3 +46,27 @@ Implementing checks PASS. This is evidence from the implementing Codex task,
 not independent verification. Archive, release, and any claim of independently
 verified completion remain BLOCKED until a separate reviewer checks the exact
 commit.
+
+## 2026-07-30 Codex-only dogfood preflight
+
+- Workflow objective: `153b5868399719d907cc2156ec5c5fdd`.
+- The stored phase subsequence omitted `plan_peer` and `cross_review` and
+  advanced from preflight directly to mutation.
+- Mutation admission
+  `2a54b1a2df439b52e0dfcc65af08d1c25944deef2143a7f408d2326aeee08f91`
+  was issued but remained unconsumed.
+- The runner stopped before worktree creation, worker spawn, or provider usage:
+  Git 2.54 returned exit 128 for an absent `.git/config.worktree` while
+  `extensions.worktreeConfig=true`.
+- No Claude or Codex model call occurred, no candidate exists, and no workflow
+  gate passed from this attempt.
+- The workflow and admission are not reusable after the runner mechanism is
+  corrected.
+- The corrected preflight parses the exact common config file without
+  implicitly loading per-worktree configuration, treats the optional file as
+  empty when absent, and type-checks and parses it directly when present.
+- Focused Git-config regressions: `3 passed, 76 deselected`.
+- Complete process-runner file: `79 passed in 108.03s`.
+- A live read-only invocation of
+  `_assert_safe_local_git_configuration(Path.cwd())` returned
+  `live_git_config_preflight=passed` on this repository.
