@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 from orchestration_evidence import (
     AT_REST_SECRET,
     EvidenceError,
+    ProofStore,
     SecurityReviewStore,
     _atomic_json,
     _canonical_json,
@@ -1491,6 +1492,30 @@ class WorkflowStore:
                 totals["procedural_failures"] = (
                     int(totals["procedural_failures"]) + 1
                 )
+            if phase == "proof" and outcome == "passed":
+                if (
+                    not isinstance(candidate, str)
+                    or candidate != record["candidate_digest"]
+                ):
+                    raise ControlError(
+                        "passing proof candidate is not current"
+                    )
+                try:
+                    proof = ProofStore(self.root).accepted_record(
+                        evidence_digest,
+                        executable_fingerprint=candidate,
+                    )
+                except (OSError, EvidenceError) as exc:
+                    raise ControlError(
+                        "passing proof could not validate its evidence "
+                        f"store: {exc}"
+                    ) from exc
+                if proof.get("accepted") is not True:
+                    raise ControlError(
+                        "passing proof lacks an exact accepted "
+                        "full_required_suite record: "
+                        f"{proof.get('reason', 'unknown reason')}"
+                    )
             security: dict[str, object] | None = None
             if phase == "security_review":
                 if (

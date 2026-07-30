@@ -79,6 +79,24 @@ EXPECTED_LAUNCHGUARDIAN_SEVERITIES = (
     "low",
     "info",
 )
+EXPECTED_LAUNCHGUARDIAN_FINDING_SOURCES = frozenset(
+    {
+        *EXPECTED_LAUNCHGUARDIAN_SCANNERS,
+        "config",
+        "config_discovery",
+        "launch_policy",
+    }
+)
+EXPECTED_LAUNCHGUARDIAN_FINDING_STATUSES = frozenset(
+    {
+        "open",
+        "fixed",
+        "accepted",
+        "false_positive",
+        "not_applicable",
+        "needs_review",
+    }
+)
 ACCEPTED_LAUNCHGUARDIAN_STATUSES = frozenset(
     {"APPROVED", "APPROVED_WITH_DISPOSITIONS"}
 )
@@ -1713,9 +1731,15 @@ def launchguardian_report_acceptance(
         not finding["source"]
         or not finding["status"]
         or finding["severity"] not in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
+        or finding["source"]
+        not in EXPECTED_LAUNCHGUARDIAN_FINDING_SOURCES
+        or finding["status"]
+        not in EXPECTED_LAUNCHGUARDIAN_FINDING_STATUSES
         for finding in findings
     ):
-        raise EvidenceError("LaunchGuardian finding severity is invalid")
+        raise EvidenceError(
+            "LaunchGuardian finding source, severity, or status is invalid"
+        )
     open_blockers = [
         finding
         for finding in findings
@@ -2482,8 +2506,60 @@ class ProofStore:
         path = self._path(
             executable_fingerprint, command, environment_sha256, scope
         )
+        record["record_key"] = path.stem
         _atomic_json(path, record)
         return record
+
+    def accepted_record(
+        self,
+        record_key: str,
+        *,
+        executable_fingerprint: str,
+    ) -> dict[str, object]:
+        if not SAFE_DIGEST.fullmatch(record_key):
+            return {
+                "accepted": False,
+                "reason": "full-suite proof record key is invalid",
+            }
+        try:
+            body = _read_bounded_plain_bytes(
+                self.root / f"{record_key}.json",
+                maximum=MAX_RECORD_BYTES,
+                label="full-suite proof record",
+            )
+            record = _strict_json_bytes(body, "full-suite proof record")
+        except EvidenceError:
+            return {
+                "accepted": False,
+                "reason": "full-suite proof record is absent or malformed",
+            }
+        command = record.get("command")
+        environment_sha256 = record.get("environment_sha256")
+        if (
+            record.get("record_key") != record_key
+            or not isinstance(command, list)
+            or not all(isinstance(item, str) and item for item in command)
+            or not isinstance(environment_sha256, str)
+        ):
+            return {
+                "accepted": False,
+                "reason": "full-suite proof record identity is malformed",
+            }
+        expected_path = self._path(
+            executable_fingerprint,
+            command,
+            environment_sha256,
+            "full_required_suite",
+        )
+        if expected_path.stem != record_key:
+            return {
+                "accepted": False,
+                "reason": "full-suite proof record key is mismatched",
+            }
+        return final_suite_acceptance(
+            record,
+            executable_fingerprint=executable_fingerprint,
+        )
 
     def intermediate(
         self,

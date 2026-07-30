@@ -68,7 +68,10 @@ Components touched:
 Data flow:
 
 1. Cross-review accepts one exact isolated candidate.
-2. The full required proof runs on that candidate.
+2. The full required proof runs on that candidate. Official workflow execution
+   refuses intermediate scope before spawn, and the controller reloads the
+   keyed zero-exit, non-timeout `full_required_suite` record before it may
+   advance.
 3. The controller issues a candidate-bound `security_review` admission.
 4. The runner materializes the exact commit outside the working checkout and
    invokes `launchguardian scan --target <fresh-root> --framework-mode
@@ -80,8 +83,11 @@ Data flow:
    actual finding rows instead of trusting count labels.
 6. Only `APPROVED` or `APPROVED_WITH_DISPOSITIONS`, valid LGF configuration,
    zero open blocking findings, and all five expected scanners reporting
-   `ran` may pass. Missing tools, disabled/skipped/failed scanners, timeout,
-   malformed output, stale identity, or another status is non-green.
+   `ran` may pass. Finding source/status values must belong to LaunchGuardian's
+   documented 0.2.0 domains; invented values are malformed even when aggregate
+   counts are recomputed around them. Missing tools, disabled/skipped/failed
+   scanners, timeout, malformed output, stale identity, or another status is
+   non-green.
 7. `workflow-finish` independently reloads keyed evidence for every security
    outcome and refuses a caller classification that differs from the recorded
    result. A pass additionally requires the raw report; a procedural retry

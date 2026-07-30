@@ -157,9 +157,12 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
 14. Use `scripts/orchestrator.py proof-run` for candidate-bound proof. It
    materializes a fresh root from the exact clean commit, refuses tracked
    bytecode and ignored Python/pytest injection paths, and disables bytecode
-   writes. Reused proof is intermediate only. Final acceptance still requires
-   one `full_required_suite` record on the exact frozen executable fingerprint;
-   an evidence-only record never establishes peer agreement or attestation.
+   writes. Reused proof is intermediate only. An official workflow proof
+   refuses intermediate scope before spawn, and `workflow-finish` reloads the
+   returned proof record key before leaving the proof phase. Final acceptance
+   requires one zero-exit, non-timeout `full_required_suite` record on the
+   exact frozen executable fingerprint; an evidence-only record never
+   establishes peer agreement or attestation.
    Fingerprint v2 binds exact committed Git-tree paths, types, modes, and blob
    bytes. Only the exact active packet's canonical task-checkbox state is
    projected out of executable identity; its raw task bytes remain evidence,
@@ -179,7 +182,8 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    expected scanners reporting `ran` may pass. Missing, timed-out, malformed,
    stale, disabled, unavailable, failed, incomplete, or blocking evidence is
    non-green. Report aggregates are recomputed from the actual finding rows;
-   reassigned scanner/severity/status/gate counts are malformed evidence.
+   reassigned scanner/severity/status/gate counts and invented finding source
+   or status values are malformed evidence.
    Finish every security outcome using the returned
    `security_review.record_key` as `--evidence-digest`; the controller reloads
    that keyed result and refuses a caller-supplied classification that differs

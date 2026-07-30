@@ -1954,6 +1954,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.workflow_candidate_digest,
             )
             if any(value is not None for value in workflow_values):
+                if args.scope != "full_required_suite":
+                    raise OrchestratorError(
+                        "official proof execution requires "
+                        "scope=full_required_suite"
+                    )
                 if not all(value is not None for value in workflow_values):
                     raise OrchestratorError(
                         "official proof execution requires complete workflow "

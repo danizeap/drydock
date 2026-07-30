@@ -898,6 +898,66 @@ def test_close_run_cli_reaches_terminal_state(
     assert ledger.read()["status"] == "cancelled_by_owner"
 
 
+def test_official_proof_refuses_intermediate_scope_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    state = tmp_path / "state"
+    candidate = "c" * 64
+    commit = "d" * 40
+    monkeypatch.setattr(
+        orchestrator,
+        "repository_fingerprints",
+        lambda *args, **kwargs: {
+            "reuse_eligible": True,
+            "head": commit,
+            "executable_surface_sha256": candidate,
+        },
+    )
+
+    def must_not_execute(*args: object, **kwargs: object) -> object:
+        pytest.fail("intermediate official proof reached process execution")
+
+    monkeypatch.setattr(orchestrator, "run_proof_command", must_not_execute)
+
+    exit_code = orchestrator.main(
+        [
+            "proof-run",
+            "--repo",
+            str(repo),
+            "--commit",
+            commit,
+            "--scope",
+            "intermediate",
+            "--packet-root",
+            "sdd-plus/changes/test",
+            "--state-dir",
+            str(state),
+            "--workflow-objective-id",
+            "01" * 16,
+            "--workflow-admission-id",
+            "02" * 16,
+            "--workflow-input-digest",
+            "a" * 64,
+            "--workflow-candidate-digest",
+            candidate,
+            "--",
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+        ]
+    )
+
+    assert exit_code == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["stage"] == "input_error"
+    assert "scope=full_required_suite" in result["error"]
+
+
 def test_malformed_schema_model_mismatch_and_budget_violation_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

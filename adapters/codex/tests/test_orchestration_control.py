@@ -144,7 +144,27 @@ def _admit_consume(
         candidate_digest=candidate,
         now=now + 0.1,
     )
-    return admission_id, digest
+    evidence_digest = digest
+    if phase == "proof" and candidate is not None:
+        proof = evidence.ProofStore(store.root).record(
+            executable_fingerprint=candidate,
+            result={
+                "command": [sys.executable, "-m", "pytest", "-q"],
+                "environment_sha256": hashlib.sha256(
+                    b"test environment"
+                ).hexdigest(),
+                "terminal_status": "passed",
+                "exit_code": 0,
+                "timed_out": False,
+                "elapsed_seconds": 1.0,
+                "output_sha256": hashlib.sha256(
+                    b"test output"
+                ).hexdigest(),
+            },
+            scope="full_required_suite",
+        )
+        evidence_digest = str(proof["record_key"])
+    return admission_id, evidence_digest
 
 
 def _security_evidence_digest(
@@ -483,6 +503,95 @@ def test_source_plan_drift_refuses_next_executor_admission(
     record = store.read()
     assert record["current_phase"] == "plan_peer"
     assert record["admission"] is None
+
+
+def test_proof_transition_requires_keyed_full_required_suite_record(
+    tmp_path: Path,
+) -> None:
+    repo, store = _store(tmp_path)
+    actions = ["mutate", "proof", "security_review"]
+    phases = [
+        "preflight",
+        "mutation",
+        "proof",
+        "security_review",
+        "complete",
+    ]
+    store.start(
+        _authority(repo, actions=actions),
+        _plan(actions=actions, phases=phases),
+        expected_task_id=TASK_ID,
+        now=NOW,
+    )
+    mutation_id, mutation_digest = _admit_consume(
+        store,
+        "mutation",
+        body=b"mutation",
+        now=NOW + 1,
+    )
+    candidate = hashlib.sha256(b"candidate").hexdigest()
+    store.finish(
+        "mutation",
+        admission_id=mutation_id,
+        outcome="passed",
+        evidence_digest=mutation_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 2,
+    )
+    proof_input = hashlib.sha256(b"proof input").hexdigest()
+    admission = store.admit(
+        "proof",
+        input_digest=proof_input,
+        input_bytes=11,
+        candidate_digest=candidate,
+        now=NOW + 3,
+    )
+    admission_id = str(admission["admission_id"])
+    store.consume_admission(
+        "proof",
+        admission_id=admission_id,
+        input_digest=proof_input,
+        candidate_digest=candidate,
+        now=NOW + 3.1,
+    )
+    intermediate = evidence.ProofStore(store.root).record(
+        executable_fingerprint=candidate,
+        result={
+            "command": [sys.executable, "-m", "pytest", "-q"],
+            "environment_sha256": hashlib.sha256(
+                b"test environment"
+            ).hexdigest(),
+            "terminal_status": "passed",
+            "exit_code": 0,
+            "timed_out": False,
+            "elapsed_seconds": 1.0,
+            "output_sha256": hashlib.sha256(b"output").hexdigest(),
+        },
+        scope="intermediate",
+    )
+
+    with pytest.raises(
+        control.ControlError,
+        match="full_required_suite",
+    ):
+        store.finish(
+            "proof",
+            admission_id=admission_id,
+            outcome="passed",
+            evidence_digest=str(intermediate["record_key"]),
+            candidate_digest=candidate,
+            provider_usd=0.0,
+            now=NOW + 4,
+        )
+
+    record = store.read()
+    assert record["current_phase"] == "proof"
+    assert record["candidate_digest"] == candidate
+    assert [item["phase"] for item in record["completed_phases"]] == [
+        "preflight",
+        "mutation",
+    ]
 
 
 def test_owner_action_is_single_use_and_objective_id_is_not_reminted(

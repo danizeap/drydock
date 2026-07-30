@@ -1084,7 +1084,7 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
         command=command,
         environment_sha256=DIGEST_B,
     )["accepted"] is False
-    store.record(
+    final_record = store.record(
         executable_fingerprint=DIGEST_A,
         result=result,
         scope="full_required_suite",
@@ -1094,6 +1094,23 @@ def test_proof_store_requires_clean_candidate_and_full_exact_binding(
         command=command,
         environment_sha256=DIGEST_B,
     )["accepted"] is True
+    assert store.accepted_record(
+        str(final_record["record_key"]),
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is True
+    assert store.accepted_record(
+        DIGEST_C,
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
+    intermediate_record = store.record(
+        executable_fingerprint=DIGEST_A,
+        result=result,
+        scope="intermediate",
+    )
+    assert store.accepted_record(
+        str(intermediate_record["record_key"]),
+        executable_fingerprint=DIGEST_A,
+    )["accepted"] is False
     store.record(
         executable_fingerprint=DIGEST_A,
         result=result,
@@ -1282,6 +1299,25 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
         unmapped_gate,
         expected_target=target,
     )["accepted"] is True
+
+    invented_source = json.loads(json.dumps(report))
+    invented_source["findings"][0]["source"] = "invented_scanner"
+    invented_source["counts_by_scanner"] = {"invented_scanner": 1}
+    invented_source["scanner_counts"]["semgrep"] = 0
+    with pytest.raises(evidence.EvidenceError, match="source"):
+        evidence.launchguardian_report_acceptance(
+            invented_source,
+            expected_target=target,
+        )
+
+    invented_status = json.loads(json.dumps(report))
+    invented_status["findings"][0]["status"] = "invented_status"
+    invented_status["counts_by_status"] = {"invented_status": 1}
+    with pytest.raises(evidence.EvidenceError, match="status"):
+        evidence.launchguardian_report_acceptance(
+            invented_status,
+            expected_target=target,
+        )
 
 
 def test_security_review_store_rejects_stale_replayed_and_tampered_evidence(

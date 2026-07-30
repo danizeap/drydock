@@ -648,4 +648,27 @@ bytes and `$1.087367`, returned `context_status: sufficient`,
 `claude-architecture-review-round-2.json`. This closes peer cross-review only;
 a fresh full-suite proof and separate verifier remain required.
 
+A fresh proof on evidence-complete commit
+`a2d48d99e5e1820f164103a939fc8d5f0400b7cc` then passed at executable
+fingerprint `84b4df9b564c4418e0d42b75816f4af33d0b3be8c7d2f6e3485843a7cc714ea1`,
+exit 0, no timeout, in 246.94 seconds. The separate Codex verifier preserved
+the exact HEAD, working-tree digest, and candidate fingerprint, but correctly
+returned `BLOCKED` on two newly located bypasses:
+
+- official `proof-run` accepted `scope=intermediate`, while controller
+  `workflow-finish` did not reload a keyed full-suite proof before advancing;
+- strict report parsing allowed invented finding `source` and `status` values
+  when an attacker recomputed the surrounding aggregates.
+
+That proof and verdict belong to a failed candidate and are not reused. The
+local remediation now refuses official intermediate proof before process
+spawn, returns a keyed proof record, and requires the controller to reload an
+exact-fingerprint, zero-exit, non-timeout `full_required_suite` record before
+leaving proof. Finding source/status values are restricted to LaunchGuardian's
+documented 0.2.0 producer domains. Regressions cover official intermediate
+pre-spawn refusal, intermediate-key rejection at workflow finish, and invented
+source/status values. The corrected focused run reports 219 passed and 1
+skipped in 148.90 seconds. A new frozen proof and separate verifier are still
+required; absence of a later verdict is not PASS.
+
 No publication, release, archive, or push is authorized by this evidence.

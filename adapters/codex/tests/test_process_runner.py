@@ -228,11 +228,31 @@ def _pass_workflow_phase(
         input_digest=digest,
         candidate_digest=candidate,
     )
+    evidence_digest = digest
+    if phase == "proof":
+        proof = evidence.ProofStore(store.root).record(
+            executable_fingerprint=candidate,
+            result={
+                "command": [sys.executable, "-m", "pytest", "-q"],
+                "environment_sha256": hashlib.sha256(
+                    b"test environment"
+                ).hexdigest(),
+                "terminal_status": "passed",
+                "exit_code": 0,
+                "timed_out": False,
+                "elapsed_seconds": 1.0,
+                "output_sha256": hashlib.sha256(
+                    b"test output"
+                ).hexdigest(),
+            },
+            scope="full_required_suite",
+        )
+        evidence_digest = str(proof["record_key"])
     store.finish(
         phase,
         admission_id=str(admission["admission_id"]),
         outcome="passed",
-        evidence_digest=digest,
+        evidence_digest=evidence_digest,
         provider_usd=0.0,
         candidate_digest=candidate,
     )

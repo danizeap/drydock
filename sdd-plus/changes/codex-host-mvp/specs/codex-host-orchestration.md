@@ -443,6 +443,14 @@ against a fresh materialization of the exact clean candidate commit. The caller
 SHALL NOT choose the executable, target root, output directory, framework mode,
 strictness, or required scanner set.
 
+An official workflow proof admission SHALL accept only
+`scope=full_required_suite`; an intermediate proof SHALL be refused before test
+process spawn. Before advancing from `proof` to `security_review`, the
+controller SHALL reload the keyed proof record from external state and require
+an exact-fingerprint, zero-exit, non-timeout, structurally accepted
+`full_required_suite` result. A caller-supplied passed outcome or intermediate
+record key SHALL NOT satisfy that transition.
+
 The runner SHALL bind the candidate commit and v2 executable fingerprint,
 observed LaunchGuardian launcher digest and reported version, exact command
 contract, bounded report bytes and digest, LGF validation state, launch status,
@@ -480,9 +488,12 @@ zero open blocking findings, and every expected scanner (`gitleaks`, `semgrep`,
 `trivy`, `frontend_exposure`, and `api_surface`) reporting `ran` SHALL pass.
 The runner SHALL recompute severity, scanner, status, gate, blocking, and
 per-scanner counts from the actual finding rows and reject reassigned,
-invented, or otherwise contradictory aggregates. Process timeout cleanup and
-the final stdout/stderr drain SHALL remain bounded even when descendant pipe
-handles remain open.
+invented, or otherwise contradictory aggregates. Finding sources SHALL be
+limited to the five expected scanners plus LaunchGuardian's `config`,
+`config_discovery`, and `launch_policy` producers; finding status SHALL be one
+of `open`, `fixed`, `accepted`, `false_positive`, `not_applicable`, or
+`needs_review`. Process timeout cleanup and the final stdout/stderr drain SHALL
+remain bounded even when descendant pipe handles remain open.
 Missing LaunchGuardian, timeout, non-zero exit, malformed or oversized report,
 wrong candidate, invalid LGF, skipped or incomplete validation, a missing,
 disabled, unavailable, or failed scanner, another launch status, or any open
