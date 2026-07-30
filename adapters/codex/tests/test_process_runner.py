@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -480,6 +481,156 @@ def test_verify_cli_returns_structured_error_for_invalid_packet_root(
     assert result["stage"] == "blocked"
     assert "canonical repository-relative path" in result["error"]
     assert not log.exists()
+
+
+def test_mutate_cli_reads_exact_utf8_task_from_stdin_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_mutate(repo: Path, task: str, model: str, **kwargs: object) -> dict[str, object]:
+        observed.update(repo=repo, task=task, model=model)
+        return {"ok": True}
+
+    monkeypatch.setattr(process_runner, "mutate", fake_mutate)
+    task = "Implement Codex \u2192 verifier."
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(task.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        process_runner.main(
+            ["mutate", "--repo", str(tmp_path), "--model", "gpt-test"]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert observed["task"] == task
+
+
+def test_mutate_cli_rejects_oversized_stdin_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def must_not_mutate(*args: object, **kwargs: object) -> dict[str, object]:
+        pytest.fail("oversized stdin reached mutation dispatch")
+
+    monkeypatch.setattr(process_runner, "mutate", must_not_mutate)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(b"x" * (process_runner.MAX_TASK_BYTES + 1)),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        process_runner.main(
+            ["mutate", "--repo", str(tmp_path), "--model", "gpt-test"]
+        )
+        == 1
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["stage"] == "blocked"
+    assert result["error"] == "mutation task exceeds its input byte bound"
+
+
+def test_verify_cli_reads_exact_utf8_prompt_from_stdin_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_verify(
+        repo: Path, prompt: str, model: str, **kwargs: object
+    ) -> dict[str, object]:
+        observed.update(prompt=prompt, model=model)
+        return {"ok": True}
+
+    monkeypatch.setattr(process_runner, "_read_proof_record", lambda path: {})
+    monkeypatch.setattr(process_runner, "verify", fake_verify)
+    prompt = "Verify Codex \u2192 verifier."
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(prompt.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        process_runner.main(
+            [
+                "verify",
+                "--repo",
+                str(tmp_path),
+                "--model",
+                "gpt-test",
+                "--packet-root",
+                TEST_PACKET_ROOT,
+                "--proof-record",
+                str(tmp_path / "proof.json"),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert observed["prompt"] == prompt
+
+
+def test_integrate_cli_reads_exact_utf8_request_from_stdin_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_integrate(
+        repo: Path, request: str, **kwargs: object
+    ) -> dict[str, object]:
+        observed["request"] = request
+        return {"ok": True}
+
+    monkeypatch.setattr(process_runner, "integrate", fake_integrate)
+    request = '{"note":"Codex \u2192 verifier"}'
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(request.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        process_runner.main(
+            [
+                "integrate",
+                "--repo",
+                str(tmp_path),
+                "--workflow-objective-id",
+                "01" * 16,
+                "--workflow-admission-id",
+                "02" * 16,
+                "--workflow-input-digest",
+                "a" * 64,
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert observed["request"] == request
 
 
 def test_process_identity_is_exact_for_current_process() -> None:

@@ -14,6 +14,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -213,6 +214,28 @@ SECURITY_PROCEDURAL_STAGES = frozenset(
 
 class EvidenceError(RuntimeError):
     """A fail-closed local orchestration evidence error."""
+
+
+def read_utf8_stdin(*, maximum: int, label: str) -> str:
+    """Read one bounded stdin byte stream and decode it explicitly as UTF-8."""
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum <= 0:
+        raise EvidenceError(f"{label} byte bound is invalid")
+    try:
+        stream = sys.stdin.buffer
+    except AttributeError as exc:
+        raise EvidenceError(f"{label} stdin byte stream is unavailable") from exc
+    try:
+        body = stream.read(maximum + 1)
+    except (OSError, ValueError) as exc:
+        raise EvidenceError(f"{label} stdin is unreadable: {exc}") from exc
+    if not isinstance(body, bytes):
+        raise EvidenceError(f"{label} stdin did not return bytes")
+    if len(body) > maximum:
+        raise EvidenceError(f"{label} exceeds its input byte bound")
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise EvidenceError(f"{label} is not valid UTF-8") from exc
 
 
 def _canonical_json(value: object) -> bytes:

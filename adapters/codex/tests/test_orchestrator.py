@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sys
 import time
@@ -76,6 +77,98 @@ def test_empty_and_secret_plans_refuse_before_peer_spawn(
     with pytest.raises(orchestrator.OrchestratorError, match="secret policy"):
         controller.one_round("api_key=abcdefghijklmnop", 1)
     assert not log.exists()
+
+
+def test_digest_owner_action_reads_exact_utf8_bytes_from_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    text = "Owner approves Codex \u2192 verifier."
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(text.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert orchestrator.main(["digest-owner-action"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["sha256"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_digest_owner_action_rejects_invalid_utf8_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(io.BytesIO(b"\x81"), encoding="cp1252"),
+    )
+
+    assert orchestrator.main(["digest-owner-action"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["stage"] == "input_error"
+    assert result["error"] == "Owner action text is not valid UTF-8"
+
+
+def test_critique_reads_exact_utf8_plan_from_stdin_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    root = evidence.state_root(tmp_path / "state", repository_root=repo)
+    ledger = evidence.RunLedger.start(
+        root,
+        objective_digest="a" * 64,
+        owner_action_digest="b" * 64,
+    )
+    observed: dict[str, object] = {}
+
+    class FakeController:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def one_round(self, plan: str, round_number: int) -> dict[str, object]:
+            observed["plan"] = plan
+            observed["round"] = round_number
+            return {"ok": True}
+
+    monkeypatch.setattr(orchestrator, "ClaudePeer", lambda **kwargs: object())
+    monkeypatch.setattr(orchestrator, "NegotiationController", FakeController)
+    plan = "Review Codex \u2192 verifier."
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(plan.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        orchestrator.main(
+            [
+                "critique",
+                "--round",
+                "1",
+                "--run-id",
+                ledger.run_id,
+                "--candidate-fingerprint",
+                "c" * 64,
+                "--state-dir",
+                str(tmp_path / "state"),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert observed == {"plan": plan, "round": 1}
 
 
 def test_phase_input_budget_refuses_before_any_peer_process(

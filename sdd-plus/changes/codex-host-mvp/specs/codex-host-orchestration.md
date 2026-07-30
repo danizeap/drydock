@@ -613,3 +613,26 @@ invalidate the verdict.
 - **WHEN** the direct verifier exits but a child process remains
 - **THEN** the runner terminates the complete supported boundary before the
   post-run fingerprint or verdict-file read
+
+### Requirement: Orchestration stdin is bounded exact UTF-8
+Codex orchestration entry points that accept a workflow payload, Owner action,
+peer review plan, mutation task, verification prompt, or integration request
+on stdin SHALL read the raw stdin byte stream once, enforce the input's
+existing byte ceiling before decoding, and decode strictly as UTF-8 independent
+of the host locale. The workflow payload, Owner action, and integration request
+ceilings SHALL be 64 KiB; the peer review plan ceiling SHALL be 512 KiB; and
+the mutation task and verification prompt ceilings SHALL be 256 KiB.
+Malformed UTF-8, an unavailable byte stream, an unreadable stream, or an input
+over its ceiling SHALL fail closed before provider execution or repository
+mutation.
+
+#### Scenario: Windows locale differs from UTF-8
+- **WHEN** raw UTF-8 stdin contains a non-ASCII code point while the host text
+  wrapper uses a legacy Windows encoding
+- **THEN** every orchestration entry point dispatches the exact Unicode text
+  decoded from the original UTF-8 bytes
+
+#### Scenario: Stdin is malformed or oversized
+- **WHEN** stdin is not valid UTF-8 or exceeds the entry point's byte ceiling
+- **THEN** the entry point returns a structured non-green input result without
+  invoking a provider or mutating the repository

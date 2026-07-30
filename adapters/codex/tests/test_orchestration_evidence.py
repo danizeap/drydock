@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -16,6 +17,47 @@ import orchestration_evidence as evidence
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 DIGEST_C = "c" * 64
+
+
+def test_stdin_reader_preserves_raw_utf8_under_non_utf8_text_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = "Codex \u2192 verifier"
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(expected.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
+
+    assert (
+        evidence.read_utf8_stdin(maximum=64, label="test input") == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "maximum", "message"),
+    [
+        (b"\x81", 64, "not valid UTF-8"),
+        (b"x" * 65, 64, "exceeds its input byte bound"),
+    ],
+)
+def test_stdin_reader_fails_closed_on_invalid_or_oversized_bytes(
+    body: bytes,
+    maximum: int,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(io.BytesIO(body), encoding="cp1252"),
+    )
+
+    with pytest.raises(evidence.EvidenceError, match=message):
+        evidence.read_utf8_stdin(maximum=maximum, label="test input")
 
 
 def _launchguardian_report(

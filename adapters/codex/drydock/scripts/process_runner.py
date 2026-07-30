@@ -37,6 +37,7 @@ from orchestration_evidence import (
     SecurityReviewStore,
     final_suite_acceptance,
     fresh_proof_root,
+    read_utf8_stdin,
     repository_fingerprints,
     state_root,
 )
@@ -3331,7 +3332,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "mutate":
-            task = args.task if args.task is not None else sys.stdin.read()
+            task = (
+                args.task
+                if args.task is not None
+                else read_utf8_stdin(
+                    maximum=MAX_TASK_BYTES,
+                    label="mutation task",
+                )
+            )
             result = mutate(
                 args.repo,
                 task,
@@ -3357,7 +3365,14 @@ def main(argv: list[str] | None = None) -> int:
                 workflow_state_dir=args.workflow_state_dir,
             )
         elif args.command == "verify":
-            prompt = args.prompt if args.prompt is not None else sys.stdin.read()
+            prompt = (
+                args.prompt
+                if args.prompt is not None
+                else read_utf8_stdin(
+                    maximum=MAX_TASK_BYTES,
+                    label="verification prompt",
+                )
+            )
             result = verify(
                 args.repo,
                 prompt,
@@ -3375,7 +3390,10 @@ def main(argv: list[str] | None = None) -> int:
             request = (
                 args.request
                 if args.request is not None
-                else sys.stdin.read()
+                else read_utf8_stdin(
+                    maximum=MAX_INTEGRATION_REQUEST_BYTES,
+                    label="integration request",
+                )
             )
             result = integrate(
                 args.repo,

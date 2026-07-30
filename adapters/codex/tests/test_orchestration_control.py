@@ -1875,9 +1875,20 @@ def test_workflow_cli_starts_and_reports_only_bounded_summary(
     authority["issued_at"] = time.time() - 10
     authority["expires_at"] = time.time() + 600
     payload = json.dumps(
-        {"authority": authority, "plan": _plan()}
+        {
+            "authority": authority,
+            "plan": _plan(summary="Update Codex \u2192 verifier."),
+        },
+        ensure_ascii=False,
     )
-    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(payload.encode("utf-8")),
+            encoding="cp1252",
+        ),
+    )
     assert (
         orchestrator.main(
             [
@@ -1896,6 +1907,11 @@ def test_workflow_cli_starts_and_reports_only_bounded_summary(
     assert started["plan_revision"] == 1
     assert "current_plan" not in started
     assert "authority" not in started
+    assert (
+        control.WorkflowStore(state, OBJECTIVE_ID)
+        .read()["current_plan"]["summary"]
+        == "Update Codex \u2192 verifier."
+    )
 
     assert (
         orchestrator.main(

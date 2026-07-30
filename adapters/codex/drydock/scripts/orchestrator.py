@@ -20,6 +20,7 @@ from typing import Protocol, Sequence
 
 from orchestration_control import (
     EXECUTOR_PHASES,
+    MAX_WORKFLOW_PAYLOAD_BYTES,
     WorkflowStore,
     consume_workflow_payload_file,
     parse_workflow_payload,
@@ -39,6 +40,7 @@ from orchestration_evidence import (
     critique_skipped,
     objective_critique_requirement,
     repository_fingerprints,
+    read_utf8_stdin,
     run_proof_command,
     state_root,
 )
@@ -54,6 +56,7 @@ DEFAULT_PEER_EFFORT = "high"
 REVIEW_KINDS = ("implementation", "plan")
 PEER_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 MAX_PLAN_BYTES = 512 * 1024
+MAX_OWNER_ACTION_BYTES = 64 * 1024
 DEFAULT_REVIEW_INPUT_BYTES = 64 * 1024
 MAX_REVIEW_OVERALL_CHARS = 2048
 MAX_REVIEW_ITEMS = 8
@@ -1543,7 +1546,12 @@ def _workflow_payload(
             raise OrchestratorError(
                 "workflow payload SHA-256 requires a payload file"
             )
-        return parse_workflow_payload(sys.stdin.read())
+        return parse_workflow_payload(
+            read_utf8_stdin(
+                maximum=MAX_WORKFLOW_PAYLOAD_BYTES,
+                label="workflow payload",
+            )
+        )
     if payload_sha256 is None:
         raise OrchestratorError(
             "workflow payload file requires an expected SHA-256"
@@ -1766,9 +1774,20 @@ def main(argv: list[str] | None = None) -> int:
             result = peer.status()
             ok = result.get("status") == "auth_ready"
         elif args.command == "digest-owner-action":
-            text = args.text if args.text is not None else sys.stdin.read()
+            text = (
+                args.text
+                if args.text is not None
+                else read_utf8_stdin(
+                    maximum=MAX_OWNER_ACTION_BYTES,
+                    label="Owner action text",
+                )
+            )
             if not text:
                 raise OrchestratorError("Owner action text must not be empty")
+            if len(text.encode("utf-8")) > MAX_OWNER_ACTION_BYTES:
+                raise OrchestratorError(
+                    "Owner action text exceeds its input byte bound"
+                )
             result = {
                 "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 "raw_text_retained": False,
@@ -2005,7 +2024,10 @@ def main(argv: list[str] | None = None) -> int:
                 review_bytes = args.file.read_bytes()
                 plan = review_bytes.decode("utf-8-sig")
             else:
-                plan = sys.stdin.read()
+                plan = read_utf8_stdin(
+                    maximum=MAX_PLAN_BYTES,
+                    label="peer review plan",
+                )
                 review_bytes = plan.encode("utf-8")
             root = state_root(args.state_dir, repository_root=Path.cwd())
             ledger = RunLedger(root, args.run_id)

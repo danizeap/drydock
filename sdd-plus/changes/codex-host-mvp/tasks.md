@@ -125,3 +125,6 @@ codex-host-mvp
 - [x] Hotfix the inline Codex hook verifier to preserve raw UTF-8 stdin bytes,
   retain structured `PreToolUse` integrity denials, regenerate the trusted
   definition, and record focused proof without changing runtime or living specs.
+- [x] Make all six Codex orchestration stdin entry points read one bounded raw
+  byte stream and decode strict UTF-8 before workflow, provider, runner, or
+  integration dispatch; prove Windows-locale, malformed, and oversized cases.

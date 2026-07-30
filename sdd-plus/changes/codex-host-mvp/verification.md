@@ -924,3 +924,37 @@ preserved above as failure evidence; they are not relabelled as passing.
   remain historical evidence and cannot satisfy final archive acceptance for
   this new candidate. Fresh candidate-bound full proof, LaunchGuardian review,
   and separate verification remain required.
+
+## 2026-07-30 systemic orchestration stdin correction
+
+- [x] Trigger and scope — a separate-verifier bootstrap passed valid raw UTF-8
+  containing `U+2192` through a Windows cp1252 text boundary and failed before
+  `process_runner.py` or any provider started. Source mapping found exactly six
+  locale-dependent Codex orchestration stdin reads: workflow payload, Owner
+  action, peer review plan, mutation task, verification prompt, and integration
+  request. No Claude or legacy conductor path is changed by this correction.
+- [x] Mechanism — `read_utf8_stdin` reads `sys.stdin.buffer` once with a
+  `maximum + 1` bound, refuses an unavailable/non-byte/unreadable stream,
+  checks the byte ceiling before strict UTF-8 decoding, and raises a fail-closed
+  `EvidenceError`. The six entry points reuse their 64 KiB, 512 KiB, or 256 KiB
+  contracts; Owner-action digest input now has an explicit 64 KiB ceiling.
+- [x] Targeted proof — eleven raw-boundary cases passed in `0.63s`. They cover
+  valid UTF-8 with `U+2192` under an explicit cp1252 `TextIOWrapper`, invalid
+  UTF-8, oversized bytes, and dispatch through all six orchestration stdin
+  routes.
+- [x] Focused suite — the disclosed first invocation was terminated by its
+  120-second command timeout before pytest emitted a result and is not counted
+  as PASS or failure. The four-file command then returned `233 passed, 1
+  skipped in 158.96s`; after two additional rejection assertions were added,
+  the final candidate run returned `235 passed, 1 skipped in 153.74s`.
+- [x] Deterministic packet checks — `sdd.py verify codex-host-mvp` reports `47
+  complete, 0 pending`; root/scaffold parity reports all 11 pairs identical;
+  scaffold-bundle, generated-hook, and five-location release parity checks
+  pass; and `git diff --check` is clean. The delta and living
+  `codex-host-orchestration` Requirements bodies are byte-identical with 12
+  requirements and SHA-256
+  `b452bbe39189498a14c6deae0c206e3d2958bdaddc3c1e9e440ec58e84b6dcc3`.
+- [ ] Final candidate reset — this correction changes executable and packet
+  evidence identity. Fresh exact-candidate full proof, candidate-bound
+  LaunchGuardian, and separate read-only verification remain required; all
+  earlier final-gate records are historical only.
