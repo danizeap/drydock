@@ -672,3 +672,36 @@ skipped in 148.90 seconds. A new frozen proof and separate verifier are still
 required; absence of a later verdict is not PASS.
 
 No publication, release, archive, or push is authorized by this evidence.
+
+A later full proof on commit
+`56df71aed039296817f6c0b69400897c03292002` and executable fingerprint
+`dfdbebb8cd4f44119ff0e49a54b5377e038afd4b9438c342f888853fc7018c1a`
+passed with exact keyed record
+`ef5bbad9b95253aa75f1a6c3916f232cd5a28131fe11b2a93c8dc9caf14a5b03`,
+exit 0, no timeout, and 240.063 seconds elapsed. The separate Codex verifier
+preserved the exact candidate state but returned `BLOCKED`: the report parser
+recomputed `scanner_counts` and `scanner_blocking_counts` only when a scanner
+reported `ran`. A report that relabelled Semgrep `unavailable` could therefore
+carry inflated scanner totals and be treated as a candidate-preserving
+procedural failure rather than rejected as contradictory evidence. That proof
+and verdict remain attached to the failed candidate and are not reused.
+
+The local remediation now validates per-scanner totals for every availability
+state against LaunchGuardian 0.2.0's actual producer behavior. A `ran` scanner
+binds its finding rows, `unavailable` binds one synthetic
+`scanner_unavailable` row while retaining a zero detected count, failed
+execution binds no scanner row and zero counts, and `disabled` binds the
+scanner's named `config/scanner_disabled` row. Unknown non-running states
+cannot carry scanner rows or non-zero totals. Finding title and category are
+now part of the checked producer shape. Parameterized regressions inflate both
+detected and blocking totals across disabled, unavailable, execution-failed,
+failed, and unknown/skipped states and require fail-closed rejection.
+
+The corrected pre-freeze focused run reports 224 passed and 1 skipped in
+156.57 seconds. Root/scaffold sync remains 11/11; scaffold-bundle,
+hook-runtime/definition, and release-version parity all pass; packet
+verification reports 41 complete and 3 pending; and `git diff --check` exits
+zero. A new clean commit, full proof, and separate verifier verdict are still
+required. The earlier Claude convergence is stale for this changed executable
+fingerprint, and no cross-model gate will be claimed until a fresh peer review
+can run.

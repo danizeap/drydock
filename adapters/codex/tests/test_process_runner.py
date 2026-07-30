@@ -28,9 +28,11 @@ def _launchguardian_report(
     blocked: bool = False,
 ) -> dict[str, object]:
     scanners = {
-        name: scanner_state
+        name: "ran"
         for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
     }
+    if scanner_state != "ran":
+        scanners["semgrep"] = scanner_state
     blocking_counts = {
         name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
     }
@@ -46,8 +48,22 @@ def _launchguardian_report(
     counts_by_scanner: dict[str, int] = {}
     counts_by_status: dict[str, int] = {}
     counts_by_gate: dict[str, int] = {}
+    if scanner_state == "unavailable":
+        findings.append(
+            {
+                "title": "Semgrep scanner unavailable",
+                "category": "scanner_unavailable",
+                "source": "semgrep",
+                "severity": "medium",
+                "status": "open",
+                "related_gate": "Gate 3",
+                "blocks_launch": True,
+            }
+        )
     if blocked:
         finding = {
+            "title": "Semgrep policy finding",
+            "category": "code_security",
             "source": "semgrep",
             "severity": "high",
             "status": "open",
@@ -55,13 +71,29 @@ def _launchguardian_report(
             "blocks_launch": True,
         }
         findings.append(finding)
-        blocking_findings.append(finding)
-        scanner_counts["semgrep"] = 1
-        blocking_counts["semgrep"] = 1
-        counts_by_severity["high"] = 1
-        counts_by_scanner["semgrep"] = 1
-        counts_by_status["open"] = 1
-        counts_by_gate["Gate 3"] = 1
+    blocking_findings = [
+        finding
+        for finding in findings
+        if finding["blocks_launch"] is True and finding["status"] == "open"
+    ]
+    for finding in findings:
+        severity = str(finding["severity"])
+        source = str(finding["source"])
+        status = str(finding["status"])
+        gate = str(finding["related_gate"]) or "Unmapped"
+        counts_by_severity[severity] += 1
+        counts_by_scanner[source] = counts_by_scanner.get(source, 0) + 1
+        counts_by_status[status] = counts_by_status.get(status, 0) + 1
+        counts_by_gate[gate] = counts_by_gate.get(gate, 0) + 1
+    if scanners["semgrep"] == "ran":
+        scanner_counts["semgrep"] = sum(
+            1 for finding in findings if finding["source"] == "semgrep"
+        )
+    blocking_counts["semgrep"] = sum(
+        1
+        for finding in blocking_findings
+        if finding["source"] == "semgrep"
+    )
     return {
         "schema_name": "launchguardian.report",
         "schema_version": "0.2.0",
@@ -85,7 +117,7 @@ def _launchguardian_report(
         "counts_by_gate": counts_by_gate,
         "blocking_findings": blocking_findings,
         "launchguardian_config": {},
-        "blocked": blocked,
+        "blocked": bool(blocking_findings),
         "findings": findings,
     }
 
@@ -830,7 +862,7 @@ def test_communicate_bounds_post_termination_pipe_drain(
             False,
             False,
             False,
-            "procedural_failure",
+            "technical_blocker",
             "security_review_blocked",
         ),
         (

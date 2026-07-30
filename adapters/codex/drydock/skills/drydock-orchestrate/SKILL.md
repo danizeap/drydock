@@ -183,7 +183,11 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    stale, disabled, unavailable, failed, incomplete, or blocking evidence is
    non-green. Report aggregates are recomputed from the actual finding rows;
    reassigned scanner/severity/status/gate counts and invented finding source
-   or status values are malformed evidence.
+   or status values are malformed evidence. Per-scanner totals are checked for
+   every availability state against LaunchGuardian 0.2.0 producer semantics:
+   unavailable contributes one synthetic finding but zero detected results,
+   failed contributes no finding and zero counts, and disabled binds its named
+   `config/scanner_disabled` finding.
    Finish every security outcome using the returned
    `security_review.record_key` as `--evidence-digest`; the controller reloads
    that keyed result and refuses a caller-supplied classification that differs

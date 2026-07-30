@@ -26,9 +26,11 @@ def _launchguardian_report(
     blocked: bool = False,
 ) -> dict[str, object]:
     scanners = {
-        name: scanner_state
+        name: "ran"
         for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
     }
+    if scanner_state != "ran":
+        scanners["semgrep"] = scanner_state
     blocking_counts = {
         name: 0 for name in evidence.EXPECTED_LAUNCHGUARDIAN_SCANNERS
     }
@@ -44,8 +46,34 @@ def _launchguardian_report(
     counts_by_scanner: dict[str, int] = {}
     counts_by_status: dict[str, int] = {}
     counts_by_gate: dict[str, int] = {}
+    if scanner_state == "unavailable":
+        findings.append(
+            {
+                "title": "Semgrep scanner unavailable",
+                "category": "scanner_unavailable",
+                "source": "semgrep",
+                "severity": "medium",
+                "status": "open",
+                "related_gate": "Gate 3",
+                "blocks_launch": True,
+            }
+        )
+    elif scanner_state == "disabled":
+        findings.append(
+            {
+                "title": "Semgrep scanner disabled by config",
+                "category": "scanner_disabled",
+                "source": "config",
+                "severity": "high",
+                "status": "open",
+                "related_gate": "Gate 3",
+                "blocks_launch": True,
+            }
+        )
     if blocked:
         finding = {
+            "title": "Semgrep policy finding",
+            "category": "code_security",
             "source": "semgrep",
             "severity": "high",
             "status": "open",
@@ -53,13 +81,43 @@ def _launchguardian_report(
             "blocks_launch": True,
         }
         findings.append(finding)
-        blocking_findings.append(finding)
-        scanner_counts["semgrep"] = 1
-        blocking_counts["semgrep"] = 1
-        counts_by_severity["high"] = 1
-        counts_by_scanner["semgrep"] = 1
-        counts_by_status["open"] = 1
-        counts_by_gate["Gate 3"] = 1
+    blocking_findings = [
+        finding
+        for finding in findings
+        if finding["blocks_launch"] is True and finding["status"] == "open"
+    ]
+    for finding in findings:
+        severity = str(finding["severity"])
+        source = str(finding["source"])
+        status = str(finding["status"])
+        gate = str(finding["related_gate"]) or "Unmapped"
+        counts_by_severity[severity] += 1
+        counts_by_scanner[source] = counts_by_scanner.get(source, 0) + 1
+        counts_by_status[status] = counts_by_status.get(status, 0) + 1
+        counts_by_gate[gate] = counts_by_gate.get(gate, 0) + 1
+    if scanners["semgrep"] == "ran":
+        scanner_counts["semgrep"] = sum(
+            1 for finding in findings if finding["source"] == "semgrep"
+        )
+        blocking_counts["semgrep"] = sum(
+            1
+            for finding in blocking_findings
+            if finding["source"] == "semgrep"
+        )
+    elif scanners["semgrep"] == "unavailable":
+        blocking_counts["semgrep"] = sum(
+            1
+            for finding in blocking_findings
+            if finding["source"] == "semgrep"
+        )
+    elif scanners["semgrep"] == "disabled":
+        blocking_counts["semgrep"] = sum(
+            1
+            for finding in blocking_findings
+            if finding["source"] == "config"
+            and finding["category"] == "scanner_disabled"
+            and finding["title"] == "Semgrep scanner disabled by config"
+        )
     return {
         "schema_name": "launchguardian.report",
         "schema_version": "0.2.0",
@@ -83,7 +141,7 @@ def _launchguardian_report(
         "counts_by_gate": counts_by_gate,
         "blocking_findings": blocking_findings,
         "launchguardian_config": {},
-        "blocked": blocked,
+        "blocked": bool(blocking_findings),
         "findings": findings,
     }
 
@@ -520,8 +578,6 @@ def test_single_flight_attaches_then_recovers_bounded_terminal(
     assert recovered["action"] == "recover"
     assert recovered["authenticated"] is False
     assert recovered["body"]["ok"] is True
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -1151,7 +1207,7 @@ def test_launchguardian_accepts_only_complete_candidate_bound_reports(
     ("scanner_state", "launch_status", "expected_outcome"),
     [
         ("disabled", "BLOCKED", "technical_blocker"),
-        ("unavailable", "INCOMPLETE", "procedural_failure"),
+        ("unavailable", "INCOMPLETE", "technical_blocker"),
         ("execution_failed", "INCOMPLETE", "procedural_failure"),
         ("failed", "INCOMPLETE", "procedural_failure"),
         ("skipped", "INCOMPLETE", "procedural_failure"),
@@ -1255,6 +1311,8 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
     target.mkdir()
     report = _launchguardian_report(target)
     finding = {
+        "title": "Semgrep medium finding",
+        "category": "code_security",
         "source": "semgrep",
         "severity": "medium",
         "status": "open",
@@ -1316,6 +1374,47 @@ def test_launchguardian_report_recomputes_every_finding_aggregate(
     with pytest.raises(evidence.EvidenceError, match="status"):
         evidence.launchguardian_report_acceptance(
             invented_status,
+            expected_target=target,
+        )
+
+
+
+@pytest.mark.parametrize(
+    ("scanner_state", "launch_status"),
+    [
+        ("disabled", "BLOCKED"),
+        ("unavailable", "INCOMPLETE"),
+        ("execution_failed", "INCOMPLETE"),
+        ("failed", "INCOMPLETE"),
+        ("skipped", "INCOMPLETE"),
+    ],
+)
+def test_launchguardian_rejects_nonran_scanner_count_contradictions(
+    tmp_path: Path,
+    scanner_state: str,
+    launch_status: str,
+) -> None:
+    target = tmp_path / "candidate"
+    target.mkdir()
+    report = _launchguardian_report(
+        target,
+        launch_status=launch_status,
+        scanner_state=scanner_state,
+    )
+
+    detected_count_inflation = json.loads(json.dumps(report))
+    detected_count_inflation["scanner_counts"]["semgrep"] += 1005
+    with pytest.raises(evidence.EvidenceError, match="scanner counts"):
+        evidence.launchguardian_report_acceptance(
+            detected_count_inflation,
+            expected_target=target,
+        )
+
+    blocking_count_inflation = json.loads(json.dumps(report))
+    blocking_count_inflation["scanner_blocking_counts"]["semgrep"] += 1005
+    with pytest.raises(evidence.EvidenceError, match="scanner counts"):
+        evidence.launchguardian_report_acceptance(
+            blocking_count_inflation,
             expected_target=target,
         )
 

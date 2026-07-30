@@ -193,6 +193,8 @@ def _security_evidence_digest(
     counts_by_gate: dict[str, int] = {}
     if blocked:
         finding = {
+            "title": "Semgrep policy finding",
+            "category": "code_security",
             "source": "semgrep",
             "severity": "high",
             "status": "open",

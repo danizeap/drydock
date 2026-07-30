@@ -1711,10 +1711,12 @@ def launchguardian_report_acceptance(
         )
     required_finding_fields = {
         "blocks_launch": bool,
+        "category": str,
         "related_gate": str,
         "severity": str,
         "source": str,
         "status": str,
+        "title": str,
     }
     if any(
         any(
@@ -1728,8 +1730,10 @@ def launchguardian_report_acceptance(
             "LaunchGuardian findings lack fields required to verify aggregates"
         )
     if any(
-        not finding["source"]
+        not finding["category"]
+        or not finding["source"]
         or not finding["status"]
+        or not finding["title"]
         or finding["severity"] not in EXPECTED_LAUNCHGUARDIAN_SEVERITIES
         or finding["source"]
         not in EXPECTED_LAUNCHGUARDIAN_FINDING_SOURCES
@@ -1797,16 +1801,58 @@ def launchguardian_report_acceptance(
         not in {"ran", "disabled", "unavailable", "execution_failed", "failed"}
     )
     for name, state in scanner_states.items():
-        if state != "ran":
-            continue
-        expected_scanner_count = expected_by_scanner.get(name, 0)
+        scanner_findings = [
+            finding for finding in findings if finding["source"] == name
+        ]
         expected_blocking_count = sum(
             1
             for finding in open_blockers
             if finding["source"] == name
         )
+        if state == "ran":
+            producer_shape_valid = all(
+                finding["category"] != "scanner_unavailable"
+                for finding in scanner_findings
+            )
+            expected_scanner_count = len(scanner_findings)
+        elif state == "unavailable":
+            producer_shape_valid = (
+                len(scanner_findings) == 1
+                and scanner_findings[0]["category"] == "scanner_unavailable"
+            )
+            expected_scanner_count = 0
+        elif state in {"execution_failed", "failed"}:
+            producer_shape_valid = not scanner_findings
+            expected_scanner_count = 0
+            expected_blocking_count = 0
+        elif state == "disabled":
+            disabled_title = (
+                f"{name.replace('_', ' ').title()} scanner disabled by config"
+            )
+            disabled_findings = [
+                finding
+                for finding in findings
+                if finding["source"] == "config"
+                and finding["category"] == "scanner_disabled"
+                and finding["title"] == disabled_title
+            ]
+            producer_shape_valid = (
+                not scanner_findings and len(disabled_findings) == 1
+            )
+            expected_scanner_count = 0
+            expected_blocking_count = sum(
+                1
+                for finding in disabled_findings
+                if finding["blocks_launch"] is True
+                and finding["status"] == "open"
+            )
+        else:
+            producer_shape_valid = not scanner_findings
+            expected_scanner_count = 0
+            expected_blocking_count = 0
         if (
-            int(scanner_counts[name]) != expected_scanner_count
+            not producer_shape_valid
+            or int(scanner_counts[name]) != expected_scanner_count
             or int(blocking_counts[name]) != expected_blocking_count
         ):
             raise EvidenceError(
