@@ -97,10 +97,15 @@ codex-host-mvp
 - [ ] Reconcile the integrated dogfood completion claim with durable proof,
   verifier, integration, and remote evidence; a task checkbox alone is not
   completion evidence.
-- [ ] Dogfood one integrated end-to-end Codex-hosted workflow: plan, peer
-  agreement, isolated mutation, cross-review, separate verification, and push.
-  Component-level runner, verifier, readiness, and live-hook probes do not
-  complete this task by themselves.
+- [ ] Dogfood one integrated end-to-end Codex-hosted workflow using the route
+  the Owner selected before workflow start. The default route retains plan peer
+  agreement and cross-review. The explicit Codex-only `single_pilot` route
+  omits both peer phases, spends no Claude quota, and records
+  `peer_convergence: not_established`. Both routes still require isolated
+  mutation, exact-fingerprint full proof, candidate-bound LaunchGuardian,
+  separate read-only verification, deliberate integration, and an authorized
+  non-force push. Component-level runner, verifier, readiness, and live-hook
+  probes do not complete this task by themselves.
 - [x] Add a candidate-bound, fail-closed LaunchGuardian phase between proof and
   independent verification for every mutating Codex workflow.
 - [x] Prove missing, timed-out, malformed, stale, disabled/incomplete-scanner,
@@ -109,7 +114,11 @@ codex-host-mvp
 - [x] Remove tar extraction from fresh proof materialization: validate the Git
   archive against the committed tree, then write only verified blob bytes and
   modes without an in-root archive filename collision.
-- [ ] Cross-review and independently verify the operational-core security slice
-  without publishing, releasing, archiving, or pushing it.
+- [ ] Review and independently verify the operational-core security slice under
+  the Owner-selected route. The default route retains peer cross-review. The
+  explicit Codex-only route omits peer review and must not claim cross-model
+  agreement or epistemic independence. Candidate-bound LaunchGuardian and a
+  separate read-only verifier remain mandatory. Publishing, release, and
+  archiving remain outside this task.
 - [x] Update user/operator documentation and project context.
 - [x] Run full verification, independent review, and LaunchGuardian.
