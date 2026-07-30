@@ -15,4 +15,7 @@ peer-unavailable-governance
 - [x] Update the shipped Codex orchestration skill and operator guide.
 - [x] Run focused, adapter-wide, sync, packet, and diff verification.
 - [x] Record implementing evidence without calling it independent review.
+- [ ] Prove an Owner-selected Codex-only workflow omits both peer phases,
+  spawns no Claude process, and retains mutation, proof, LaunchGuardian,
+  separate verification, and integration.
 - [ ] Obtain independent review before archive or release.

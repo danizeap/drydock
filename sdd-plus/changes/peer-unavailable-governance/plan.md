@@ -70,3 +70,42 @@ cross-model agreement without a valid critique.
 Revert the packet's source, skill, test, and documentation commit. The prior
 adapter behavior returns, with no data migration, credential change, plugin
 installation, or external state to unwind.
+
+## 2026-07-30 Codex-only MVP dogfood
+
+The Owner explicitly removed Claude from the current MVP critical path. This
+is a single-pilot execution of the existing packet, not a replacement peer
+transport design and not a claim of cross-model agreement.
+
+The governed plan uses this ordered phase subsequence:
+
+1. `preflight`
+2. `mutation`
+3. `proof`
+4. `security_review`
+5. `verification`
+6. `integration`
+7. `complete`
+
+The authority omits the `peer` and `cross_review` actions, and the plan omits
+the `plan_peer` and `cross_review` phases. No Claude authentication, status,
+critique, or usage call is part of the workflow.
+
+The isolated mutation is limited to:
+
+- `adapters/codex/tests/test_orchestration_control.py`
+- `adapters/codex/drydock/skills/drydock-orchestrate/SKILL.md`
+- `docs/AI_OPERATOR_GUIDE.md`
+
+The worker first adds a deterministic controller regression proving that an
+Owner-authorized plan without peer actions advances directly from preflight to
+mutation and then through proof, LaunchGuardian, separate verification, and
+integration. It then updates the shipped skill and operator guide to describe
+the same phase omission and to require `peer_convergence: not_established`.
+
+Acceptance requires the exact isolated candidate to pass the required suite,
+candidate-bound LaunchGuardian, and a separate read-only Codex verifier before
+fast-forward integration. The implementing pilot's own diff inspection is
+evidence, not independent review. Push remains a separate normal non-force
+Owner-authorized action after the integrated commit and remote baseline are
+rechecked.

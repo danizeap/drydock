@@ -16,6 +16,22 @@ contract-invalid result, including malformed output, model mismatch, unproven
 model or cost, or a budget violation, SHALL return to the Owner rather than
 authorize automatic continuation.
 
+Before workflow start, the Owner MAY explicitly choose a Codex-only
+`single_pilot` workflow. Its authority and plan SHALL omit the `peer` and
+`cross_review` actions and the `plan_peer` and `cross_review` phases, and the
+pilot SHALL NOT invoke peer authentication, status, or critique commands.
+Every remaining packet, approval, isolated-mutation, proof, LaunchGuardian,
+separate-verification, integration, and push gate still applies. Reports SHALL
+state `peer_convergence: not_established` and SHALL NOT describe the result as
+cross-model agreement or cross-model review.
+
+#### Scenario: Owner selects Codex-only before provider spawn
+- **WHEN** the Owner explicitly removes Claude from the current workflow before
+  its authority and plan are created
+- **THEN** the ordered workflow omits both peer phases, spends no Claude quota,
+  preserves every non-peer gate, and reports single-pilot rather than
+  two-brain convergence
+
 #### Scenario: Claude is out of usage
 - **WHEN** the peer returns an explicit supported rate-limit marker
 - **THEN** the result reports `rate_limited`,
