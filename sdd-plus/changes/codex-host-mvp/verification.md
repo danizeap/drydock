@@ -733,6 +733,27 @@ status. Focused regressions cover both verifier probes. This is remediation
 evidence only: a new frozen proof and separate verdict are required, and the
 cross-model gate remains pending while Claude usage is unavailable.
 
+The 2026-07-30 Codex-only dogfood reached candidate-bound LaunchGuardian after
+one clean isolated candidate and one accepted exact-fingerprint
+`full_required_suite` proof. The first security invocation correctly rejected
+the installed scanner because its package metadata reported 0.2.0 while its
+runtime emitted schema 0.1.0 without `counts_by_status`; it was recorded as a
+procedural failure, never PASS. Clean local LaunchGuardian commit
+`c754062dc1c35dce06cfc6f7946909287f1ce1fc` returned 81 passing tests and was
+reinstalled without network access. The corrected schema-0.2.0 strict scan
+then exposed one open High Semgrep finding:
+`trailofbits.python.tarfile-extractall-traversal.tarfile-extractall-traversal`
+at `fresh_proof_root`. This is a substantive security gate, so no disposition
+or parser waiver was added. The remediation removes tar extraction, keeps the
+archive in memory, and materializes only blob bytes and executable modes
+already proven equal to the committed Git tree. A regression also proves a
+committed `.archive.tar` file is retained and neither `extract()` nor
+`extractall()` is invoked. The focused orchestration-evidence suite returned
+`60 passed in 30.90s`; `git diff --check` and
+`python scripts/sdd.py verify codex-host-mvp` returned zero, with the packet at
+42 complete and 3 pending. Fresh proof, strict LaunchGuardian, separate
+verification, and integration remain required on the remediated commit.
+
 The 2026-07-30 source-contract audit compared this remediation directly with
 LaunchGuardian 0.2.0 commit
 `c754062dc1c35dce06cfc6f7946909287f1ce1fc`. It removed the invented

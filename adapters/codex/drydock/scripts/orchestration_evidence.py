@@ -6,7 +6,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import hashlib
-import inspect
+import io
 import json
 import math
 import os
@@ -1531,9 +1531,7 @@ def fresh_proof_root(repo: Path, commit: str) -> Iterator[Path]:
     archive = _git(repo, ["archive", "--format=tar", commit])
     with tempfile.TemporaryDirectory(prefix="drydock-proof-") as temporary:
         root = Path(temporary).resolve(strict=True)
-        archive_path = root / ".archive.tar"
-        archive_path.write_bytes(archive)
-        with tarfile.open(archive_path, mode="r:") as bundle:
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
             observed: set[str] = set()
             for member in bundle.getmembers():
                 candidate = PurePosixPath(member.name)
@@ -1569,11 +1567,33 @@ def fresh_proof_root(repo: Path, commit: str) -> Iterator[Path]:
                 raise EvidenceError(
                     "proof archive path set differs from the committed Git tree"
                 )
-            if "filter" in inspect.signature(bundle.extractall).parameters:
-                bundle.extractall(root, filter="fully_trusted")
-            else:
-                bundle.extractall(root)
-        archive_path.unlink()
+        for entry in tree:
+            relative = PurePosixPath(entry.path)
+            if (
+                relative.is_absolute()
+                or not relative.parts
+                or any(part in {"", ".", ".."} for part in relative.parts)
+                or "\\" in entry.path
+                or (
+                    os.name == "nt"
+                    and any(":" in part for part in relative.parts)
+                )
+            ):
+                raise EvidenceError(
+                    "committed proof path cannot be safely materialized"
+                )
+            destination = root.joinpath(*relative.parts)
+            resolved = destination.resolve(strict=False)
+            if root not in resolved.parents:
+                raise EvidenceError(
+                    "committed proof path escapes the materialization root"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(entry.body)
+            if os.name != "nt":
+                destination.chmod(
+                    0o755 if entry.mode == "100755" else 0o644
+                )
         bytecode = [
             path
             for path in root.rglob("*")

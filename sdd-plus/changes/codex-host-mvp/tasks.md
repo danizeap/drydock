@@ -106,6 +106,9 @@ codex-host-mvp
 - [x] Prove missing, timed-out, malformed, stale, disabled/incomplete-scanner,
   invalid-LGF, and open-blocker security evidence cannot admit verification,
   integration, or push.
+- [x] Remove tar extraction from fresh proof materialization: validate the Git
+  archive against the committed tree, then write only verified blob bytes and
+  modes without an in-root archive filename collision.
 - [ ] Cross-review and independently verify the operational-core security slice
   without publishing, releasing, archiving, or pushing it.
 - [x] Update user/operator documentation and project context.

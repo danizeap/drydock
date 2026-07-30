@@ -459,6 +459,25 @@ an exact-fingerprint, zero-exit, non-timeout, structurally accepted
 `full_required_suite` result. A caller-supplied passed outcome or intermediate
 record key SHALL NOT satisfy that transition.
 
+After the Git archive path set, regular-file bytes, and executable-mode
+semantics have been proven equal to the committed Git tree, the proof root
+SHALL be materialized only from those already-verified Git blob bytes. It SHALL
+NOT delegate path creation to `tarfile.extract()` or
+`tarfile.extractall()`. The in-memory archive SHALL NOT occupy a path inside
+the proof root, so a committed file named `.archive.tar` remains ordinary
+candidate content rather than colliding with runner state.
+
+#### Scenario: Archive equality is proven before materialization
+- **WHEN** the archive and committed tree have identical safe regular-file
+  paths, blob bytes, and executable modes
+- **THEN** the runner writes only the verified Git blob bytes beneath the
+  fresh root and never invokes a tar extraction primitive
+
+#### Scenario: Candidate tracks the runner's former archive filename
+- **WHEN** the exact candidate contains a regular file named `.archive.tar`
+- **THEN** that committed blob is materialized and retained like every other
+  candidate file; no runner-owned archive path overwrites or deletes it
+
 The runner SHALL bind the candidate commit and v2 executable fingerprint,
 observed LaunchGuardian launcher digest and reported version, exact command
 contract, bounded report bytes and digest, LGF validation state, launch status,

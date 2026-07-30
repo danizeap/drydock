@@ -1062,37 +1062,30 @@ def test_fresh_proof_root_and_final_suite_binding(tmp_path: Path) -> None:
     )["accepted"] is False
 
 
-def test_fresh_proof_root_selects_explicit_extraction_filter(
+def test_fresh_proof_root_materializes_verified_blobs_without_tar_extraction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo = _repo(tmp_path)
+    archive_named_file = repo / ".archive.tar"
+    archive_named_file.write_bytes(b"committed archive-named file\n")
+    _git(repo, "add", ".archive.tar")
+    _git(repo, "commit", "-m", "add archive-named file")
     commit = _git(repo, "rev-parse", "HEAD")
-    observed: list[object] = []
-    original = evidence.tarfile.TarFile.extractall
 
-    def recording_extractall(
-        bundle: object,
-        path: object = ".",
-        members: object = None,
-        *,
-        numeric_owner: bool = False,
-        filter: object = None,
-    ) -> None:
-        observed.append(filter)
-        original(
-            bundle,
-            path,
-            members,
-            numeric_owner=numeric_owner,
-            filter=filter,
-        )
+    def refuse_tar_extraction(*args: object, **kwargs: object) -> None:
+        raise AssertionError("verified proof blobs must not use tar extraction")
 
     monkeypatch.setattr(
-        evidence.tarfile.TarFile, "extractall", recording_extractall
+        evidence.tarfile.TarFile, "extractall", refuse_tar_extraction
+    )
+    monkeypatch.setattr(
+        evidence.tarfile.TarFile, "extract", refuse_tar_extraction
     )
     with evidence.fresh_proof_root(repo, commit) as root:
         assert (root / "app.py").is_file()
-    assert observed == ["fully_trusted"]
+        assert (root / ".archive.tar").read_bytes() == (
+            b"committed archive-named file\n"
+        )
 
 
 def test_reusable_proof_is_intermediate_and_exactly_bound() -> None:
