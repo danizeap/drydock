@@ -11,10 +11,21 @@ Commands:
 
 import argparse
 import datetime
+import json
+import os
 import re
 import shutil
+import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+SCAN_WORKFLOW = "launchguardian"
+SCAN_TIMEOUT_S = 10
+GITHUB_REMOTE = re.compile(
+    r"(?:git@github\.com:|https://github\.com/)(?P<slug>[^/]+/[^/\s]+?)(?:\.git)?$"
+)
 
 REQUIRED_FILES = ["brief.md", "plan.md", "tasks.md", "decision-log.md", "verification.md"]
 SDD_DIRS = ["sdd-plus", "sdd-plus/standards", "sdd-plus/specs",
@@ -254,6 +265,106 @@ def packet_unfilled(change_dir: Path) -> list[str]:
         ):
             unfilled.append(fname)
     return unfilled
+
+
+def _git_out(root: Path, arguments: list[str]) -> str | None:
+    """Run a read-only git command, or None if it cannot be run."""
+    executable = shutil.which("git")
+    if not executable:
+        return None
+    try:
+        result = subprocess.run([executable, *arguments], cwd=str(root),
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def github_slug(root: Path) -> str | None:
+    """Return owner/repo for the origin remote, or None."""
+    raw = _git_out(root, ["remote", "get-url", "origin"])
+    if not raw:
+        return None
+    match = GITHUB_REMOTE.search(raw.strip())
+    return match.group("slug") if match else None
+
+
+def scan_gate(root: Path) -> tuple[str, str]:
+    """Ask GitHub whether the shipping-security scan passed for the exact HEAD.
+
+    Deliberately NOT part of archive_readiness: that function is pure, offline
+    and runs once per packet on every status call. This one does network I/O
+    and is consulted only at archive time.
+
+    Returns (state, detail) where state is one of:
+      not_configured this project ships no scan workflow, so there is nothing
+                     to verify; disclosed, never reported as a pass
+      passed         the scan ran on this exact commit and succeeded
+      failed         the scan ran on this exact commit and did not succeed
+      unverifiable   anything else -- treated as BLOCKING, never as passed
+
+    The gate activates on the presence of the scan workflow rather than
+    unconditionally, so a project that never opted into scanning is not blocked
+    from archiving. Removing that workflow to dodge the gate is itself an edit
+    to a CI config, which packet-guard governs separately.
+    """
+    workflow = root / ".github" / "workflows" / f"{SCAN_WORKFLOW}.yml"
+    if not workflow.is_file():
+        return "not_configured", (
+            f"no .github/workflows/{SCAN_WORKFLOW}.yml in this project")
+    if os.environ.get("DRYDOCK_SKIP_SCAN_GATE"):
+        return "unverifiable", "scan gate explicitly skipped by environment"
+    commit = _git_out(root, ["rev-parse", "HEAD"])
+    if not commit:
+        return "unverifiable", "HEAD commit could not be determined"
+    dirty = _git_out(root, ["status", "--porcelain=v1", "--untracked-files=all"])
+    if dirty is None:
+        return "unverifiable", "worktree cleanliness could not be established"
+    if dirty:
+        return "unverifiable", (
+            "worktree has uncommitted changes, so no scan can describe it")
+    slug = github_slug(root)
+    if not slug:
+        return "unverifiable", "no GitHub origin remote to verify the scan against"
+    url = (f"https://api.github.com/repos/{slug}/actions/runs"
+           f"?head_sha={commit}&per_page=20")
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "drydock-scan-gate",
+                          "Accept": "application/vnd.github+json"})
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token:
+            request.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(request, timeout=SCAN_TIMEOUT_S) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        detail = ("private repository needs GITHUB_TOKEN"
+                  if exc.code in (401, 403, 404) else f"HTTP {exc.code}")
+        return "unverifiable", f"scan status could not be read: {detail}"
+    except Exception as exc:  # noqa: BLE001 -- offline must block, not crash
+        return "unverifiable", f"scan status could not be read: {type(exc).__name__}"
+    runs = [r for r in payload.get("workflow_runs", [])
+            if r.get("name") == SCAN_WORKFLOW]
+    if not runs:
+        return "unverifiable", f"no {SCAN_WORKFLOW} run exists for {commit[:8]}"
+    incomplete = [r for r in runs if r.get("status") != "completed"]
+    if incomplete:
+        return "unverifiable", f"{SCAN_WORKFLOW} run for {commit[:8]} is still running"
+    if any(r.get("conclusion") != "success" for r in runs):
+        return "failed", f"{SCAN_WORKFLOW} did not pass on {commit[:8]}"
+    return "passed", f"{SCAN_WORKFLOW} passed on {commit[:8]}"
+
+
+def scan_gate_blockers(root: Path) -> list[tuple[str, str]]:
+    """Blocking form of scan_gate.
+
+    A project with no scan workflow produces no blocker, but the caller is
+    expected to disclose that rather than let silence read as a clean scan.
+    """
+    state, detail = scan_gate(root)
+    if state in ("passed", "not_configured"):
+        return []
+    return [("unscanned", f"shipping-security scan not confirmed: {detail}")]
 
 
 def archive_readiness(change_dir: Path, caps_dir: Path) -> list[tuple[str, str]]:
@@ -548,7 +659,11 @@ def cmd_archive(name: str, force: bool, reason: str = "") -> None:
 
     # One shared readiness check — the same list the ready-prompt reads, so the
     # prompt can never disagree with what archive enforces.
-    blockers = archive_readiness(change_dir, caps_dir)
+    scan_state, scan_detail = scan_gate(root)
+    if scan_state == "not_configured":
+        print(f"NOTE: no shipping-security scan is configured — {scan_detail}. "
+              "This archive is not backed by a scan.")
+    blockers = archive_readiness(change_dir, caps_dir) + scan_gate_blockers(root)
     waived = [msg for _, msg in blockers]
     if blockers and not force:
         lines = "\n".join(f"  - {msg}" for _, msg in blockers)
