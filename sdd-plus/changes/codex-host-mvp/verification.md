@@ -767,3 +767,70 @@ suite returned 60 passed; the complete four-file focused orchestration suite
 returned 223 passed and 1 skipped in 149.38 seconds. `git diff --check`
 returned exit 0. No provider, verifier, full adapter/legacy/parity suite,
 commit, or push was used to obtain this evidence.
+
+## 2026-07-30 completed Codex-only integrated closeout
+
+- Owner-selected route: explicit Codex-only `single_pilot`. The stored plan
+  omitted `plan_peer` and `cross_review`; no Claude call or Claude quota was
+  used. Peer convergence remains `not_established`, and same-model process
+  separation is not epistemic independence.
+- Workflow objective:
+  `ca7c9da1f89a084cf958a2ac2ab3579b`.
+- Task ID:
+  `019f9558-d3e4-77a1-b7b1-9cb7fd75233e`.
+- Ordered phases:
+  `preflight -> mutation -> proof -> security_review -> verification ->
+  integration -> complete`.
+- The first proof wrapper was recorded as a procedural failure under record
+  `93adf7991f106030d86ac5256d23cc395b36cfb13b3c44d58d6a314fcb6c8852`.
+  PowerShell mangled the inline Python command before any suite subprocess
+  started. The failed proof was not reused. The workflow invalidated the first
+  candidate and required the fresh Owner action `Resume` before continuing.
+- Replacement isolated candidate:
+  `3e5b8e1dcb2a2367e8d4a4424088e4ffc2ddec4a`, based on
+  `52ee215da3fb1269628f3280dc14a61736f240d3`.
+- The candidate changed only
+  `sdd-plus/changes/codex-host-mvp/tasks.md`; its exact Git blob was
+  `df5a4324ccb798aea82ecfba4eef384600e6a8c0`.
+- Exact executable-surface fingerprint:
+  `698ce260c71c0a6570c01e35f04f4328d589d9395c75a4ac6ccd26f982c4ea35`.
+- Candidate packet-evidence fingerprint:
+  `8cf40d7d4ae7e2cf62bc93a25970f88ada7a3e172938ea64ab04c2c65a2556f0`.
+- Full required suite record:
+  `1c4ec2346ebe99d27282b40e93213d0a1ce3933a16a2827cb3447c19b8f4b7d8`.
+  The exact eight-command run covered the legacy suite, complete Codex adapter
+  suite, root/scaffold sync, scaffold bundle, hook bundle, release parity,
+  `codex-host-mvp` packet verification, and
+  `peer-unavailable-governance` packet verification. It exited zero, did not
+  time out, took `235.329` seconds, and produced output SHA-256
+  `4104af468a98eac9d9906b9193e676221721786f94c25ec30c71320f64065c24`.
+  The record is user-writable, unauthenticated, and does not attest execution
+  provenance.
+- Candidate-bound LaunchGuardian record:
+  `717683b859663cdb85f0f96c9a02aa30071c9050ef3d2a9d912b7007827e3874`.
+  LaunchGuardian `0.2.0` ran all five expected scanners in strict framework
+  mode and returned `APPROVED` with zero blocking findings in `3.672` seconds.
+  Its report SHA-256 was
+  `cee7707b33514a655faf56314fe817e616baf34e7d376db2ac852146b0739a56`.
+- The one separate read-only verifier used `gpt-5.6-sol` under admission
+  `1f7b849b49dacf1150eb88f9f88b46756b324d8fdeef0f1ed9052fbf27752c6d`.
+  It returned `PASS`, runner `ok: true`, stage `complete`, exit `0`, no
+  timeout, no parse error, tree unchanged, candidate unchanged, and exact
+  state binding to the candidate. Its structured-result SHA-256 was
+  `40049f8170d4c79f67cc146e91ae790be5fc33a0e808d0eb4a77549979c503b6`.
+  It consumed 3,585,209 input tokens, including 3,416,320 cached tokens, and
+  produced 22,018 output tokens. One internal read-only Windows JSON probe
+  failed on an invalid escape before the verifier completed the required
+  checks by other means; this was visible in stderr and was not treated as
+  positive evidence.
+- Runner-owned fast-forward integration moved the Owner branch from
+  `52ee215da3fb1269628f3280dc14a61736f240d3` to the exact candidate commit.
+  The canonical integration-summary SHA-256 is
+  `ebc314fba10986e11b150d93af871debfe6eb41eaa5d7fc30a23f627436d0a90`;
+  no push occurred inside the workflow.
+- Workflow terminal state: `complete`; elapsed `1062.935` seconds, one
+  recorded procedural failure, and no open circuit. Trustworthy provider cost
+  was unavailable and is not reported as zero.
+- This evidence closes the three previously pending implementation tasks. It
+  does not authorize publication or release and does not claim cross-model
+  agreement.

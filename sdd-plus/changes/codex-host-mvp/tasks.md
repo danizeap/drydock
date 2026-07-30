@@ -94,10 +94,10 @@ codex-host-mvp
   candidate paths; disclose unsigned plugin-data evidence and in-window replay.
 - [x] Independently review the post-convergence readiness correction and its
   live dogfood evidence.
-- [ ] Reconcile the integrated dogfood completion claim with durable proof,
+- [x] Reconcile the integrated dogfood completion claim with durable proof,
   verifier, integration, and remote evidence; a task checkbox alone is not
   completion evidence.
-- [ ] Dogfood one integrated end-to-end Codex-hosted workflow using the route
+- [x] Dogfood one integrated end-to-end Codex-hosted workflow using the route
   the Owner selected before workflow start. The default route retains plan peer
   agreement and cross-review. The explicit Codex-only `single_pilot` route
   omits both peer phases, spends no Claude quota, and records
@@ -114,7 +114,7 @@ codex-host-mvp
 - [x] Remove tar extraction from fresh proof materialization: validate the Git
   archive against the committed tree, then write only verified blob bytes and
   modes without an in-root archive filename collision.
-- [ ] Review and independently verify the operational-core security slice under
+- [x] Review and independently verify the operational-core security slice under
   the Owner-selected route. The default route retains peer cross-review. The
   explicit Codex-only route omits peer review and must not claim cross-model
   agreement or epistemic independence. Candidate-bound LaunchGuardian and a
