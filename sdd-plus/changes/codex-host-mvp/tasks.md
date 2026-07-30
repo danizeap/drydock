@@ -122,3 +122,6 @@ codex-host-mvp
   archiving remain outside this task.
 - [x] Update user/operator documentation and project context.
 - [x] Run full verification, independent review, and LaunchGuardian.
+- [x] Hotfix the inline Codex hook verifier to preserve raw UTF-8 stdin bytes,
+  retain structured `PreToolUse` integrity denials, regenerate the trusted
+  definition, and record focused proof without changing runtime or living specs.

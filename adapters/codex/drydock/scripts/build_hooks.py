@@ -43,16 +43,16 @@ def _verifier_source(digest: str) -> str:
 EXPECTED={digest!r}
 NAME={RUNTIME_NAME!r}
 def fail():
- raw=getattr(sys,'stdin').read()
- try: event=(json.loads(raw) or {{}}).get('hook_event_name')
+ try: event=(json.loads(original.decode('utf-8')) or {{}}).get('hook_event_name')
  except BaseException: event=None
  if event=='PreToolUse':
   out={{'hookSpecificOutput':{{'hookEventName':'PreToolUse','permissionDecision':'deny','permissionDecisionReason':'Drydock guard unavailable: runtime integrity verification failed.'}}}}
  else:
   out={{'systemMessage':'Drydock guard unavailable: runtime integrity verification failed.'}}
  print(json.dumps(out,separators=(',',':'),sort_keys=True));sys.stdout.flush()
+original=b''
 try:
- original=sys.stdin.read()
+ original=sys.stdin.buffer.read()
  root=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT')
  if not root or not os.path.isabs(root): raise RuntimeError()
  hooks=os.path.realpath(os.path.join(root,'hooks'))
@@ -71,12 +71,10 @@ try:
    if value not in roots: roots.append(value)
  if not roots or any(os.path.commonpath([hooks,value])==hooks for value in roots): raise RuntimeError()
  sys.path[:]=roots
- sys.stdin=io.TextIOWrapper(io.BytesIO(original.encode('utf-8')),encoding='utf-8')
+ sys.stdin=io.TextIOWrapper(io.BytesIO(original),encoding='utf-8')
  scope={{'__name__':'__main__','__file__':'<verified-drydock-runtime>','DRYDOCK_RUNTIME_SHA256':EXPECTED}}
  exec(compile(captured,'<verified-drydock-runtime>','exec'),scope,scope)
 except BaseException:
- try: sys.stdin=io.StringIO(locals().get('original',''))
- except BaseException: pass
  fail()
 """
 

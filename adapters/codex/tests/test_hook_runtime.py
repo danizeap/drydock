@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -56,6 +57,38 @@ def _run(
     )
 
 
+def _run_with_cp1252_stdin(
+    plugin_root: Path,
+    raw_payload: bytes,
+    *,
+    index: int = 0,
+) -> subprocess.CompletedProcess[str]:
+    handler = _handler(plugin_root, "PreToolUse", index)
+    command_key = "commandWindows" if os.name == "nt" else "command"
+    encoded = re.search(r"b64decode\('([^']+)'\)", handler[command_key])
+    assert encoded is not None
+    raw_encoded = base64.b64encode(raw_payload).decode("ascii")
+    bootstrap = (
+        "import base64,io,sys;"
+        "sys.stdin=io.TextIOWrapper("
+        f"io.BytesIO(base64.b64decode({raw_encoded!r})),encoding='cp1252');"
+        "exec(compile("
+        f"base64.b64decode({encoded.group(1)!r}),"
+        "'<drydock-inline-verifier>','exec'))"
+    )
+    environment = dict(os.environ)
+    environment["PLUGIN_ROOT"] = str(plugin_root.resolve())
+    return subprocess.run(
+        [sys.executable, "-I", "-S", "-c", bootstrap],
+        capture_output=True,
+        text=True,
+        cwd=plugin_root,
+        env=environment,
+        timeout=20,
+        check=False,
+    )
+
+
 def _pretool(
     tool_name: str,
     tool_input: dict[str, object],
@@ -85,6 +118,27 @@ def _project(tmp_path: Path) -> Path:
     (root / "sdd-plus" / "changes").mkdir(parents=True)
     (root / "AGENTS.md").write_text("# governed\n", encoding="utf-8")
     return root
+
+
+def _unicode_patch_payload(cwd: Path) -> bytes:
+    payload = _pretool(
+        "apply_patch",
+        {
+            "command": (
+                "*** Begin Patch\n"
+                "*** Add File: unicode.py\n"
+                "+print(\u201cUnicode\u201d)\n"
+                "*** End Patch\n"
+            )
+        },
+        cwd,
+    )
+    raw = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    assert b"\xe2\x80\x9c" in raw
+    assert b"\xe2\x80\x9d" in raw
+    return raw
 
 
 def test_generated_hooks_are_exact_and_narrow() -> None:
@@ -118,6 +172,13 @@ def test_generated_hooks_are_exact_and_narrow() -> None:
     verifier = base64.b64decode(encoded.group(1))
     assert f"EXPECTED={digest!r}".encode("ascii") in verifier
     assert b"'DRYDOCK_RUNTIME_SHA256':EXPECTED" in verifier
+    assert verifier.count(b"sys.stdin.buffer.read()") == 1
+    assert b"original.decode('utf-8')" in verifier
+    assert (
+        b"io.TextIOWrapper(io.BytesIO(original),encoding='utf-8')"
+        in verifier
+    )
+    assert b"sys.stdin.read()" not in verifier
 
 
 def test_safe_shell_and_patch_emit_no_decision(tmp_path: Path) -> None:
@@ -136,6 +197,47 @@ def test_safe_shell_and_patch_emit_no_decision(tmp_path: Path) -> None:
     assert shell.stdout == ""
     assert patch.returncode == 0
     assert patch.stdout == ""
+
+
+def test_unicode_payload_reaches_runtime_through_cp1252_stdin(
+    tmp_path: Path,
+) -> None:
+    result = _run_with_cp1252_stdin(
+        PLUGIN_ROOT,
+        _unicode_patch_payload(tmp_path),
+        index=1,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_unicode_payload_preserves_pretool_deny_when_runtime_tampered(
+    tmp_path: Path,
+) -> None:
+    plugin = tmp_path / "plugin"
+    shutil.copytree(PLUGIN_ROOT, plugin)
+    runtime = plugin / "hooks" / "runtime.py"
+    runtime.write_text("print('TAMPERED_EXECUTED')\n", encoding="utf-8")
+
+    result = _run_with_cp1252_stdin(
+        plugin,
+        _unicode_patch_payload(tmp_path),
+        index=1,
+    )
+    assert result.returncode == 0
+    assert "TAMPERED_EXECUTED" not in result.stdout
+    assert result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                "Drydock guard unavailable: runtime integrity "
+                "verification failed."
+            ),
+        }
+    }
 
 
 @pytest.mark.parametrize(

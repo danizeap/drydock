@@ -842,3 +842,32 @@ commit, or push was used to obtain this evidence.
 This closeout section supersedes the packet's earlier historical `BLOCKED`
 result for the current committed implementation. Those blocked attempts remain
 preserved above as failure evidence; they are not relabelled as passing.
+
+## 2026-07-30 bounded Unicode hook-bootstrap hotfix
+
+- [x] Regression-first proof — the two new raw UTF-8 smart-quote tests, run
+  through an explicit cp1252 `TextIOWrapper`, both failed against the old
+  verifier: the benign payload received a false integrity message and the
+  tampered runtime returned an unidentified `systemMessage`.
+- [x] Exact-byte implementation — the inline verifier reads host stdin once
+  with `sys.stdin.buffer.read()`, passes `original` to the captured verified
+  runtime with `io.TextIOWrapper(io.BytesIO(original), encoding='utf-8')`, and
+  identifies failure events from `original.decode('utf-8')`. It still verifies
+  one captured runtime read and executes those same captured bytes.
+- [x] Focused regression proof —
+  `python -m pytest adapters/codex/tests/test_hook_runtime.py -q -p
+  no:cacheprovider` returned `16 passed in 14.13s`. The genuine runtime emitted
+  no denial for the benign Unicode `apply_patch` payload, while a tampered
+  runtime emitted the exact structured `PreToolUse` integrity denial and never
+  executed the tampered bytes.
+- [x] Deterministic checks — the explicit `build_hooks.py --check` returned
+  `hook runtime and definition match source`; `python scripts/check_sync.py`
+  returned all 11 root/scaffold pairs identical.
+- [x] Scope and preservation — `hook_runtime_source.py`, generated
+  `runtime.py`, and `runtime.manifest.json` have no diff. Both edited Python
+  sources remain ASCII-only. The untracked partial
+  `sdd-plus/specs/capabilities/codex-host.md` remains exactly 5,386 bytes with
+  SHA-256
+  `d882f58a32b172a814f86987bad1c780e6c036eeb177a6f796e2fd96c70acbea`.
+  No Claude call, new packet, spec sync, archive, personal-plugin mutation, or
+  push occurred.
