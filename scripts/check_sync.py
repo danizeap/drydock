@@ -28,6 +28,7 @@ PAIRS = [
     "sdd-plus/templates/verification.md",
     "sdd-plus/templates/spec-delta.md",
     "sdd-plus/templates/approval-request.md",
+    ".github/workflows/launchguardian.yml",
 ]
 
 
