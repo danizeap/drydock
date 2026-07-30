@@ -17,7 +17,7 @@ peer-unavailable-governance
 - [x] Record implementing evidence without calling it independent review.
 - [x] Treat an enabled-but-absent optional `config.worktree` as an empty scope,
   while retaining exact-file type and unsafe-key refusal when it exists.
-- [ ] Prove an Owner-selected Codex-only workflow omits both peer phases,
+- [x] Prove an Owner-selected Codex-only workflow omits both peer phases,
   spawns no Claude process, and retains mutation, proof, LaunchGuardian,
   separate verification, and integration.
-- [ ] Obtain independent review before archive or release.
+- [x] Obtain independent review before archive or release.

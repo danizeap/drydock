@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "codex_final_verifier",
+  "verdict": "PASS",
+  "overall": "PASS. The separate read-only Codex verifier positively matched candidate HEAD 2d048f066ba64fa987a766bfea277a9f0f425712 and working-tree fingerprint 27cf68f08672a1c35001a235ac798d99d529543aa3ea2ed309dcbd02e46b33df. It confirmed the exact three-path diff and blob IDs, the Codex-only phase omission and retained non-peer gates, regression coverage, the proof-root security remediation, and the structurally accepted full-suite record for executable fingerprint 726632f961b5febe7807cc6b472a8e4429bc5af1ef74d9aeae10d7efcaca0eb7. The parent runner returned ok true, stage complete, exit code 0, timed_out false, parse_error null, proof admission accepted, tree_unchanged true, and candidate_unchanged true. This is separate process, context, permission, and state-bound review; it is not cross-model agreement or epistemic independence.",
+  "blockers": [],
+  "gaps": [
+    "The admitted full-suite record is user-writable, unauthenticated, and does not attest execution provenance; it was required but insufficient for PASS."
+  ],
+  "risks": [
+    "The verifier used the same model family and explicitly reported epistemic_independence false.",
+    "The verifier consumed 2867890 input tokens, of which 2724864 were cached, produced 24912 output tokens, and took about 454.5 seconds; verifier efficiency remains an operational weakness."
+  ]
+}
