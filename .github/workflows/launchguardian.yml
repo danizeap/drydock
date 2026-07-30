@@ -33,9 +33,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install scanners
+        # Pinned to the fail-closed branch until launchguardian 0.2.1 is on
+        # PyPI. 0.2.0 reports a scanner that produced no evidence as a scanner
+        # that found nothing, which is the defect this workflow exists to catch.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install semgrep launchguardian
+          python -m pip install semgrep
+          python -m pip install "launchguardian @ git+https://github.com/danizeap/launchguardian-cli@fix/scanner-evidence-fail-closed"
 
       - name: Record the scanned commit
         run: echo "LG_COMMIT=${GITHUB_SHA}" >> "${GITHUB_ENV}"
