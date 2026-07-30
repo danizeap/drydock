@@ -954,7 +954,39 @@ preserved above as failure evidence; they are not relabelled as passing.
   `codex-host-orchestration` Requirements bodies are byte-identical with 12
   requirements and SHA-256
   `b452bbe39189498a14c6deae0c206e3d2958bdaddc3c1e9e440ec58e84b6dcc3`.
-- [ ] Final candidate reset — this correction changes executable and packet
-  evidence identity. Fresh exact-candidate full proof, candidate-bound
-  LaunchGuardian, and separate read-only verification remain required; all
-  earlier final-gate records are historical only.
+- [x] Final exact-candidate proof — frozen commit
+  `c7f63d345a1cd79930bdc4d94096068d13f21f57` has executable fingerprint
+  `7478488909ea69324e277220ecc831c396f2c192df237fbcba8484ad5d8c4665`
+  and packet-evidence fingerprint
+  `13bd115bc881eb7a8573cece188608f9d3e43bb7ba4666bc1e26e548308f5850`.
+  Full-suite record
+  `6c479c65d0f0a3f9af7dfb91363b349a3f063ee3a1778405e1cac660b1cee066`
+  passed with exit `0`, no timeout, and `248.735` seconds elapsed. The first
+  proof transport constructed by PowerShell split the multiline `python -c`
+  argument and produced failed record
+  `293216ca54ce2e13be01da39c8d79aba1c45949e7987c625688c67b9e5b1c479`;
+  it is not test evidence and contributes no PASS.
+- [x] Final candidate-bound security gate — LaunchGuardian record
+  `0f745f2e6e69552c0338f0975f2f310d152c28d3c9051cfd5004ce7e35d6f1f0`
+  returned `APPROVED`, valid LGF, zero open blockers, all five expected
+  scanners `ran`, exit `0`, no timeout, and unchanged Owner checkout in
+  `5.172` seconds. The record remains user-writable, unauthenticated, and
+  provenance-unattested.
+- [x] Final separate verification — the read-only `gpt-5.6-sol` process
+  returned schema-valid `PASS`, runner `ok: true`, stage `complete`, exit `0`,
+  no timeout, no parse error, unchanged tree/candidate, and exact binding to
+  candidate HEAD `c7f63d345a1cd79930bdc4d94096068d13f21f57` plus working-tree
+  fingerprint
+  `0fab5cc0a5013d754abd114c28e722a28a2ed4937cb4f99d9bf46f79b005a6d7`.
+  It reported zero findings and explicitly retained
+  `epistemic_independence: false`. One exploratory PowerShell command failed
+  with a parser error in stderr and was not counted as positive evidence.
+- [x] Non-self-inclusive evidence closeout — commit
+  `c22d7bbc5dc7c28d929049d3ca0417aedb4906e7` changes only the schema-valid
+  `codex-final-verifier.json`. Its executable fingerprint remains exactly
+  `7478488909ea69324e277220ecc831c396f2c192df237fbcba8484ad5d8c4665`.
+  The packet-evidence-parent fingerprint after the final task state and
+  verifier record, excluding this `verification.md` report, is
+  `feb3bcc2d1c0717cace895f799b84c9bdf9a7f51b0ecfe4d134c6a09945ef61a`.
+  This user-writable fingerprint identifies evidence bytes; it does not attest
+  provenance or the verifier's own later completion marker.
