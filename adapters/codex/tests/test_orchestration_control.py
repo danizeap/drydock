@@ -489,6 +489,158 @@ def test_phase_admission_enforces_order_and_exact_token(
     assert completed["candidate_digest"] == candidate
 
 
+def test_owner_selected_codex_only_plan_omits_peer_and_completes(
+    tmp_path: Path,
+) -> None:
+    repo, store = _store(tmp_path)
+    actions = [
+        "integrate",
+        "mutate",
+        "proof",
+        "security_review",
+        "verify",
+    ]
+    phases = [
+        "preflight",
+        "mutation",
+        "proof",
+        "security_review",
+        "verification",
+        "integration",
+        "complete",
+    ]
+    started = store.start(
+        _authority(repo, actions=actions),
+        _plan(actions=actions, phases=phases),
+        expected_task_id=TASK_ID,
+        now=NOW,
+    )
+
+    assert started["current_phase"] == "mutation"
+    stored_plan = started["current_plan"]
+    assert isinstance(stored_plan, dict)
+    assert stored_plan["phases"] == phases
+    assert stored_plan["required_actions"] == actions
+    assert {"plan_peer", "cross_review"}.isdisjoint(
+        stored_plan["phases"]
+    )
+    assert {"peer", "cross_review"}.isdisjoint(
+        stored_plan["required_actions"]
+    )
+
+    mutation_id, mutation_digest = _admit_consume(
+        store,
+        "mutation",
+        body=b"codex-only mutation",
+        now=NOW + 1,
+    )
+    candidate = hashlib.sha256(b"codex-only candidate").hexdigest()
+    mutated = store.finish(
+        "mutation",
+        admission_id=mutation_id,
+        outcome="passed",
+        evidence_digest=mutation_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 2,
+    )
+    assert mutated["current_phase"] == "proof"
+
+    proof_id, proof_digest = _admit_consume(
+        store,
+        "proof",
+        body=b"codex-only proof",
+        now=NOW + 3,
+        candidate=candidate,
+    )
+    proved = store.finish(
+        "proof",
+        admission_id=proof_id,
+        outcome="passed",
+        evidence_digest=proof_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 4,
+    )
+    assert proved["current_phase"] == "security_review"
+
+    security_id, _ = _admit_consume(
+        store,
+        "security_review",
+        body=b"codex-only security review",
+        now=NOW + 5,
+        candidate=candidate,
+    )
+    security_digest = _security_evidence_digest(
+        store,
+        tmp_path,
+        candidate=candidate,
+    )
+    secured = store.finish(
+        "security_review",
+        admission_id=security_id,
+        outcome="passed",
+        evidence_digest=security_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 6,
+    )
+    assert secured["current_phase"] == "verification"
+
+    verification_id, verification_digest = _admit_consume(
+        store,
+        "verification",
+        body=b"separate read-only Codex verification",
+        now=NOW + 7,
+        candidate=candidate,
+    )
+    verified = store.finish(
+        "verification",
+        admission_id=verification_id,
+        outcome="passed",
+        evidence_digest=verification_digest,
+        candidate_digest=candidate,
+        provider_usd=0.0,
+        now=NOW + 8,
+    )
+    assert verified["current_phase"] == "integration"
+
+    integration_id, integration_digest = _admit_consume(
+        store,
+        "integration",
+        body=b"codex-only integration",
+        now=NOW + 9,
+        candidate=candidate,
+    )
+    completed = store.finish(
+        "integration",
+        admission_id=integration_id,
+        outcome="passed",
+        evidence_digest=integration_digest,
+        candidate_digest=candidate,
+        integration_unchanged=True,
+        provider_usd=0.0,
+        now=NOW + 10,
+    )
+
+    assert completed["status"] == "complete"
+    assert completed["current_phase"] == "complete"
+    assert completed["admission"] is None
+    completed_evidence = completed["completed_phases"]
+    assert isinstance(completed_evidence, list)
+    assert [
+        item["phase"] for item in completed_evidence
+    ] == phases[:-1]
+    serialized_evidence = json.dumps(
+        completed_evidence,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    assert "plan_peer" not in serialized_evidence
+    assert "cross_review" not in serialized_evidence
+    assert "peer_convergence" not in serialized_evidence
+
+
 def test_source_plan_drift_refuses_next_executor_admission(
     tmp_path: Path,
 ) -> None:

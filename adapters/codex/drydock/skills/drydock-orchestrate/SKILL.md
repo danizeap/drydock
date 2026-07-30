@@ -1,6 +1,6 @@
 ---
 name: drydock-orchestrate
-description: Pilot a governed Drydock plan through Claude peer critique, right-sized execution, cross-review, and separate verification. Use when the Owner asks Codex to run the full Drydock workflow.
+description: Pilot an Owner-selected governed Drydock plan through optional Claude peer critique, isolated execution, deterministic proof, LaunchGuardian review, separate verification, and integration. Use when the Owner asks Codex to run the full Drydock workflow.
 ---
 
 # Orchestrate a Drydock change from Codex
@@ -18,6 +18,22 @@ The normal Codex route has one Owner-facing task. If a separate Codex task is
 deliberately used, coordinate it through the host's direct task read/send/wait
 mechanisms and retain its task ID in workflow state. Asking the Owner to copy
 output between Codex tasks is a disclosed degraded fallback, not the default.
+
+The Owner may explicitly select a Codex-only workflow. Its phases are exactly
+`preflight`, `mutation`, `proof`, `security_review`, `verification`,
+`integration`, and `complete`; its actions omit both `peer` and `cross_review`.
+Do not run Claude authentication/status or critique for this route. It still
+requires isolated mutation, exact-candidate deterministic proof, candidate-bound
+LaunchGuardian security review, a separate read-only Codex verifier, and
+deliberate integration. Record `peer_convergence: not_established`; neither the
+implementing Codex process nor the separate Codex verifier establishes
+cross-model agreement or epistemic independence.
+
+The Claude adapter remains available when the Owner selects peer phases. In
+that route, retain `plan_peer` and `cross_review` and every existing
+authentication, exact-input, sufficient-context, zero-blocker, convergence, and
+failure gate. A failed selected peer phase may not be reclassified as an
+Owner-selected Codex-only workflow.
 
 1. Orient the repository with the readiness and lifecycle skills. Stop before
    meaningful work when project context is missing or the change lacks the
@@ -56,8 +72,9 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    A resumed turn reuses that run ID. Only another explicit recorded Owner
    action may supersede it. The state is outside the repository, user-writable,
    and identifying rather than authenticated.
-5. Compute the exact candidate with `scripts/orchestrator.py fingerprint`.
-   Draft the smallest complete plan and send it on stdin to
+5. When `plan_peer` is selected, compute the exact candidate with
+   `scripts/orchestrator.py fingerprint`. Draft the smallest complete plan and
+   send it on stdin to
    `scripts/orchestrator.py critique` with the run ID, executable-surface
    fingerprint, `--review-kind plan`, an allowlisted `--effort`,
    objective-property flags, and configured phase input/budget ceilings.
@@ -71,9 +88,10 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
 6. Admit every executor phase through `workflow-admit`, pass that exact
    admission to the official executor wrapper so it is atomically consumed
    before provider spawn or side effect, and complete it through
-   `workflow-finish`. Phase order is preflight → plan peer → mutation →
-   cross-review → proof → LaunchGuardian security review → verification →
-   integration → optional push → complete. Admission binds objective,
+   `workflow-finish`. A peer-selected route is preflight → plan peer → mutation
+   → cross-review → proof → LaunchGuardian security review → verification →
+   integration → optional push → complete. The explicit Codex-only route omits
+   both peer phases and otherwise keeps that order. Admission binds objective,
    workflow/run, phase, authority, plan,
    mechanism, input, prior gates, candidate, random nonce, and expiry. A
    consumed admission is burned even if the executor crashes; after expiry
@@ -82,7 +100,8 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    a primitive does not advance or satisfy workflow state absent direct
    same-user tampering with controller state. This is coordination inside a
    user-writable same-user TCB, not a signature or hostile-user boundary.
-7. Audit the critique and its machine-readable workflow decision. A
+7. For a selected peer phase, audit the critique and its machine-readable
+   workflow decision. A
    `converged: true` result with blockers is not convergence. Revise and run at
    most the configured round cap; unresolved blockers at the cap return to the
    Owner. Only four proven benign availability cases may return
@@ -136,15 +155,16 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    rechecks the exact review snapshot after the worker is quiescent and creates
    one clean isolated candidate commit with a v2 executable fingerprint. The
    worker still cannot stage or commit, and the Owner branch is unchanged.
-13. Treat worker test claims as untrusted. Cross-review the exact isolated
-   candidate commit with `--review-kind implementation`; use an explicitly
-   allowlisted effort such as `medium` when the bounded implementation review
-   does not need high-effort architecture generation. An implementation
-   verdict requests no task decomposition when it has no blocker and only
-   minimal remediation tasks when it does. This reduces requested
-   reasoning/output pressure without changing sufficient-context, exact-input,
-   zero-blocker, or convergence gates. Then
-   run `scripts/process_runner.py verify` against the exact intended tree with
+13. Treat worker test claims as untrusted. When `cross_review` is selected,
+    cross-review the exact isolated candidate commit with `--review-kind
+    implementation`; use an explicitly allowlisted effort such as `medium` when
+    the bounded implementation review does not need high-effort architecture
+    generation. An implementation verdict requests no task decomposition when
+    it has no blocker and only minimal remediation tasks when it does. This
+    reduces requested reasoning/output pressure without changing
+    sufficient-context, exact-input, zero-blocker, or convergence gates. After
+    exact-candidate proof and the LaunchGuardian security gate, run
+    `scripts/process_runner.py verify` against the exact intended tree with
    the active `--packet-root` and the exact `--proof-record` emitted by the
    frozen `full_required_suite` run. Before provider spawn, the parent runner
    recomputes v2 identity and refuses a v1, intermediate, failed, timed-out,
@@ -220,9 +240,10 @@ output between Codex tasks is a disclosed degraded fallback, not the default.
    unavailable until a dedicated
    wrapper consumes the strict admission and proves the clean candidate,
    destination, remote baseline, exact pushed commit, and post-push ref.
-17. Report the plan/peer result, worktree and branch, changed files, evidence,
-   verifier fingerprint, unresolved risks, and `merged: false` until deliberate
-   integration actually occurs.
+17. Report the plan and peer status, worktree and branch, changed files,
+    evidence, verifier fingerprint, unresolved risks, and `merged: false` until
+    deliberate integration actually occurs. For Codex-only workflows the peer
+    status is `peer_convergence: not_established`, not agreement.
 
 Pace routing protects the Owner's useful coding duration, not a maximum spend
 cap. If remaining capacity, reset timing, or measured burn is unavailable,

@@ -172,10 +172,27 @@ reason did not establish an integrity failure: the observed cause was payload
 decoding. Explicit UTF-8 byte decoding and separate decode/parse versus
 integrity failure reasons remain tracked follow-ups.
 
-Readiness may call `claude auth status --json`, which spends no model quota.
-`auth_ready` proves only authentication; `operational_ready` requires a
-successful schema-validated live peer round. Claude is optional: its absence
-removes cross-model agreement, not Codex-hosted lifecycle governance.
+The Owner may explicitly select a Codex-only workflow. Its phases are exactly
+`preflight`, `mutation`, `proof`, `security_review`, `verification`,
+`integration`, and `complete`, and its required actions omit both `peer` and
+`cross_review`. That route does not call Claude authentication/status or
+critique. It still requires mutation in an isolated worktree, exact-candidate
+deterministic proof, candidate-bound LaunchGuardian security review, a separate
+read-only Codex verifier, and deliberate integration. Record
+`peer_convergence: not_established`; two Codex processes do not establish
+cross-model agreement or epistemic independence.
+
+The Claude adapter remains available when the Owner selects `plan_peer` or
+`cross_review`. Selected peer phases retain every authentication,
+exact-input-digest, sufficient-context, zero-blocker, explicit-convergence, and
+failure gate. Do not erase a selected peer phase or relabel its failure as an
+Owner-selected Codex-only workflow.
+
+For a peer-selected workflow, readiness may call `claude auth status --json`,
+which spends no model quota. `auth_ready` proves only authentication;
+`operational_ready` requires a successful schema-validated live peer round.
+Claude is optional: its absence removes cross-model agreement, not Codex-hosted
+lifecycle governance.
 Single-pilot continuation is fail-closed to four proven benign availability
 cases: authentication unavailable before provider spawn, an exact supported
 rate-limit marker, timeout with bounded cleanup, or a bare non-zero exit with
@@ -262,14 +279,15 @@ record, and after expiry `workflow-recover-admission` records unknown cost and
 permits a fresh controller-issued record. It does not require another Owner
 action; a crashed Owner-action transition does.
 
-The recorded order is preflight, plan peer, mutation, cross-review, proof,
-verification, integration, optional push, then complete. Failure and retry
-edges are explicit, and candidate or plan changes invalidate every dependent
-downstream gate. A raw primitive may still be invoked by the Owner or a process
-running as the same user, but absent direct tampering with controller state it
-cannot advance or satisfy the workflow. This is coordination inside a
-user-writable same-user trusted computing base, not a signature or hostile-user
-security boundary.
+The peer-selected recorded order is preflight, plan peer, mutation,
+cross-review, proof, LaunchGuardian security review, verification, integration,
+optional push, then complete. The explicit Codex-only route omits both peer
+phases and no other gate. Failure and retry edges are explicit, and candidate
+or plan changes invalidate every dependent downstream gate. A raw primitive
+may still be invoked by the Owner or a process running as the same user, but
+absent direct tampering with controller state it cannot advance or satisfy the
+workflow. This is coordination inside a user-writable same-user trusted
+computing base, not a signature or hostile-user security boundary.
 
 Workflow push is currently hard-disabled. It remains unavailable until a
 dedicated wrapper consumes the strict admission and proves the clean candidate,
@@ -410,16 +428,17 @@ lifetime shutdown; the separately tested fixed-root sandbox is the filesystem
 boundary.
 Junctions/reparse points, hardlinks or invalid link counts, worker-modified Git
 attributes, and Git-control drift invalidate review. The mutation-only result
-is never final acceptance: applicable changes wait for cross-review, separate
-proof and verification, and deliberate integration. Integration uses its own
-strict request and single-use admission. It proves the Owner branch is still
-clean at the exact base and the isolated branch/worktree is clean at the exact
-verified descendant commit, repeats those checks after admission consumption,
-performs only a hook-disabled fast-forward, and then rechecks the Owner v2
-identity. It never pushes. If a failed update cannot positively prove the
-complete Owner preimage stayed unchanged, the workflow stops terminally rather
-than retrying or rolling back. If an unsafe alias blocks cleanup, remove only the
-exact listed alias without traversing it, then retry bounded cleanup. POSIX
+is never final acceptance: applicable changes wait for any selected
+cross-review, separate proof, LaunchGuardian security review, read-only
+verification, and deliberate integration. Integration uses its own strict
+request and single-use admission. It proves the Owner branch is still clean at
+the exact base and the isolated branch/worktree is clean at the exact verified
+descendant commit, repeats those checks after admission consumption, performs
+only a hook-disabled fast-forward, and then rechecks the Owner v2 identity. It
+never pushes. If a failed update cannot positively prove the complete Owner
+preimage stayed unchanged, the workflow stops terminally rather than retrying
+or rolling back. If an unsafe alias blocks cleanup, remove only the exact
+listed alias without traversing it, then retry bounded cleanup. POSIX
 process-group cleanup is best-effort and cannot clear a hostile-descendant
 gate. A read-only verifier prevents writes but may read outside `-C`; do not
 describe its working root as read confinement or its echoed state binding as
