@@ -45,7 +45,38 @@ jobs:
         run: echo "LG_COMMIT=${GITHUB_SHA}" >> "${GITHUB_ENV}"
 
       - name: Run LaunchGuardian
+        id: scan
         run: launchguardian scan --target . --strict-scanners
+
+      - name: Summarize the verdict
+        # Runs even when the scan blocks: a blocked scan is exactly the result
+        # you most need to read without downloading an artifact.
+        if: always()
+        run: |
+          python - <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json, pathlib
+          report = pathlib.Path("reports/launchguardian/launchguardian-report.json")
+          if not report.is_file():
+              print("## LaunchGuardian\n\nNo report was produced. Treat this as **no scan**, not a clean scan.")
+              raise SystemExit(0)
+          data = json.loads(report.read_text(encoding="utf-8"))
+          print(f"## LaunchGuardian: {data.get('launch_status')}\n")
+          print(f"- scanned commit: `{data.get('scanned_commit')}`")
+          print(f"- worktree clean: `{data.get('worktree_clean')}`\n")
+          print("| scanner | status | findings | blocking |")
+          print("| --- | --- | --- | --- |")
+          availability = data.get("scanner_availability") or {}
+          counts = data.get("scanner_counts") or {}
+          blocking = data.get("scanner_blocking_counts") or {}
+          for name in sorted(availability):
+              print(f"| {name} | {availability[name]} | {counts.get(name, 0)} | {blocking.get(name, 0)} |")
+          items = [f for f in (data.get("blocking_findings") or [])][:20]
+          if items:
+              print(f"\n### Blocking findings ({len(data.get('blocking_findings') or [])})\n")
+              for f in items:
+                  where = f.get("file_path") or f.get("endpoint_or_route") or ""
+                  print(f"- **{f.get('severity')}** {f.get('title')} {('`' + where + '`') if where else ''}")
+          PY
 
       - name: Upload scan evidence
         if: always()
