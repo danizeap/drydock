@@ -834,3 +834,11 @@ commit, or push was used to obtain this evidence.
 - This evidence closes the three previously pending implementation tasks. It
   does not authorize publication or release and does not claim cross-model
   agreement.
+- Non-self-inclusive packet-evidence-parent fingerprint, computed after the
+  final task state and verifier record while excluding this
+  `verification.md` report:
+  `b9b71db9787d83270708cc16a5dd970a9565e8167d0b9949f0ddcddab16c556e`.
+
+This closeout section supersedes the packet's earlier historical `BLOCKED`
+result for the current committed implementation. Those blocked attempts remain
+preserved above as failure evidence; they are not relabelled as passing.
