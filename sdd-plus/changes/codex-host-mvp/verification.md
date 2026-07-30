@@ -872,6 +872,38 @@ preserved above as failure evidence; they are not relabelled as passing.
   No Claude call, new packet, spec sync, archive, personal-plugin mutation, or
   push occurred.
 
+## 2026-07-30 post-sync independent-verifier correction
+
+- Fresh exact-candidate proof on commit
+  `ddf474dae8f2d514841f9ff70d04f30832ba24bc` passed with executable
+  fingerprint
+  `24434805f236f9f19d2a68053fb5796e3cbe298a7ce33368b47f941e0e664709`
+  and full-suite record
+  `71136ee31460b5c0568642c32c1f1eda881745c545ac3f479d7d037a69c35a29`.
+  The run exited zero without timeout in `256.485` seconds. Its local record is
+  user-writable and does not attest execution provenance.
+- Candidate-bound LaunchGuardian record
+  `1414fba70e3bf6277ea1a74db515c350c74c178918b9af0ffb15148e8cd7116c`
+  reported `APPROVED`, valid LGF, zero open blockers, all five expected
+  scanners `ran`, exit zero, no timeout, and unchanged Owner checkout. This
+  local record is also user-writable and does not attest provenance.
+- The first separate read-only verifier preserved the exact candidate and
+  returned a schema-valid `BLOCKED` verdict. It positively audited the
+  byte-preserving inline verifier, generated-hook consistency, proof binding,
+  packet claim calibration, living-spec counts, and two exact living-spec
+  bodies. It found one real repository defect: the `codex-host` living spec
+  contained mojibake `Claudeâ†’Codex` where the delta contains
+  `Claude→Codex`. It also could not read the external security-record path and
+  could not execute pytest because the verifier sandbox has no writable
+  temporary directory. Those two limitations are verifier input/execution
+  boundaries, not positive test or security evidence.
+- The mojibake is corrected to the delta's exact UTF-8 text. This changes the
+  committed candidate, invalidates the proof, security record, and verdict
+  above for final acceptance, and requires one fresh exact-candidate run of
+  all three gates. The next verifier must receive the security-record body as
+  bounded untrusted data and audit the exact proof's test execution rather
+  than attempt pytest inside the read-only sandbox.
+
 ## 2026-07-30 fresh-task Unicode live proof and candidate reset
 
 - [x] Fresh-task readiness bound session

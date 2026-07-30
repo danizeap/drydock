@@ -96,7 +96,7 @@ host-neutral policy API.
 
 #### Scenario: Existing Claude conductor remains compatible
 - **WHEN** the Codex host is added
-- **THEN** the working Claudeâ†’Codex bridge retains its current behavior and is
+- **THEN** the working Claude→Codex bridge retains its current behavior and is
   not reclassified as host-neutral shared core
 
 #### Scenario: Existing hook logic is considered for reuse
